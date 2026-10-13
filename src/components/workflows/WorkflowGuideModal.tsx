@@ -1,0 +1,313 @@
+import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
+import { 
+  CheckCircle2, 
+  ArrowRight, 
+  X, 
+  Wrench, 
+  FileText, 
+  Calendar, 
+  Receipt, 
+  AlertTriangle,
+  Flame,
+  Clock
+} from 'lucide-react';
+
+interface WorkflowGuideModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onNavigateTab: (tab: string) => void;
+  onOpenQuickAction: (action: 'customer' | 'job' | 'request' | 'quote' | 'invoice') => void;
+}
+
+export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
+  isOpen,
+  onClose,
+  onNavigateTab,
+  onOpenQuickAction,
+}) => {
+  const { switchUserRole } = useApp();
+  const [activeWorkflow, setActiveWorkflow] = useState<'A' | 'B' | 'C' | 'D'>('A');
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              HVAC End-to-End Operational Workflows
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Demonstrate complete UK HVAC business cycles required by Section 16
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-200"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Workflow Tabs */}
+        <div className="flex border-b border-slate-200 bg-slate-100/60 p-2 gap-1.5 overflow-x-auto">
+          {[
+            { id: 'A', title: 'Workflow A: Callout to Paid Invoice' },
+            { id: 'B', title: 'Workflow B: Quote to Job to Invoice' },
+            { id: 'C', title: 'Workflow C: Preventive Maintenance' },
+            { id: 'D', title: 'Workflow D: On-Site Finding & Follow-up' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveWorkflow(tab.id as 'A' | 'B' | 'C' | 'D')}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                activeWorkflow === tab.id
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              {tab.title}
+            </button>
+          ))}
+        </div>
+
+        {/* Content Body */}
+        <div className="p-6 overflow-y-auto space-y-6 text-sm">
+          {activeWorkflow === 'A' && (
+            <div className="space-y-4">
+              <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-900">
+                <span className="font-bold">Workflow A Overview:</span> Customer enquiry → Service Request logged → Dispatcher books technician → Technician arrives, finishes checklist & captures customer signature → Service report printed → Invoice generated → BACS Payment recorded.
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">1</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Log Customer Request</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Check unassigned emergency request <strong>SR-1024</strong> (ByteForge server room AC whine) or log a new service enquiry.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateTab('requests');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 rounded border border-sky-200"
+                  >
+                    View Requests
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">2</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Dispatcher Schedules Job</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Convert request to job, assign an F-Gas certified technician (David Ross or Liam Campbell) with automatic conflict checking.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateTab('dispatch');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 rounded border border-sky-200"
+                  >
+                    Open Dispatch
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">3</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Technician Van Portal Execution</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Switch role to Technician. Mark "Arrived" → execute checklist → enter refrigerant/pressure readings → capture sign-off → generate Service Report.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      switchUserRole('technician');
+                      onClose();
+                      onNavigateTab('technician_portal');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200"
+                  >
+                    Tech Van Portal
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">4</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Generate Invoice & Record Payment</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Generate VAT invoice from completed job labour and parts. Record BACS or card payment and balance reconciliation.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateTab('invoices');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200"
+                  >
+                    View Invoices
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeWorkflow === 'B' && (
+            <div className="space-y-4">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900">
+                <span className="font-bold">Workflow B Overview:</span> Customer requests installation estimate → Staff create itemised quotation (Labour, Equipment, VAT) → Customer accepts → 1-click Convert to Job → Work completed → Invoice generated without re-entry.
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">1</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Create or Inspect Quotation</p>
+                    <p className="text-xs text-slate-600 mt-0.5">See quote <strong>QTE-2026-0041</strong> (£4,812.00 for Oliver Davies Daikin Multi-Split) or create a fresh estimate with UK VAT 20%.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateTab('quotations');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200"
+                  >
+                    View Quotes
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">2</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Record Acceptance & Convert to Job</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Click "Record Customer Acceptance" → click "Convert to Job" to automatically transfer lines and create installation job in dispatch calendar.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">3</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Convert to Invoice on Completion</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Produce the final invoice directly with matched pricing, VAT, and company bank sort code/account details.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeWorkflow === 'C' && (
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+                <span className="font-bold">Workflow C Overview:</span> System tracks equipment next service due dates → Flags upcoming/overdue maintenance → Office books appointment → Tech completes safety checklist → Equipment service history is updated.
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">1</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Inspect Maintenance Alerts</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Notice Mrs. Margaret Higgins’ Worcester Bosch boiler is overdue, or Dr. Finch’s Daikin Altherma is due this week.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateTab('equipment');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200"
+                  >
+                    View Equipment Register
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">2</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Book Preventive Maintenance Job</p>
+                    <p className="text-xs text-slate-600 mt-0.5">1-click "Book Service" pre-fills customer, equipment model, and Gas Safe requirements directly onto the dispatch board.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">3</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Log Readings & Renew Warranty</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Technician logs Gas tightness, CO/CO2 ppm, or glycol concentration. Equipment asset history stores full audit log.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeWorkflow === 'D' && (
+            <div className="space-y-4">
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-purple-900">
+                <span className="font-bold">Workflow D Overview:</span> Technician on site discovers additional work required → Records diagnostic findings and toggles "Recommend Follow-up Visit" → Office staff prepare additional quotation → Customer approves → Follow-up job scheduled.
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">1</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Technician Flags Additional Defect</p>
+                    <p className="text-xs text-slate-600 mt-0.5">In Job JOB-2026-0810 (Crown & Thistle), technician flags that dining room AC unit requires a leak test or boiler expansion vessel replacement.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      switchUserRole('technician');
+                      onClose();
+                      onNavigateTab('technician_portal');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded border border-purple-200"
+                  >
+                    Open Tech Portal
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">2</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Office Prepares Follow-Up Quote</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Office reviews technician recommendation and creates a quick quotation for the required replacement part.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateTab('quotations');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300"
+                  >
+                    Quotations
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">3</div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">Customer Authorization & Follow-up Booked</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Authorization logged, follow-up repair booked into technician schedule.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          <span className="text-xs text-slate-500">
+            Current Role: <strong className="capitalize">{activeWorkflow}</strong> test sequence
+          </span>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            Close Guide
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

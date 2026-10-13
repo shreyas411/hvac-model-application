@@ -1,0 +1,6 @@
+{
+  "name": "ApexHVAC - UK Field Service Management",
+  "description": "Comprehensive HVAC field service management platform for UK installation, repair, and maintenance businesses. Manage customers, scheduling, dispatch, technicians, quotes, and invoicing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
