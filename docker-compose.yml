@@ -21,9 +21,22 @@ services:
         VITE_API_URL: http://localhost:3001
     ports: ["3000:80"]
 
+  # One-shot: applies prisma/migrations (tables, RLS, the settings row), then exits. The API waits for it.
+  migrate:
+    profiles: [backend]
+    build: ./backend
+    image: hvac-backend:local
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://hvac:hvac@db:5432/hvac
+      DIRECT_URL: postgresql://hvac:hvac@db:5432/hvac
+    depends_on:
+      db: {condition: service_healthy}
+
   backend:
     profiles: [backend]
     build: ./backend
+    image: hvac-backend:local
     environment:
       PORT: 3001
       APP_URL: http://localhost:3000
@@ -33,6 +46,7 @@ services:
     ports: ["3001:3001"]
     depends_on:
       db: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
 
 volumes:
   dbdata:
