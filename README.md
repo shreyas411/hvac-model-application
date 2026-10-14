@@ -2,7 +2,7 @@
 
 A front-end field service management app for UK HVAC installation, repair and maintenance businesses. It covers the full job lifecycle: customer enquiry → service request → quotation → scheduled job → technician visit → invoice and payment.
 
-Everything runs in the browser. There is no backend, and data is seeded from `src/data/initialData.ts` and persisted to `localStorage`.
+Everything runs in the browser. There is no backend yet (`backend/` is reserved for it), and data is seeded from `frontend/src/data/initialData.ts` and persisted to `localStorage`.
 
 ## Features
 
@@ -24,7 +24,7 @@ Everything runs in the browser. There is no backend, and data is seeded from `sr
 
 ### Roles
 
-The current user's role controls which tabs are visible (`src/components/layout/Navbar.tsx`). A `RoleBanner` shows the active role and its permissions. Technicians land on the Technician Portal by default.
+The current user's role controls which tabs are visible (`frontend/src/components/layout/Navbar.tsx`). A `RoleBanner` shows the active role and its permissions. Technicians land on the Technician Portal by default.
 
 | Tab | admin | dispatcher | technician | accountant |
 |-----|:--:|:--:|:--:|:--:|
@@ -40,7 +40,7 @@ The current user's role controls which tabs are visible (`src/components/layout/
 | Reports | ✓ | | | ✓ |
 | Settings | ✓ | | | |
 
-UK-specific fields include Gas Safe and F-Gas licence numbers for technicians, UK postcodes, and GBP formatting (`src/utils/formatters.ts`).
+UK-specific fields include Gas Safe and F-Gas licence numbers for technicians, UK postcodes, and GBP formatting (`frontend/src/utils/formatters.ts`).
 
 ## Tech stack
 
@@ -54,6 +54,7 @@ UK-specific fields include Gas Safe and F-Gas licence numbers for technicians, U
 **Prerequisites:** Node.js
 
 ```bash
+cd frontend
 npm install
 npm run dev      # http://localhost:3000
 ```
@@ -69,7 +70,7 @@ npm run dev      # http://localhost:3000
 ## Project structure
 
 ```
-src/
+frontend/src/
 ├── App.tsx                  # Tab routing, toast, quick-create modals
 ├── main.tsx
 ├── context/AppContext.tsx   # Global state, CRUD actions, localStorage sync
@@ -83,7 +84,7 @@ src/
     ├── reports/    settings/    workflows/   modals/
 ```
 
-State lives in a single `AppProvider` (`src/context/AppContext.tsx`). Components read and update it through the `useApp()` hook.
+State lives in a single `AppProvider` (`frontend/src/context/AppContext.tsx`). Components read and update it through the `useApp()` hook.
 
 ## Data persistence
 

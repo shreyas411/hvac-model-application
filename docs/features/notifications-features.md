@@ -1,6 +1,6 @@
 # Customer Notifications Features
 
-The Notifications view ("Customer Notifications & Automated Templates") is an approval queue for customer-facing email/SMS messages. Users draft a message for a customer, review it in a preview, and approve it for sending. Sending is simulated: it only flips the record's status in app state; no message is actually transmitted. Source: `src/components/notifications/NotificationsView.tsx`.
+The Notifications view ("Customer Notifications & Automated Templates") is an approval queue for customer-facing email/SMS messages. Users draft a message for a customer, review it in a preview, and approve it for sending. Sending is simulated: it only flips the record's status in app state; no message is actually transmitted. Source: `frontend/src/components/notifications/NotificationsView.tsx`.
 
 ## Communications queue (`NotificationsView.tsx:82-144`)
 

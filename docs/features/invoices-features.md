@@ -1,12 +1,12 @@
 # Invoices Features
 
-The Invoices view ("Invoicing & Payment Ledger") shows summary KPIs, a searchable and filterable invoice table, a printable invoice sheet, and a record-payment flow that supports partial payments. Source: `src/components/invoices/InvoicesView.tsx`; mounted from `src/App.tsx:143` for tab `invoices`.
+The Invoices view ("Invoicing & Payment Ledger") shows summary KPIs, a searchable and filterable invoice table, a printable invoice sheet, and a record-payment flow that supports partial payments. Source: `frontend/src/components/invoices/InvoicesView.tsx`; mounted from `frontend/src/App.tsx:143` for tab `invoices`.
 
 ## Access
 
 | Role | Can see tab |
 |------|-------------|
-| admin, accountant | Yes (`src/components/layout/Navbar.tsx:43`) |
+| admin, accountant | Yes (`frontend/src/components/layout/Navbar.tsx:43`) |
 | dispatcher, technician | No |
 
 There are no per-action role checks inside the view. The current user's name is recorded as `recordedBy` on payments by the context.
@@ -34,7 +34,7 @@ KPIs cover all invoices (including void and draft) and ignore the active filters
 
 Columns: invoice number; customer name and billing city; issue date; due date (bold red when status is `overdue`); total with VAT beneath; balance due (red if above 0, green otherwise) with "Paid x" beneath when something has been paid; status badge; actions.
 
-Statuses: `draft | issued | partially_paid | paid | overdue | void` (`src/types/index.ts:248`). The view renders `overdue` styling but nothing in the view or context transitions an invoice to `overdue`; it can only come from seed data.
+Statuses: `draft | issued | partially_paid | paid | overdue | void` (`frontend/src/types/index.ts:248`). The view renders `overdue` styling but nothing in the view or context transitions an invoice to `overdue`; it can only come from seed data.
 
 Actions: "View Sheet" (always) and "Record Payment" (when `balanceDue > 0`, so also shown for void or draft invoices with a balance).
 
@@ -57,7 +57,7 @@ The payment date is today (`new Date().toISOString()` date part). Confirm calls 
 
 ## Creating invoices
 
-- "New Invoice" calls `onOpenQuickAction('invoice')`, opening the shared quick-create modal (`src/components/modals/QuickCreateModals.tsx`), which calls `addInvoice` with status `issued` (`AppContext.tsx:678`, number `INV-2026-0<invoices.length + 120>`).
+- "New Invoice" calls `onOpenQuickAction('invoice')`, opening the shared quick-create modal (`frontend/src/components/modals/QuickCreateModals.tsx`), which calls `addInvoice` with status `issued` (`AppContext.tsx:678`, number `INV-2026-0<invoices.length + 120>`).
 - Other creation paths live outside this view: `convertQuotationToInvoice` (from Quotations) and `generateInvoiceFromJob` (`AppContext.tsx:740`, builds labour, travel and parts lines at the default VAT rate with 14-day terms).
 
 ## Limitations

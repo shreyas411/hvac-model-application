@@ -1,10 +1,10 @@
 # Dispatch Board Features
 
-The Scheduling and Dispatch Board (`src/components/scheduling/DispatchBoardView.tsx`) lets office staff see jobs by technician and day, view all jobs in a list, and edit a job's technician, date, time, instructions and status through a reschedule modal. Reassigning or rescheduling a job checks for technician double-booking before saving, and writes an audit-trail entry.
+The Scheduling and Dispatch Board (`frontend/src/components/scheduling/DispatchBoardView.tsx`) lets office staff see jobs by technician and day, view all jobs in a list, and edit a job's technician, date, time, instructions and status through a reschedule modal. Reassigning or rescheduling a job checks for technician double-booking before saving, and writes an audit-trail entry.
 
 ## Role access
 
-Nav "Dispatch & Jobs" is allowed for `admin` and `dispatcher` only (`src/components/layout/Navbar.tsx`). The view has no internal role checks (`currentUser` is read but unused). The Role Banner describes dispatchers as able to "manage technician schedules, check booking conflicts, and assign jobs".
+Nav "Dispatch & Jobs" is allowed for `admin` and `dispatcher` only (`frontend/src/components/layout/Navbar.tsx`). The view has no internal role checks (`currentUser` is read but unused). The Role Banner describes dispatchers as able to "manage technician schedules, check booking conflicts, and assign jobs".
 
 ## AppContext data and actions
 

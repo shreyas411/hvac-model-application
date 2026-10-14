@@ -1,0 +1,353 @@
+export type UserRole = 'admin' | 'dispatcher' | 'technician' | 'accountant';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  phone: string;
+  avatar?: string;
+  technicianId?: string; // Links to technician profile if role === 'technician'
+}
+
+export interface TechnicianProfile {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  gasSafeLicense?: string;
+  fGasLicense?: string;
+  skills: string[]; // e.g. ['Domestic Gas', 'Commercial Gas', 'F-Gas Heat Pumps', 'VRF Air Conditioning']
+  color: string; // for calendar display
+  active: boolean;
+  vanRegistration?: string;
+}
+
+export type CustomerType = 'residential' | 'commercial';
+
+export interface ServiceLocation {
+  id: string;
+  label: string; // e.g., 'Primary Residence', 'Branch Office', 'Plant Room'
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  postcode: string;
+  accessNotes?: string;
+  contactName?: string;
+  contactPhone?: string;
+}
+
+export interface Customer {
+  id: string;
+  type: CustomerType;
+  name: string;
+  companyName?: string;
+  phone: string;
+  email: string;
+  billingAddress: {
+    line1: string;
+    line2?: string;
+    city: string;
+    postcode: string;
+  };
+  serviceLocations: ServiceLocation[];
+  notes?: string;
+  communicationPreference: 'email' | 'sms' | 'both';
+  gdprConsent: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EquipmentType = 
+  | 'combi_boiler' 
+  | 'system_boiler' 
+  | 'heat_pump' 
+  | 'air_conditioning' 
+  | 'ventilation' 
+  | 'chiller';
+
+export interface EquipmentReading {
+  flowTempC?: number;
+  returnTempC?: number;
+  pressureBar?: number;
+  coPpm?: number;
+  co2Percent?: number;
+  refrigerantPsi?: number;
+  deltaTC?: number;
+}
+
+export interface EquipmentServiceRecord {
+  id: string;
+  date: string;
+  jobId: string;
+  technicianName: string;
+  serviceType: string;
+  findings: string;
+  readings?: EquipmentReading;
+  partsReplaced: string[];
+  recommendations?: string;
+}
+
+export interface Equipment {
+  id: string;
+  customerId: string;
+  locationId: string;
+  type: EquipmentType;
+  brand: string;
+  model: string;
+  serialNumber: string;
+  installationDate: string;
+  warrantyExpiryDate: string;
+  maintenanceFrequency: 'quarterly' | 'biannual' | 'annual';
+  lastServiceDate?: string;
+  nextServiceDueDate: string;
+  status: 'operational' | 'requires_attention' | 'decommissioned';
+  locationNotes?: string;
+  serviceHistory: EquipmentServiceRecord[];
+}
+
+export type Priority = 'low' | 'medium' | 'high' | 'emergency';
+
+export type ServiceRequestStatus = 'new' | 'awaiting_approval' | 'converted' | 'cancelled';
+
+export interface ServiceRequest {
+  id: string;
+  requestNumber: string;
+  customerId: string;
+  locationId: string;
+  equipmentId?: string;
+  reportedProblem: string;
+  priority: Priority;
+  preferredSlot: 'morning' | 'afternoon' | 'all_day' | 'urgent';
+  status: ServiceRequestStatus;
+  contactPerson?: string;
+  contactPhone?: string;
+  internalNotes?: string;
+  convertedJobId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type JobType = 
+  | 'installation' 
+  | 'repair' 
+  | 'inspection' 
+  | 'emergency_callout' 
+  | 'preventive_maintenance';
+
+export type JobStatus = 
+  | 'new' 
+  | 'awaiting_approval' 
+  | 'scheduled' 
+  | 'dispatched' 
+  | 'in_progress' 
+  | 'on_hold' 
+  | 'completed' 
+  | 'cancelled';
+
+export interface JobPartUsed {
+  partId: string;
+  partName: string;
+  sku: string;
+  quantity: number;
+  unitCost: number;
+  unitPrice: number;
+}
+
+export interface AuditLog {
+  timestamp: string;
+  userId: string;
+  userName: string;
+  action: string;
+  details: string;
+}
+
+export interface JobChecklistItem {
+  id: string;
+  label: string;
+  category: 'gas_safety' | 'electrical' | 'refrigerant' | 'general';
+  checked: boolean;
+  notes?: string;
+}
+
+export interface Job {
+  id: string;
+  jobNumber: string;
+  requestId?: string;
+  customerId: string;
+  locationId: string;
+  equipmentIds: string[];
+  type: JobType;
+  priority: Priority;
+  status: JobStatus;
+  technicianId: string | null;
+  appointmentDate: string; // YYYY-MM-DD
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+  estimatedDurationMinutes: number;
+  requiredSkills: string[];
+  description: string;
+  internalNotes?: string;
+  workPerformed?: string;
+  partsUsed: JobPartUsed[];
+  labourHours: number;
+  hourlyRate: number;
+  travelTimeMinutes: number;
+  travelCharge: number;
+  customerSignature?: {
+    name: string;
+    dataUrl: string;
+    signedAt: string;
+  };
+  auditTrail: AuditLog[];
+  checklist: JobChecklistItem[];
+  followUpRecommended?: boolean;
+  followUpNotes?: string;
+  arrivalTime?: string;
+  completionTime?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type QuotationStatus = 'draft' | 'sent' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+
+export interface LineItem {
+  id: string;
+  type: 'labour' | 'part' | 'equipment' | 'travel' | 'discount' | 'fee';
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface Quotation {
+  id: string;
+  quoteNumber: string;
+  customerId: string;
+  locationId: string;
+  jobId?: string;
+  issueDate: string;
+  expiryDate: string;
+  status: QuotationStatus;
+  items: LineItem[];
+  subtotal: number;
+  vatRatePercent: number;
+  vatAmount: number;
+  total: number;
+  terms: string;
+  notes?: string;
+  acceptedAt?: string;
+  acceptedBy?: string;
+  convertedToJobId?: string;
+  convertedToInvoiceId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'overdue' | 'void';
+
+export interface PaymentRecord {
+  id: string;
+  date: string;
+  amount: number;
+  method: 'bacs' | 'card' | 'cheque' | 'cash';
+  reference: string;
+  recordedBy: string;
+  notes?: string;
+}
+
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  quoteId?: string;
+  jobId?: string;
+  customerId: string;
+  locationId: string;
+  issueDate: string;
+  dueDate: string;
+  status: InvoiceStatus;
+  items: LineItem[];
+  subtotal: number;
+  vatRatePercent: number;
+  vatAmount: number;
+  total: number;
+  payments: PaymentRecord[];
+  amountPaid: number;
+  balanceDue: number;
+  paymentTermsDays: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PartItem {
+  id: string;
+  name: string;
+  sku: string;
+  description: string;
+  category: string;
+  unitCost: number;
+  sellingPrice: number;
+  stockQuantity: number;
+  minStockLevel: number;
+  location: string;
+  createdAt: string;
+}
+
+export interface InventoryMovement {
+  id: string;
+  partId: string;
+  type: 'used_on_job' | 'stock_adjustment' | 'restock_purchase';
+  quantityDelta: number;
+  jobId?: string;
+  notes: string;
+  timestamp: string;
+  userName: string;
+}
+
+export interface CustomerNotification {
+  id: string;
+  customerId: string;
+  type: 'booking_confirmation' | 'appointment_reminder' | 'technician_arriving' | 'quotation_ready' | 'invoice_issued';
+  recipient: string;
+  channel: 'email' | 'sms';
+  subject: string;
+  messageBody: string;
+  status: 'draft' | 'ready_to_send' | 'sent' | 'failed';
+  sentAt?: string;
+  approvedBy?: string;
+  createdAt: string;
+}
+
+export interface CompanySettings {
+  companyName: string;
+  tradingName: string;
+  gasSafeRegisterNo: string;
+  fGasCertNo: string;
+  vatNumber: string;
+  companyNumber: string;
+  email: string;
+  phone: string;
+  addressLine1: string;
+  city: string;
+  postcode: string;
+  website: string;
+  currencySymbol: string;
+  defaultVatRate: number;
+  availableVatRates: number[];
+  workingHoursStart: string;
+  workingHoursEnd: string;
+  enableInventory: boolean;
+  prefixJob: string;
+  prefixQuote: string;
+  prefixInvoice: string;
+  bankDetails: {
+    bankName: string;
+    accountName: string;
+    sortCode: string;
+    accountNumber: string;
+    iban?: string;
+  };
+  termsAndConditions: string;
+}

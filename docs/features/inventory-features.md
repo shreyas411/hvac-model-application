@@ -1,6 +1,6 @@
 # Inventory (Parts & Stock) Features
 
-The Inventory view (nav label "Parts & Stock", page title "HVAC Parts & Inventory Catalogue") lets users browse the parts catalogue, search it, add catalogue items, manually adjust stock levels, and review a log of stock movements. All state lives in `AppContext` (`parts`, `inventoryMovements`) and is persisted to localStorage. Source: `src/components/inventory/InventoryView.tsx`.
+The Inventory view (nav label "Parts & Stock", page title "HVAC Parts & Inventory Catalogue") lets users browse the parts catalogue, search it, add catalogue items, manually adjust stock levels, and review a log of stock movements. All state lives in `AppContext` (`parts`, `inventoryMovements`) and is persisted to localStorage. Source: `frontend/src/components/inventory/InventoryView.tsx`.
 
 ## Feature toggle
 

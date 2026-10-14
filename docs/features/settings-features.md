@@ -1,6 +1,6 @@
 # Settings Features
 
-The Settings view ("Business Settings & Company Profile") is the admin screen for company profile and UK regulatory details, VAT default, document-number prefixes, the inventory toggle, bank details for invoices, the technician roster, and backup/restore/reset of all app data. Source: `src/components/settings/SettingsView.tsx`.
+The Settings view ("Business Settings & Company Profile") is the admin screen for company profile and UK regulatory details, VAT default, document-number prefixes, the inventory toggle, bank details for invoices, the technician roster, and backup/restore/reset of all app data. Source: `frontend/src/components/settings/SettingsView.tsx`.
 
 ## Roles
 

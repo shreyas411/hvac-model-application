@@ -1,6 +1,6 @@
 # Roles and Access
 
-The app simulates four user roles (admin, dispatcher, technician, accountant) with no real authentication. The active user is held in context state and persisted to localStorage; switching role changes which navigation links are shown, whether the "+ New" menu appears, what the role banner says, and which tab technicians land on. Permissions are enforced only by hiding navigation; there is no route guard. Sources: `src/components/layout/Navbar.tsx`, `src/components/layout/RoleBanner.tsx`, `src/context/AppContext.tsx`, `src/App.tsx`, `src/data/initialData.ts`.
+The app simulates four user roles (admin, dispatcher, technician, accountant) with no real authentication. The active user is held in context state and persisted to localStorage; switching role changes which navigation links are shown, whether the "+ New" menu appears, what the role banner says, and which tab technicians land on. Permissions are enforced only by hiding navigation; there is no route guard. Sources: `frontend/src/components/layout/Navbar.tsx`, `frontend/src/components/layout/RoleBanner.tsx`, `frontend/src/context/AppContext.tsx`, `frontend/src/App.tsx`, `frontend/src/data/initialData.ts`.
 
 ## Users and roles
 

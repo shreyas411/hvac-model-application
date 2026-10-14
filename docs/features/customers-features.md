@@ -1,6 +1,6 @@
 # Customer Features
 
-The Customers view (`src/components/customers/CustomersView.tsx`) is the customer directory. It provides search and filtering, add/edit/archive of customers, and a right-hand "360" drawer showing a customer's contact details, service locations (with an add-site form), registered equipment, job history and a financial summary.
+The Customers view (`frontend/src/components/customers/CustomersView.tsx`) is the customer directory. It provides search and filtering, add/edit/archive of customers, and a right-hand "360" drawer showing a customer's contact details, service locations (with an add-site form), registered equipment, job history and a financial summary.
 
 ## Role access
 

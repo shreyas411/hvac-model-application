@@ -1,6 +1,6 @@
 # Data and State Management
 
-All application data lives in a single React context (`AppProvider`) backed by per-slice localStorage persistence, seeded from a static demo dataset for a fictional UK HVAC company. The context exposes typed CRUD and workflow actions (requests to jobs, quotes to jobs/invoices, payments, stock, notifications), generates human-readable reference numbers, writes job audit trails and stock movements, and offers reset/export/import. Sources: `src/context/AppContext.tsx`, `src/data/initialData.ts`, `src/types/index.ts`, `src/utils/formatters.ts`.
+All application data lives in a single React context (`AppProvider`) backed by per-slice localStorage persistence, seeded from a static demo dataset for a fictional UK HVAC company. The context exposes typed CRUD and workflow actions (requests to jobs, quotes to jobs/invoices, payments, stock, notifications), generates human-readable reference numbers, writes job audit trails and stock movements, and offers reset/export/import. Sources: `frontend/src/context/AppContext.tsx`, `frontend/src/data/initialData.ts`, `frontend/src/types/index.ts`, `frontend/src/utils/formatters.ts`.
 
 ## State and persistence
 

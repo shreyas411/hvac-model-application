@@ -1,12 +1,12 @@
 # Technician Portal Features
 
-The Technician Van Portal (`src/components/technician/TechnicianPortalView.tsx`) is a mobile-oriented field view. A technician (or an office user previewing it) picks a van and one of its assigned jobs, then moves the job through status steps, ticks the compliance checklist, logs gauge readings and work notes, consumes parts from stock, records a customer sign-off, and views or prints a service report.
+The Technician Van Portal (`frontend/src/components/technician/TechnicianPortalView.tsx`) is a mobile-oriented field view. A technician (or an office user previewing it) picks a van and one of its assigned jobs, then moves the job through status steps, ticks the compliance checklist, logs gauge readings and work notes, consumes parts from stock, records a customer sign-off, and views or prints a service report.
 
 ## Role access
 
 Nav "Technician Portal" is allowed for `admin`, `dispatcher` and `technician` (`Navbar.tsx`). Technicians land here by default (`App.tsx:36-40`) and do not see the Dashboard, Dispatch, Customers, Invoices or Settings links; the "+ New" quick menu is hidden for them. The Role Banner says financial and company settings are restricted for technicians.
 
-Demo users (`src/data/initialData.ts`) include two technician users linked to `tech-1` and `tech-2`; `switchUserRole('technician')` selects the first technician user, i.e. `tech-1`. The view has no permission checks of its own: any role that can open it can use every control, and the Active Van dropdown lets anyone (including a technician) switch to another technician's van.
+Demo users (`frontend/src/data/initialData.ts`) include two technician users linked to `tech-1` and `tech-2`; `switchUserRole('technician')` selects the first technician user, i.e. `tech-1`. The view has no permission checks of its own: any role that can open it can use every control, and the Active Van dropdown lets anyone (including a technician) switch to another technician's van.
 
 ## AppContext data and actions
 

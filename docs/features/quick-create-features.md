@@ -1,6 +1,6 @@
 # Quick Create Modals
 
-Quick Create is a single modal component that lets office users create a service request, job, quotation or invoice from anywhere in the app without first opening the relevant list view. The "customer" action is not a modal: it simply navigates to the Customers tab. Sources: `src/components/modals/QuickCreateModals.tsx`, trigger wiring in `src/App.tsx` and `src/components/layout/Navbar.tsx`.
+Quick Create is a single modal component that lets office users create a service request, job, quotation or invoice from anywhere in the app without first opening the relevant list view. The "customer" action is not a modal: it simply navigates to the Customers tab. Sources: `frontend/src/components/modals/QuickCreateModals.tsx`, trigger wiring in `frontend/src/App.tsx` and `frontend/src/components/layout/Navbar.tsx`.
 
 ## How it is triggered
 

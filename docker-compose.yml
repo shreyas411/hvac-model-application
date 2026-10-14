@@ -1,0 +1,38 @@
+# Local dev only. Production uses Supabase (TECH_SPEC.md section 12).
+# Run the API too with: docker compose --profile backend up --build
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hvac
+      POSTGRES_PASSWORD: hvac
+      POSTGRES_DB: hvac
+    ports: ["5432:5432"]
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hvac"]
+      interval: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:3001
+    ports: ["3000:80"]
+
+  backend:
+    profiles: [backend]
+    build: ./backend
+    environment:
+      PORT: 3001
+      APP_URL: http://localhost:3000
+      DATABASE_URL: postgresql://hvac:hvac@db:5432/hvac
+      DIRECT_URL: postgresql://hvac:hvac@db:5432/hvac
+    env_file: [./backend/.env]
+    ports: ["3001:3001"]
+    depends_on:
+      db: {condition: service_healthy}
+
+volumes:
+  dbdata:

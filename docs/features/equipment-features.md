@@ -1,12 +1,12 @@
 # Equipment & Assets Features
 
-The Equipment view ("HVAC Equipment & Asset Register", nav label "Equipment & Assets") is a card-grid register of customer HVAC plant (boilers, heat pumps, air con, etc.). Users can search and filter the register, register a new asset, open a service-history drawer, and book a preventive-maintenance job for an asset. Source: `src/components/equipment/EquipmentView.tsx`; mounted from `src/App.tsx:122` for tab `equipment`.
+The Equipment view ("HVAC Equipment & Asset Register", nav label "Equipment & Assets") is a card-grid register of customer HVAC plant (boilers, heat pumps, air con, etc.). Users can search and filter the register, register a new asset, open a service-history drawer, and book a preventive-maintenance job for an asset. Source: `frontend/src/components/equipment/EquipmentView.tsx`; mounted from `frontend/src/App.tsx:122` for tab `equipment`.
 
 ## Access
 
 | Role | Can see tab |
 |------|-------------|
-| admin, dispatcher, technician | Yes (`src/components/layout/Navbar.tsx:40`) |
+| admin, dispatcher, technician | Yes (`frontend/src/components/layout/Navbar.tsx:40`) |
 | accountant | No |
 
 Navigation is gated only by the navbar. The view itself has no per-action role checks, so every role that can open it can register assets and book services.
@@ -19,7 +19,7 @@ Reads `equipment`, `customers`; calls `addEquipment`, `addJob` (`EquipmentView.t
 
 - Free-text search (case-insensitive substring) over brand, model, serial number and the owning customer's name.
 - Type filter buttons: All Types, combi boiler, system boiler, heat pump, air conditioning. Buttons use `type.replace('_',' ')` so only the first underscore is replaced.
-- Types `ventilation` and `chiller` exist (`src/types/index.ts:62`) and can be registered, but have no filter button; they appear only under "All Types".
+- Types `ventilation` and `chiller` exist (`frontend/src/types/index.ts:62`) and can be registered, but have no filter button; they appear only under "All Types".
 - Both filters combine (AND).
 
 ## Asset cards (`EquipmentView.tsx:168-234`)

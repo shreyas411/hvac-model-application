@@ -1,12 +1,12 @@
 # Dashboard Features
 
-The Dashboard (`src/components/dashboard/DashboardView.tsx`) is the operations landing page for the admin, dispatcher and accountant roles. It shows a KPI strip, a filterable job queue, a technician availability roster, an action queue (new service requests and maintenance reminders), quick-create shortcuts, a workflow-guide launcher and a static compliance card. It is read-only: it mutates no state itself and instead calls navigation/modal callbacks passed in from `src/App.tsx`.
+The Dashboard (`frontend/src/components/dashboard/DashboardView.tsx`) is the operations landing page for the admin, dispatcher and accountant roles. It shows a KPI strip, a filterable job queue, a technician availability roster, an action queue (new service requests and maintenance reminders), quick-create shortcuts, a workflow-guide launcher and a static compliance card. It is read-only: it mutates no state itself and instead calls navigation/modal callbacks passed in from `frontend/src/App.tsx`.
 
 All "today" logic uses a hardcoded reference date, `2026-10-13` (`DashboardView.tsx:55`, `75`, `82`, `324`, `536`). Nothing uses the system clock.
 
 ## Role access
 
-Nav entry "Dashboard" is allowed for `admin`, `dispatcher`, `accountant` (`src/components/layout/Navbar.tsx` `navLinks`). Technicians are redirected to `technician_portal` on switching to that role (`src/App.tsx:36-40`). The view itself has no role checks.
+Nav entry "Dashboard" is allowed for `admin`, `dispatcher`, `accountant` (`frontend/src/components/layout/Navbar.tsx` `navLinks`). Technicians are redirected to `technician_portal` on switching to that role (`frontend/src/App.tsx:36-40`). The view itself has no role checks.
 
 ## AppContext data used
 

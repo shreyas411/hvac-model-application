@@ -1,12 +1,12 @@
 # Quotations Features
 
-The Quotations view ("Quotations & Estimates") lists customer quotes in a table with status filters, shows a printable quote document, records customer acceptance, and converts accepted quotes into either a scheduled installation job or an invoice. Source: `src/components/quotations/QuotationsView.tsx`; mounted from `src/App.tsx:136` for tab `quotations`.
+The Quotations view ("Quotations & Estimates") lists customer quotes in a table with status filters, shows a printable quote document, records customer acceptance, and converts accepted quotes into either a scheduled installation job or an invoice. Source: `frontend/src/components/quotations/QuotationsView.tsx`; mounted from `frontend/src/App.tsx:136` for tab `quotations`.
 
 ## Access
 
 | Role | Can see tab |
 |------|-------------|
-| admin, dispatcher, accountant | Yes (`src/components/layout/Navbar.tsx:42`) |
+| admin, dispatcher, accountant | Yes (`frontend/src/components/layout/Navbar.tsx:42`) |
 | technician | No |
 
 No per-action role checks exist inside the view; any role with the tab can accept and convert.
@@ -17,7 +17,7 @@ Reads `quotations`, `customers`, `settings`, `technicians`; calls `acceptQuotati
 
 ## Quotation statuses
 
-`draft | sent | viewed | accepted | rejected | expired` (`src/types/index.ts:213`), each with its own badge colour (`QuotationsView.tsx:79-86`). The view only changes status to `accepted`; no UI sets the others.
+`draft | sent | viewed | accepted | rejected | expired` (`frontend/src/types/index.ts:213`), each with its own badge colour (`QuotationsView.tsx:79-86`). The view only changes status to `accepted`; no UI sets the others.
 
 ## Table and status filter (`:54-57`, `:111-236`)
 
@@ -34,7 +34,7 @@ Reads `quotations`, `customers`, `settings`, `technicians`; calls `acceptQuotati
 
 ## New Quotation (`:102-108`)
 
-The button calls `onOpenQuickAction('quote')`, opening the shared modal in `src/components/modals/QuickCreateModals.tsx`. That modal calls `addQuotation` with `status: 'sent'` and an expiry date 30 days out (`QuickCreateModals.tsx:189-196`), so quotes created in the UI start as `sent` (no draft step). `addQuotation` (`AppContext.tsx:527`) generates `QTE-2026-<quotations.length + 42, zero-padded to 4>`.
+The button calls `onOpenQuickAction('quote')`, opening the shared modal in `frontend/src/components/modals/QuickCreateModals.tsx`. That modal calls `addQuotation` with `status: 'sent'` and an expiry date 30 days out (`QuickCreateModals.tsx:189-196`), so quotes created in the UI start as `sent` (no draft step). `addQuotation` (`AppContext.tsx:527`) generates `QTE-2026-<quotations.length + 42, zero-padded to 4>`.
 
 ## Preview and print (`:238-374`)
 

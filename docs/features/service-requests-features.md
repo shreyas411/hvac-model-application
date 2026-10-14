@@ -1,12 +1,12 @@
 # Service Requests Features
 
-The Service Requests view ("Customer Service Requests & Enquiries") is a triage list of customer enquiries and breakdown reports. Staff filter by status, create a new enquiry, and convert an open request into a scheduled job with a technician and time slot, with a double-booking check. Source: `src/components/requests/ServiceRequestsView.tsx`; mounted from `src/App.tsx:129` for tab `requests`.
+The Service Requests view ("Customer Service Requests & Enquiries") is a triage list of customer enquiries and breakdown reports. Staff filter by status, create a new enquiry, and convert an open request into a scheduled job with a technician and time slot, with a double-booking check. Source: `frontend/src/components/requests/ServiceRequestsView.tsx`; mounted from `frontend/src/App.tsx:129` for tab `requests`.
 
 ## Access
 
 | Role | Can see tab |
 |------|-------------|
-| admin, dispatcher | Yes (`src/components/layout/Navbar.tsx:41`) |
+| admin, dispatcher | Yes (`frontend/src/components/layout/Navbar.tsx:41`) |
 | technician, accountant | No |
 
 No per-action role checks exist inside the view.
@@ -17,7 +17,7 @@ Reads `serviceRequests`, `customers`, `equipment`, `technicians`; calls `convert
 
 ## Request list and status filter (`:37`, `:47-50`, `:123-217`)
 
-Filter tabs: All Requests, New / Unassigned (`new`), Awaiting Approval (`awaiting_approval`), Converted to Job (`converted`). There is no tab for `cancelled` (a valid status in `src/types/index.ts:112`); cancelled requests show only under All. The tabs show no counts. Empty state: "No service requests found in this category."
+Filter tabs: All Requests, New / Unassigned (`new`), Awaiting Approval (`awaiting_approval`), Converted to Job (`converted`). There is no tab for `cancelled` (a valid status in `frontend/src/types/index.ts:112`); cancelled requests show only under All. The tabs show no counts. Empty state: "No service requests found in this category."
 
 Each request card shows:
 
@@ -30,7 +30,7 @@ Each request card shows:
 
 ## New Enquiry (`:114-120`)
 
-The "New Enquiry" button calls `onOpenQuickAction('request')`, opening the shared quick-create modal (`src/components/modals/QuickCreateModals.tsx`), which calls `addServiceRequest` with `status: 'new'`. `addServiceRequest` (`AppContext.tsx:327`) assigns id `sr-<timestamp>`, number `SR-<requests.length + 1025>`, and timestamps; new requests are prepended.
+The "New Enquiry" button calls `onOpenQuickAction('request')`, opening the shared quick-create modal (`frontend/src/components/modals/QuickCreateModals.tsx`), which calls `addServiceRequest` with `status: 'new'`. `addServiceRequest` (`AppContext.tsx:327`) assigns id `sr-<timestamp>`, number `SR-<requests.length + 1025>`, and timestamps; new requests are prepended.
 
 ## Convert to Job (Schedule Job) (`:52-91`, `:219-334`)
 

@@ -1,6 +1,6 @@
 # Reports Features
 
-The Reports view ("Reports & Business Insights") is a read-only dashboard that keeps three money figures separate (invoiced, collected, quoted pipeline), shows per-technician output, four operational ratios, and a CSV export of summary metrics. Everything is computed on render from `AppContext` data. Source: `src/components/reports/ReportsView.tsx`.
+The Reports view ("Reports & Business Insights") is a read-only dashboard that keeps three money figures separate (invoiced, collected, quoted pipeline), shows per-technician output, four operational ratios, and a CSV export of summary metrics. Everything is computed on render from `AppContext` data. Source: `frontend/src/components/reports/ReportsView.tsx`.
 
 ## Financial trio (`ReportsView.tsx:21-27`, `:95-131`)
 

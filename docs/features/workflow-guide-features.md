@@ -1,10 +1,10 @@
 # Workflow Guide Modal
 
-The Workflow Guide is a full-screen modal that walks a tester through four end-to-end UK HVAC business cycles (Workflows A to D) using the seeded demo data. It is purely a navigation aid: it holds no business data of its own, and its buttons close the modal and jump to the relevant tab, optionally switching the active role first. Source: `src/components/workflows/WorkflowGuideModal.tsx`.
+The Workflow Guide is a full-screen modal that walks a tester through four end-to-end UK HVAC business cycles (Workflows A to D) using the seeded demo data. It is purely a navigation aid: it holds no business data of its own, and its buttons close the modal and jump to the relevant tab, optionally switching the active role first. Source: `frontend/src/components/workflows/WorkflowGuideModal.tsx`.
 
 ## Opening and closing
 
-- Rendered once in `src/App.tsx:167-172`; visibility is the `workflowGuideOpen` state (`App.tsx:29`).
+- Rendered once in `frontend/src/App.tsx:167-172`; visibility is the `workflowGuideOpen` state (`App.tsx:29`).
 - Three triggers set it to true: the "Workflow Demo" button in the Navbar (`Navbar.tsx:125-132`), the `onOpenWorkflowGuide` prop passed to `DashboardView` (`App.tsx:98`), and the footer link "Test End-to-End Workflows" (`App.tsx:189-194`).
 - When `isOpen` is false the component returns `null` (`WorkflowGuideModal.tsx:32`).
 - Closed by the X button in the header or the "Close Guide" button in the footer; there is no backdrop-click or Escape handling.
