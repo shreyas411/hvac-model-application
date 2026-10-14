@@ -12,7 +12,7 @@ Read/write work record: A D T (technicians are limited to their own jobs). Creat
 | POST | `/jobs` | A D | Job fields; `status` may be `new`, `awaiting_approval` or `scheduled`. `SCHEDULE_CONFLICT` if the technician overlaps |
 | PATCH | `/jobs/:id` | A D T | A/D: dispatch fields. T: only `workPerformed`, `labourHours`, `customerSignature`, `checklist`, `followUpRecommended`, `followUpNotes` |
 | POST | `/jobs/:id/status` | A D T | `{ status, note?, override? }`. Transitions are enforced; `override` is admin only. T may only set `in_progress`, `on_hold` or `completed`. First `in_progress` sets `arrivalTime`, first `completed` sets `completionTime` |
-| POST | `/jobs/:id/parts` | A D T | `{ partId, quantity }`. Adds to `partsUsed` and writes a `used_on_job` movement when inventory is enabled |
+| POST | `/jobs/:id/parts` | A D T | `{ partId, quantity }`. Adds to `partsUsed` and writes a `used_on_job` movement when inventory is enabled (one transaction) |
 | POST | `/jobs/:id/invoice` | A C | Builds an invoice from labour, travel and parts. `ALREADY_CONVERTED` if the job has a non-void invoice |
 
 Allowed transitions:

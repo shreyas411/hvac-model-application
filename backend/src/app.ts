@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { authenticate } from './common/auth.js';
 import { errorHandler } from './common/errors.js';
 import { logger } from './common/logger.js';
+import { prisma } from './common/prisma.js';
 import { config } from './config.js';
 import { authRouter } from './modules/auth/routes.js';
 import { customersRouter } from './modules/customers/routes.js';
@@ -32,8 +33,7 @@ export function createApp() {
   app.use(express.json({ limit: '5mb' })); // signatures arrive as data URLs
 
   app.get('/healthz', (_req, res) => void res.json({ ok: true }));
-  // ponytail: always ready; once Prisma exists, run `SELECT 1` here.
-  app.get('/readyz', (_req, res) => void res.json({ ok: true }));
+  app.get('/readyz', (_req, res) => void prisma.$queryRaw`SELECT 1`.then(() => res.json({ ok: true }), () => res.status(503).json({ ok: false })));
 
   const api = express.Router();
   api.use('/auth', authRouter); // login/refresh/logout are public; /me authenticates itself

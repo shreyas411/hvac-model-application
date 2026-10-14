@@ -1,16 +1,17 @@
-# No Prisma yet (DB not set up): when it is, re-add `npx prisma generate` to the build and copy node_modules/.prisma + prisma/ to runtime.
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN npx prisma generate && npm run build
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev
+COPY --from=build /app/node_modules/.prisma node_modules/.prisma
+COPY --from=build /app/prisma prisma
 COPY --from=build /app/dist dist
 USER node
 EXPOSE 3001

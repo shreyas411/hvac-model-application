@@ -5,7 +5,7 @@ import { actor } from '../../common/auth.js';
 import { crud } from '../../common/crud.js';
 import { ApiError, h } from '../../common/errors.js';
 import { paginate } from '../../common/paginate.js';
-import { db } from '../../common/store.js';
+import { getSettings } from '../settings/service.js';
 import { money } from '../../common/zod.js';
 import * as svc from './service.js';
 
@@ -22,12 +22,12 @@ const adjust = z.object({
 /** Mounted at the API root: serves /parts/* and /movements. */
 export const inventoryRouter = Router();
 inventoryRouter.use(['/parts', '/movements'], (_req, _res, next) =>
-  next(db.settings.enableInventory ? undefined : new ApiError(403, 'FEATURE_DISABLED', 'Inventory is disabled in settings')));
+  getSettings().then((s) => next(s.enableInventory ? undefined : new ApiError(403, 'FEATURE_DISABLED', 'Inventory is disabled in settings')), next));
 
 const all = allow('admin', 'dispatcher', 'technician', 'accountant');
-inventoryRouter.get('/movements', all, h((req) => {
+inventoryRouter.get('/movements', all, h(async (req) => {
   const { partId } = z.object({ partId: z.string().optional() }).parse(req.query);
-  return paginate(db.movements.all().filter((m) => !partId || m.partId === partId), req.query);
+  return paginate(await svc.listMovements(partId), req.query);
 }));
 inventoryRouter.post('/parts', allow('admin', 'dispatcher'), h((req) => svc.createPart(part.parse(req.body), actor(req)), 201));
 inventoryRouter.post('/parts/:id/adjust', allow('admin', 'dispatcher', 'technician'), h((req) => {
@@ -35,7 +35,7 @@ inventoryRouter.post('/parts/:id/adjust', allow('admin', 'dispatcher', 'technici
   return svc.adjustStock(req.params.id, b.delta, b.type, b.notes, actor(req), b.jobId);
 }));
 inventoryRouter.use('/parts', crud({
-  repo: db.parts, label: 'Part', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin', 'dispatcher'],
+  repo: svc.partsRepo, label: 'Part', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin', 'dispatcher'],
   create: part, update: part.omit({ stockQuantity: true }).partial(), // stock changes only via /parts/:id/adjust
   filter: (rows, q) => (q.lowStock === 'true' ? rows.filter(svc.isLowStock) : rows),
 }));

@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { paginate } from '../../common/paginate.js';
-import { db } from '../../common/store.js';
 import { hhmm, isoDate, priority } from '../../common/zod.js';
 import * as svc from './service.js';
 
@@ -18,11 +17,9 @@ const convert = z.object({ appointmentDate: isoDate, startTime: hhmm, endTime: h
 
 export const requestsRouter = Router();
 requestsRouter.use(allow('admin', 'dispatcher'));
-requestsRouter.get('/', h((req) => paginate(db.requests.all(), req.query)));
+requestsRouter.get('/', h(async (req) => paginate(await svc.requestsRepo.all(), req.query)));
 requestsRouter.get('/:id', h((req) => svc.getRequest(req.params.id)));
 requestsRouter.post('/', h((req) => svc.createRequest(request.parse(req.body)), 201));
-requestsRouter.patch('/:id', h((req) => {
-  const r = svc.getRequest(req.params.id);
-  return db.requests.update(r.id, request.partial().extend({ status: z.enum(['new', 'awaiting_approval', 'cancelled']).optional() }).parse(req.body));
-}));
+requestsRouter.patch('/:id', h((req) =>
+  svc.updateRequest(req.params.id, request.partial().extend({ status: z.enum(['new', 'awaiting_approval', 'cancelled']).optional() }).parse(req.body))));
 requestsRouter.post('/:id/convert', h((req) => svc.convertToJob(req.params.id, convert.parse(req.body), actor(req)), 201));

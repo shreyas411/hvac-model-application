@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
-import { db } from '../../common/store.js';
+import { getSettings, updateSettings } from './service.js';
 
-const settings = z.object({
+export const settingsSchema = z.object({
   companyName: z.string(), tradingName: z.string(), gasSafeRegisterNo: z.string(), fGasCertNo: z.string(),
   vatNumber: z.string(), companyNumber: z.string(), email: z.string(), phone: z.string(),
   addressLine1: z.string(), city: z.string(), postcode: z.string(), website: z.string(),
@@ -19,5 +19,5 @@ const settings = z.object({
 }).partial();
 
 export const settingsRouter = Router();
-settingsRouter.get('/', h(() => db.settings));
-settingsRouter.patch('/', allow('admin'), h((req) => Object.assign(db.settings, settings.parse(req.body))));
+settingsRouter.get('/', h(getSettings));
+settingsRouter.patch('/', allow('admin'), h((req) => updateSettings(settingsSchema.parse(req.body))));

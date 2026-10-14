@@ -1,32 +1,33 @@
-import { db } from './store.js';
-
-// ponytail: in-memory counters; become a `counters` row incremented via UPDATE ... RETURNING in the create transaction.
-const counters = new Map<string, number>();
-const slot = (key: string, year: number) => `${key}:${year}`;
+import { prisma } from './prisma.js';
+import { getSettings } from '../modules/settings/service.js';
 
 export type NumberKey = 'job' | 'quote' | 'invoice' | 'request';
-const prefixes = (): Record<NumberKey, string> => ({
-  job: db.settings.prefixJob, quote: db.settings.prefixQuote, invoice: db.settings.prefixInvoice, request: 'SR-',
-});
+const KEYS: NumberKey[] = ['job', 'quote', 'invoice', 'request'];
+// Service requests are numbered across years (SR-12), the rest per year.
+const yearOf = (key: NumberKey, year: number) => (key === 'request' ? 0 : year);
 
-export function nextNumber(key: NumberKey, now = new Date()): string {
+/** One atomic statement per number, so concurrent creates never collide. Gaps are possible if the caller later fails. */
+export async function nextNumber(key: NumberKey, now = new Date()): Promise<string> {
   const year = now.getUTCFullYear();
-  const k = slot(key, key === 'request' ? 0 : year);
-  const n = (counters.get(k) ?? 0) + 1;
-  counters.set(k, n);
-  const prefix = prefixes()[key].replace(/-+$/, '');
+  const [{ n }] = await prisma.$queryRaw<{ n: number }[]>`
+    INSERT INTO counters (key, year, next_value) VALUES (${key}, ${yearOf(key, year)}, 2)
+    ON CONFLICT (key, year) DO UPDATE SET next_value = counters.next_value + 1
+    RETURNING next_value - 1 AS n`;
+  const s = await getSettings();
+  const prefix = ({ job: s.prefixJob, quote: s.prefixQuote, invoice: s.prefixInvoice, request: 'SR-' })[key].replace(/-+$/, '');
   return key === 'request' ? `${prefix}-${n}` : `${prefix}-${year}-${String(n).padStart(4, '0')}`;
 }
 
-/** Bump counters above every number already in use (after an import). */
-export function seedCounters(numbers: Partial<Record<NumberKey, string[]>>) {
-  for (const [key, list] of Object.entries(numbers) as [NumberKey, string[]][]) {
-    for (const num of list) {
+/** Import ops: empty the counters, then start each one above the highest number already in use. */
+export function counterOps(numbers: Partial<Record<NumberKey, string[]>>) {
+  const max = new Map<string, { key: NumberKey; year: number; n: number }>();
+  for (const key of KEYS) {
+    for (const num of numbers[key] ?? []) {
       const m = num.match(/^[A-Za-z]+-(?:(\d{4})-)?(\d+)$/);
-      if (!m) continue;
-      const k = slot(key, key === 'request' ? 0 : Number(m[1]));
-      counters.set(k, Math.max(counters.get(k) ?? 0, Number(m[2])));
+      if (!m || (key !== 'request' && !m[1])) continue;
+      const year = key === 'request' ? 0 : Number(m[1]), id = `${key}:${year}`;
+      max.set(id, { key, year, n: Math.max(max.get(id)?.n ?? 0, Number(m[2])) });
     }
   }
+  return [prisma.counter.deleteMany(), prisma.counter.createMany({ data: [...max.values()].map((c) => ({ key: c.key, year: c.year, nextValue: c.n + 1 })) })];
 }
-export const resetCounters = () => counters.clear();

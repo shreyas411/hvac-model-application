@@ -1,35 +1,74 @@
 import { randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import type { Customer, ServiceLocation } from '../../types.js';
 import { ApiError, notFound } from '../../common/errors.js';
-import { db, must } from '../../common/store.js';
+import { isUuid, plain, prisma } from '../../common/prisma.js';
 
-export const getCustomer = (id: string) => must(db.customers, id, 'Customer');
+const include = { locations: { orderBy: { createdAt: 'asc' } } } satisfies Prisma.CustomerInclude;
+type Row = Prisma.CustomerGetPayload<{ include: typeof include }>;
 
-export function assertLocation(customerId: string, locationId: string) {
-  const c = getCustomer(customerId);
-  const loc = c.serviceLocations.find((l) => l.id === locationId);
+const toLocation = ({ customerId, legacyId, createdAt, updatedAt, ...l }: Row['locations'][number]) => plain(l) as unknown as ServiceLocation;
+const toCustomer = ({ legacyId, locations, createdAt, updatedAt, ...c }: Row) =>
+  ({ ...plain(c), serviceLocations: locations.map(toLocation), createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString() }) as unknown as Customer;
+
+export async function getCustomer(id: string) {
+  const row = isUuid(id) ? await prisma.customer.findUnique({ where: { id }, include }) : null;
+  if (!row) throw notFound('Customer');
+  return toCustomer(row);
+}
+
+// ponytail: loads every customer, then paginate() slices in memory. Push limit/cursor/q into the query when the table gets big.
+export const listCustomers = async () => (await prisma.customer.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toCustomer);
+
+export async function assertLocation(customerId: string, locationId: string) {
+  await getCustomer(customerId);
+  const loc = isUuid(locationId) ? await prisma.serviceLocation.findFirst({ where: { id: locationId, customerId } }) : null;
   if (!loc) throw new ApiError(422, 'INVALID_LOCATION', 'Location does not belong to customer');
-  return loc;
+  return toLocation(loc);
 }
 
-export const setArchived = (id: string, archived: boolean) => db.customers.update(getCustomer(id).id, { archived });
+type NewLocation = Omit<ServiceLocation, 'id'>;
+export const createCustomer = async (data: Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'serviceLocations'> & { serviceLocations: NewLocation[] }) => {
+  const { serviceLocations, billingAddress, ...rest } = data;
+  return toCustomer(await prisma.customer.create({ data: { ...rest, billingAddress, locations: { create: serviceLocations } }, include }));
+};
 
-const withIds = (locs: Omit<ServiceLocation, 'id'>[]) => locs.map((l) => ({ ...l, id: randomUUID() }));
-export const createCustomer = (data: Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'serviceLocations'> & { serviceLocations: Omit<ServiceLocation, 'id'>[] }) =>
-  db.customers.insert({ ...data, serviceLocations: withIds(data.serviceLocations) });
+export async function updateCustomer(id: string, patch: Partial<Omit<Customer, 'id' | 'serviceLocations' | 'createdAt' | 'updatedAt'>>) {
+  await getCustomer(id);
+  return toCustomer(await prisma.customer.update({ where: { id }, data: patch, include }));
+}
 
-export function addLocation(customerId: string, loc: Omit<ServiceLocation, 'id'>) {
-  const c = getCustomer(customerId);
-  return db.customers.update(c.id, { serviceLocations: [...c.serviceLocations, ...withIds([loc])] });
+export const setArchived = (id: string, archived: boolean) => updateCustomer(id, { archived });
+
+export async function addLocation(customerId: string, loc: NewLocation) {
+  await getCustomer(customerId);
+  await prisma.serviceLocation.create({ data: { ...loc, customerId } });
+  return getCustomer(customerId);
 }
-export function updateLocation(customerId: string, locId: string, patch: Partial<ServiceLocation>) {
-  const c = getCustomer(customerId);
-  if (!c.serviceLocations.some((l) => l.id === locId)) throw notFound('Location');
-  return db.customers.update(c.id, { serviceLocations: c.serviceLocations.map((l) => (l.id === locId ? { ...l, ...patch, id: locId } : l)) });
+export async function updateLocation(customerId: string, locId: string, patch: Partial<NewLocation>) {
+  await getCustomer(customerId);
+  const { count } = isUuid(locId) ? await prisma.serviceLocation.updateMany({ where: { id: locId, customerId }, data: patch }) : { count: 0 };
+  if (!count) throw notFound('Location');
+  return getCustomer(customerId);
 }
-export function removeLocation(customerId: string, locId: string) {
-  const c = getCustomer(customerId);
-  if (db.jobs.all().some((j) => j.locationId === locId) || db.equipment.all().some((e) => e.locationId === locId))
+export async function removeLocation(customerId: string, locId: string) {
+  await getCustomer(customerId);
+  const where = { locationId: locId };
+  if (isUuid(locId) && (await Promise.all([prisma.job.count({ where }), prisma.equipment.count({ where }), prisma.serviceRequest.count({ where })])).some(Boolean))
     throw new ApiError(409, 'LOCATION_IN_USE', 'Location is referenced by jobs or equipment');
-  return db.customers.update(c.id, { serviceLocations: c.serviceLocations.filter((l) => l.id !== locId) });
+  if (isUuid(locId)) await prisma.serviceLocation.deleteMany({ where: { id: locId, customerId } });
+  return getCustomer(customerId);
+}
+
+/** Import ops (see importPartOps): replace all customers. Fills `ids` with oldId → new uuid for customers and locations. */
+export function importCustomerOps(rows: any[], ids: Map<string, string>) {
+  const newId = (old: string) => (ids.set(old, randomUUID()), ids.get(old)!);
+  const data = rows.map((c) => ({
+    id: newId(c.id), legacyId: c.id, type: c.type, name: c.name, companyName: c.companyName, phone: c.phone ?? '', email: c.email ?? '',
+    billingAddress: c.billingAddress ?? {}, notes: c.notes, communicationPreference: c.communicationPreference ?? 'email',
+    gdprConsent: !!c.gdprConsent, archived: !!c.archived,
+    ...(c.createdAt && { createdAt: new Date(c.createdAt) }),
+    locations: { create: (c.serviceLocations ?? []).map(({ id, ...l }: any) => ({ ...l, id: newId(id), legacyId: id })) },
+  }));
+  return { wipe: prisma.customer.deleteMany(), create: data.map((d) => prisma.customer.create({ data: d })) };
 }

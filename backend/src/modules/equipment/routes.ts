@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { allow } from '../../common/auth.js';
 import { crud } from '../../common/crud.js';
 import { h } from '../../common/errors.js';
-import { db } from '../../common/store.js';
 import { isoDate } from '../../common/zod.js';
 import * as svc from './service.js';
+import { equipmentStore } from './service.js';
 
 const equipment = z.object({
   customerId: z.string().min(1), locationId: z.string().min(1),
@@ -32,6 +32,6 @@ equipmentRouter.post('/', allow('admin', 'dispatcher'), h((req) => svc.createEqu
 equipmentRouter.patch('/:id', allow('admin', 'dispatcher'), h((req) => svc.updateEquipment(req.params.id, equipment.partial().parse(req.body))));
 equipmentRouter.post('/:id/service-records', allow('admin', 'dispatcher', 'technician'), h((req) => svc.addServiceRecord(req.params.id, record.parse(req.body)), 201));
 equipmentRouter.use(crud({
-  repo: db.equipment, label: 'Equipment', read: ['admin', 'dispatcher', 'technician'], write: ['admin', 'dispatcher'],
+  repo: equipmentStore, label: 'Equipment', read: ['admin', 'dispatcher', 'technician'], write: ['admin', 'dispatcher'],
   create: equipment, update: equipment.partial(), del: true,
 }));

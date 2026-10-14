@@ -3,27 +3,32 @@ import { allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { round2 } from '../../common/money.js';
 import { addDays, today } from '../../common/dates.js';
-import { db } from '../../common/store.js';
-import { isLowStock } from '../inventory/service.js';
+import { prisma } from '../../common/prisma.js';
+import { isLowStock, partsRepo } from '../inventory/service.js';
+import { techniciansRepo } from '../technicians/service.js';
 
 const sum = (n: number[]) => round2(n.reduce((a, b) => a + b, 0));
+const n = (d: { toNumber(): number } | null) => round2(d?.toNumber() ?? 0);
 
-export function financial() {
-  const inv = db.invoices.all().filter((i) => i.status !== 'void');
-  const q = db.quotations.all();
-  const invoiced = sum(inv.map((i) => i.total)), collected = sum(inv.map((i) => i.amountPaid));
+export async function financial() {
+  const [inv, quotes, accepted] = await Promise.all([
+    prisma.invoice.aggregate({ where: { status: { not: 'void' } }, _sum: { total: true, amountPaid: true } }),
+    prisma.quotation.aggregate({ _sum: { total: true } }),
+    prisma.quotation.aggregate({ where: { status: 'accepted' }, _sum: { total: true } }),
+  ]);
+  const invoiced = n(inv._sum.total), collected = n(inv._sum.amountPaid);
   return {
     invoicedRevenue: invoiced, recordedPayments: collected, outstandingBalance: round2(invoiced - collected),
-    estimatedPipeline: sum(q.map((x) => x.total)),
-    acceptedQuotesValue: sum(q.filter((x) => x.status === 'accepted').map((x) => x.total)),
-    completedJobs: db.jobs.all().filter((j) => j.status === 'completed').length,
-    openJobs: db.jobs.all().filter((j) => j.status !== 'completed' && j.status !== 'cancelled').length,
+    estimatedPipeline: n(quotes._sum.total), acceptedQuotesValue: n(accepted._sum.total),
+    completedJobs: await prisma.job.count({ where: { status: 'completed' } }),
+    openJobs: await prisma.job.count({ where: { status: { notIn: ['completed', 'cancelled'] } } }),
   };
 }
 
-export function technicianUtilisation() {
-  return db.technicians.all().map((tech) => {
-    const jobs = db.jobs.all().filter((j) => j.technicianId === tech.id);
+export async function technicianUtilisation() {
+  const all = await prisma.job.findMany({ where: { technicianId: { not: null } }, select: { technicianId: true, status: true, labourHours: true, hourlyRate: true } });
+  return (await techniciansRepo.all()).map((tech) => {
+    const jobs = all.filter((j) => j.technicianId === tech.id).map((j) => ({ status: j.status, labourHours: j.labourHours.toNumber(), hourlyRate: j.hourlyRate.toNumber() }));
     return {
       technicianId: tech.id, name: tech.name, totalJobs: jobs.length,
       completedJobs: jobs.filter((j) => j.status === 'completed').length,
@@ -32,24 +37,27 @@ export function technicianUtilisation() {
   });
 }
 
-export function dashboard(now = today()) {
-  const jobs = db.jobs.all();
-  const open = (s: string) => s !== 'completed' && s !== 'cancelled';
-  const invoices = db.invoices.all();
+export async function dashboard(now = today()) {
+  const day = new Date(now);
+  const [total, todayCount, inProgress, completed, cancelled, overdue, newRequests, maintenanceDue, outstandingQuotes, unpaidInvoices, collected, outstanding] = await Promise.all([
+    prisma.job.count(),
+    prisma.job.count({ where: { appointmentDate: day } }),
+    prisma.job.count({ where: { status: 'in_progress' } }),
+    prisma.job.count({ where: { status: 'completed' } }),
+    prisma.job.count({ where: { status: 'cancelled' } }),
+    prisma.job.count({ where: { appointmentDate: { lt: day }, status: { notIn: ['completed', 'cancelled'] } } }),
+    prisma.serviceRequest.count({ where: { status: 'new' } }),
+    prisma.equipment.count({ where: { status: { not: 'decommissioned' }, nextServiceDueDate: { lte: new Date(addDays(now, 5)) } } }),
+    prisma.quotation.count({ where: { status: { in: ['sent', 'draft'] } } }),
+    prisma.invoice.count({ where: { status: { in: ['issued', 'overdue', 'partially_paid'] } } }),
+    prisma.invoice.aggregate({ _sum: { amountPaid: true } }),
+    prisma.invoice.aggregate({ where: { status: { not: 'void' } }, _sum: { balanceDue: true } }),
+  ]);
   return {
-    jobs: {
-      total: jobs.length, today: jobs.filter((j) => j.appointmentDate === now).length,
-      inProgress: jobs.filter((j) => j.status === 'in_progress').length,
-      completed: jobs.filter((j) => j.status === 'completed').length,
-      cancelled: jobs.filter((j) => j.status === 'cancelled').length,
-      overdue: jobs.filter((j) => j.appointmentDate < now && open(j.status)).length,
-    },
-    newRequests: db.requests.all().filter((r) => r.status === 'new').length,
-    outstandingQuotes: db.quotations.all().filter((q) => q.status === 'sent' || q.status === 'draft').length,
-    unpaidInvoices: invoices.filter((i) => ['issued', 'overdue', 'partially_paid'].includes(i.status)).length,
-    collectedRevenue: sum(invoices.map((i) => i.amountPaid)),
-    outstandingRevenue: sum(invoices.filter((i) => i.status !== 'void').map((i) => i.balanceDue)),
-    maintenanceDue: db.equipment.all().filter((e) => e.status !== 'decommissioned' && e.nextServiceDueDate <= addDays(now, 5)).length,
+    jobs: { total, today: todayCount, inProgress, completed, cancelled, overdue },
+    newRequests,
+    outstandingQuotes, unpaidInvoices, collectedRevenue: n(collected._sum.amountPaid), outstandingRevenue: n(outstanding._sum.balanceDue),
+    maintenanceDue,
   };
 }
 
@@ -57,5 +65,5 @@ export const reportsRouter = Router();
 const fin = allow('admin', 'accountant');
 reportsRouter.get('/reports/financial', fin, h(financial));
 reportsRouter.get('/reports/technicians', fin, h(technicianUtilisation));
-reportsRouter.get('/reports/low-stock', fin, h(() => db.parts.all().filter(isLowStock)));
+reportsRouter.get('/reports/low-stock', fin, h(async () => (await partsRepo.all()).filter(isLowStock)));
 reportsRouter.get('/dashboard', allow('admin', 'dispatcher', 'accountant'), h(() => dashboard()));

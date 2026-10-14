@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { paginate } from '../../common/paginate.js';
-import { db } from '../../common/store.js';
 import { hhmm, isoDate, money, priority } from '../../common/zod.js';
 import { generateFromJob } from '../invoices/service.js';
 import * as svc from './service.js';
@@ -45,16 +44,16 @@ const staff = allow('admin', 'dispatcher');
 const field = allow('admin', 'dispatcher', 'technician');
 
 // Technicians only ever see their own jobs.
-jobsRouter.get('/', field, h((req) =>
-  paginate(db.jobs.all().filter((j) => req.user.role !== 'technician' || j.technicianId === req.user.technicianId), req.query)));
+jobsRouter.get('/', field, h(async (req) =>
+  paginate(await svc.listJobs(req.user.role === 'technician' ? { technicianId: req.user.technicianId } : undefined), req.query)));
 
-jobsRouter.get('/conflicts', staff, h((req) => {
+jobsRouter.get('/conflicts', staff, h(async (req) => {
   const q = z.object({ technicianId: z.string(), date: isoDate, startTime: hhmm, endTime: hhmm, excludeJobId: z.string().optional() }).parse(req.query);
-  return { conflict: svc.findConflict(q.technicianId, q.date, q.startTime, q.endTime, q.excludeJobId) };
+  return { conflict: await svc.findConflict(q.technicianId, q.date, q.startTime, q.endTime, q.excludeJobId) };
 }));
 
-jobsRouter.get('/:id', field, h((req) => {
-  const j = svc.getJob(req.params.id);
+jobsRouter.get('/:id', field, h(async (req) => {
+  const j = await svc.getJob(req.params.id);
   if (req.user.role === 'technician') svc.assertOwnJob(j, req.user);
   return j;
 }));
@@ -64,8 +63,8 @@ jobsRouter.post('/', staff, h((req) => {
   return svc.createJob({ ...d, estimatedDurationMinutes: d.estimatedDurationMinutes ?? mins(d) }, actor(req));
 }, 201));
 
-jobsRouter.patch('/:id', field, h((req) => {
-  const j = svc.getJob(req.params.id);
+jobsRouter.patch('/:id', field, h(async (req) => {
+  const j = await svc.getJob(req.params.id);
   if (req.user.role === 'technician') {
     svc.assertOwnJob(j, req.user);
     return svc.updateJob(j.id, techPatch.parse(req.body) as any, actor(req), 'Work record updated');
@@ -73,18 +72,18 @@ jobsRouter.patch('/:id', field, h((req) => {
   return svc.updateJob(j.id, dispatchPatch.parse(req.body) as any, actor(req));
 }));
 
-jobsRouter.post('/:id/status', field, h((req) => {
+jobsRouter.post('/:id/status', field, h(async (req) => {
   const b = z.object({ status: jobStatus, note: z.string().optional(), override: z.boolean().default(false) }).parse(req.body);
-  const j = svc.getJob(req.params.id);
+  const j = await svc.getJob(req.params.id);
   if (req.user.role === 'technician') { svc.assertOwnJob(j, req.user); svc.assertTechStatus(b.status); }
   return svc.changeStatus(j.id, b.status, actor(req), b);
 }));
 
-jobsRouter.post('/:id/parts', field, h((req) => {
+jobsRouter.post('/:id/parts', field, h(async (req) => {
   const b = z.object({ partId: z.string().min(1), quantity: z.number().int().positive() }).parse(req.body);
-  const j = svc.getJob(req.params.id);
+  const j = await svc.getJob(req.params.id);
   if (req.user.role === 'technician') svc.assertOwnJob(j, req.user);
   return svc.addPartUsed(j.id, b.partId, b.quantity, actor(req));
 }));
 
-jobsRouter.post('/:id/invoice', allow('admin', 'accountant'), h((req) => generateFromJob(svc.getJob(req.params.id), actor(req)), 201));
+jobsRouter.post('/:id/invoice', allow('admin', 'accountant'), h(async (req) => generateFromJob(await svc.getJob(req.params.id), actor(req)), 201));

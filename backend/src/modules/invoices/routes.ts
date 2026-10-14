@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { paginate } from '../../common/paginate.js';
-import { db } from '../../common/store.js';
 import { isoDate, lineItems } from '../../common/zod.js';
 import * as svc from './service.js';
 
@@ -20,7 +19,7 @@ const payment = z.object({
 
 export const invoicesRouter = Router();
 invoicesRouter.use(allow('admin', 'accountant'));
-invoicesRouter.get('/', h((req) => paginate(db.invoices.all(), req.query)));
+invoicesRouter.get('/', h(async (req) => paginate(await svc.listInvoices(), req.query)));
 invoicesRouter.get('/:id', h((req) => svc.getInvoice(req.params.id)));
 invoicesRouter.post('/', h((req) => svc.createInvoice(invoice.parse(req.body)), 201));
 invoicesRouter.patch('/:id', h((req) => svc.updateInvoice(req.params.id, invoice.omit({ customerId: true, locationId: true, quoteId: true, jobId: true, status: true }).partial().parse(req.body))));

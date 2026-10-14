@@ -1,7 +1,7 @@
 # Backend
 
-Express + TypeScript API from `TECH_SPEC.md`. Everything except the database is in place; storage is an
-in-memory repo (`src/common/store.ts`) to be swapped for Prisma/Postgres.
+Express + TypeScript API from `TECH_SPEC.md`. Storage is Postgres via Prisma
+(`prisma/schema.prisma`, migrations in `prisma/migrations`).
 
 ```
 npm install

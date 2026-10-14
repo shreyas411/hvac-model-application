@@ -1,53 +1,87 @@
+import type { Prisma } from '@prisma/client';
 import type { Quotation } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
-import { conflict } from '../../common/errors.js';
+import { conflict, notFound } from '../../common/errors.js';
 import { toMinutes, today } from '../../common/dates.js';
 import { totals } from '../../common/money.js';
 import { nextNumber } from '../../common/numbering.js';
-import { db, must } from '../../common/store.js';
+import { date, isUuid, lockRow, plain, prisma, refer, type Tx } from '../../common/prisma.js';
+import { getSettings } from '../settings/service.js';
 import { assertLocation } from '../customers/service.js';
-import { fromQuotation, toLineItems, type InvoiceInput } from '../invoices/service.js';
-import { createJob } from '../jobs/service.js';
+import { fromQuotation, lineImport, lineRows, type ItemInput } from '../invoices/service.js';
+import { createJob, getJob } from '../jobs/service.js';
 
-export const getQuotation = (id: string) => must(db.quotations, id, 'Quotation');
+const include = { items: { orderBy: { position: 'asc' } } } satisfies Prisma.QuotationInclude;
+type Row = Prisma.QuotationGetPayload<{ include: typeof include }>;
+
+const toQuotation = ({ legacyId, items, ...q }: Row) => ({
+  ...plain(q, [], ['issueDate', 'expiryDate']),
+  items: items.map(({ quotationId, invoiceId, position, ...x }) => plain(x)),
+}) as unknown as Quotation;
+
+export async function getQuotation(id: string, c: Tx = prisma) {
+  const row = isUuid(id) ? await c.quotation.findUnique({ where: { id }, include }) : null;
+  if (!row) throw notFound('Quotation');
+  return toQuotation(row);
+}
+export const listQuotations = async () => (await prisma.quotation.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toQuotation);
 
 type Input = {
   customerId: string; locationId: string; jobId?: string; issueDate: string; expiryDate: string;
-  items: InvoiceInput['items']; vatRatePercent?: number; terms?: string; notes?: string;
+  items: ItemInput[]; vatRatePercent?: number; terms?: string; notes?: string;
 };
 
-const priced = (i: Pick<Input, 'items' | 'vatRatePercent'>) => {
-  const items = toLineItems(i.items);
-  const vatRatePercent = i.vatRatePercent ?? db.settings.defaultVatRate;
-  return { items, vatRatePercent, ...totals(items.map((x) => x.amount), vatRatePercent) };
+const priced = async (items: ItemInput[], vatRatePercent?: number) => {
+  const rows = lineRows(items);
+  const vat = vatRatePercent ?? (await getSettings()).defaultVatRate;
+  return { rows, vatRatePercent: vat, ...totals(rows.map((x) => x.amount), vat) };
 };
 
-export function createQuotation(i: Input) {
-  assertLocation(i.customerId, i.locationId);
-  if (i.jobId) must(db.jobs, i.jobId, 'Job');
-  return db.quotations.insert({
-    quoteNumber: nextNumber('quote'), customerId: i.customerId, locationId: i.locationId, jobId: i.jobId,
-    issueDate: i.issueDate, expiryDate: i.expiryDate, status: 'draft', ...priced(i),
-    terms: i.terms ?? db.settings.termsAndConditions, notes: i.notes,
-  });
+export async function createQuotation(i: Input) {
+  await assertLocation(i.customerId, i.locationId);
+  if (i.jobId) await getJob(i.jobId);
+  const { rows, ...p } = await priced(i.items, i.vatRatePercent);
+  return toQuotation(await prisma.$transaction(async (tx) => tx.quotation.create({
+    include,
+    data: {
+      quoteNumber: await nextNumber('quote'), customerId: i.customerId, locationId: i.locationId, jobId: i.jobId,
+      issueDate: new Date(i.issueDate), expiryDate: new Date(i.expiryDate), status: 'draft', ...p,
+      terms: i.terms ?? (await getSettings()).termsAndConditions, notes: i.notes, items: { create: rows },
+    },
+  })));
 }
 
 export function updateQuotation(id: string, patch: Partial<Input>) {
-  const q = getQuotation(id);
-  if (q.status !== 'draft' && q.status !== 'sent') throw conflict('NOT_EDITABLE', `A ${q.status} quotation cannot be edited`);
-  const { items, vatRatePercent, ...rest } = patch;
-  return db.quotations.update(id, { ...rest, ...(items || vatRatePercent !== undefined ? priced({ items: items ?? q.items, vatRatePercent: vatRatePercent ?? q.vatRatePercent }) : {}) });
+  return prisma.$transaction(async (tx) => {
+    await lockRow(tx, 'quotations', id);
+    const q = await getQuotation(id, tx);
+    if (q.status !== 'draft' && q.status !== 'sent') throw conflict('NOT_EDITABLE', `A ${q.status} quotation cannot be edited`);
+    const { items, vatRatePercent, issueDate, expiryDate, ...rest } = patch;
+    if (rest.customerId || rest.locationId) await assertLocation(rest.customerId ?? q.customerId, rest.locationId ?? q.locationId);
+    if (rest.jobId) await getJob(rest.jobId, tx);
+    const repriced = items || vatRatePercent !== undefined ? await priced(items ?? q.items, vatRatePercent ?? q.vatRatePercent) : undefined;
+    return toQuotation(await tx.quotation.update({
+      where: { id }, include,
+      data: {
+        ...rest, ...(issueDate && { issueDate: new Date(issueDate) }), ...(expiryDate && { expiryDate: new Date(expiryDate) }),
+        ...(repriced && { vatRatePercent: repriced.vatRatePercent, subtotal: repriced.subtotal, vatAmount: repriced.vatAmount, total: repriced.total, items: { deleteMany: {}, create: repriced.rows } }),
+      },
+    }));
+  });
 }
 
-const move = (id: string, from: Quotation['status'][], to: Quotation['status'], extra: Partial<Quotation> = {}) => {
-  const q = getQuotation(id);
-  if (!from.includes(q.status)) throw conflict('INVALID_TRANSITION', `Cannot move quotation from ${q.status} to ${to}`);
-  return db.quotations.update(id, { status: to, ...extra });
-};
+/** Conditional UPDATE: only moves from an allowed status, so concurrent transitions can't both win. */
+async function move(id: string, from: Quotation['status'][], to: Quotation['status'], extra: Prisma.QuotationUpdateManyMutationInput = {}) {
+  const { count } = isUuid(id) ? await prisma.quotation.updateMany({ where: { id, status: { in: from } }, data: { status: to, ...extra } }) : { count: 0 };
+  if (!count) {
+    const q = await getQuotation(id); // 404 if it doesn't exist
+    throw conflict('INVALID_TRANSITION', `Cannot move quotation from ${q.status} to ${to}`);
+  }
+  return getQuotation(id);
+}
 export const send = (id: string) => move(id, ['draft'], 'sent');
 export const reject = (id: string) => move(id, ['sent', 'viewed'], 'rejected');
-export const accept = (id: string, acceptedBy: string) =>
-  move(id, ['sent', 'viewed'], 'accepted', { acceptedAt: new Date().toISOString(), acceptedBy });
+export const accept = (id: string, acceptedBy: string) => move(id, ['sent', 'viewed'], 'accepted', { acceptedAt: new Date(), acceptedBy });
 
 function assertConvertible(q: Quotation, already: string | undefined) {
   if (q.status !== 'accepted') throw conflict('NOT_ACCEPTED', 'Quotation must be accepted first');
@@ -55,32 +89,57 @@ function assertConvertible(q: Quotation, already: string | undefined) {
 }
 
 export function convertToJob(id: string, slot: { appointmentDate: string; startTime: string; endTime: string; technicianId?: string | null }, who: Actor) {
-  const q = getQuotation(id);
-  assertConvertible(q, q.convertedToJobId);
-  const labourHours = q.items.filter((i) => i.type === 'labour').reduce((a, l) => a + l.quantity, 0) || 4;
-  const job = createJob({
-    customerId: q.customerId, locationId: q.locationId, equipmentIds: [], type: 'installation', priority: 'medium',
-    technicianId: slot.technicianId || null, ...slot,
-    estimatedDurationMinutes: Math.max(60, toMinutes(slot.endTime) - toMinutes(slot.startTime)),
-    requiredSkills: ['F-Gas Heat Pumps', 'Domestic Gas'], description: `Installation work as agreed per Quotation ${q.quoteNumber}`,
-    internalNotes: q.notes, labourHours, hourlyRate: 85, travelTimeMinutes: 30, travelCharge: 35,
-    checklist: ['Pre-installation survey & isolate services', 'Position equipment on secure mounts', 'Connect pipework & leak test', 'Commissioning & customer handover']
-      .map((label, i) => ({ id: `chk-${i + 1}`, category: 'general' as const, label, checked: false })),
-    auditAction: 'Created from Quotation', auditDetails: `Generated from accepted quote ${q.quoteNumber}`,
-  }, who);
-  return { job, quotation: db.quotations.update(id, { convertedToJobId: job.id }) };
+  return prisma.$transaction(async (tx) => {
+    await lockRow(tx, 'quotations', id);
+    const q = await getQuotation(id, tx);
+    assertConvertible(q, q.convertedToJobId);
+    const labourHours = q.items.filter((i) => i.type === 'labour').reduce((a, l) => a + l.quantity, 0) || 4;
+    const job = await createJob({
+      customerId: q.customerId, locationId: q.locationId, equipmentIds: [], type: 'installation', priority: 'medium',
+      technicianId: slot.technicianId || null, ...slot,
+      estimatedDurationMinutes: Math.max(60, toMinutes(slot.endTime) - toMinutes(slot.startTime)),
+      requiredSkills: ['F-Gas Heat Pumps', 'Domestic Gas'], description: `Installation work as agreed per Quotation ${q.quoteNumber}`,
+      internalNotes: q.notes, labourHours, hourlyRate: 85, travelTimeMinutes: 30, travelCharge: 35,
+      checklist: ['Pre-installation survey & isolate services', 'Position equipment on secure mounts', 'Connect pipework & leak test', 'Commissioning & customer handover']
+        .map((label, i) => ({ id: `chk-${i + 1}`, category: 'general' as const, label, checked: false })),
+      auditAction: 'Created from Quotation', auditDetails: `Generated from accepted quote ${q.quoteNumber}`,
+    }, who, tx);
+    await tx.quotation.update({ where: { id }, data: { convertedToJobId: job.id } });
+    return { job, quotation: await getQuotation(id, tx) };
+  });
 }
 
 export function convertToInvoice(id: string) {
-  const q = getQuotation(id);
-  assertConvertible(q, q.convertedToInvoiceId);
-  const invoice = fromQuotation(q);
-  return { invoice, quotation: db.quotations.update(id, { convertedToInvoiceId: invoice.id }) };
+  return prisma.$transaction(async (tx) => {
+    await lockRow(tx, 'quotations', id);
+    const q = await getQuotation(id, tx);
+    assertConvertible(q, q.convertedToInvoiceId);
+    const invoice = await fromQuotation(q, tx);
+    await tx.quotation.update({ where: { id }, data: { convertedToInvoiceId: invoice.id } });
+    return { invoice, quotation: await getQuotation(id, tx) };
+  });
 }
 
-/** Daily sweep: sent/viewed quotations past expiry_date become expired. */
-export function expireQuotations(now = today()) {
-  const late = db.quotations.all().filter((q) => (q.status === 'sent' || q.status === 'viewed') && q.expiryDate < now);
-  late.forEach((q) => db.quotations.update(q.id, { status: 'expired' }));
-  return late.length;
+/** Daily sweep: sent/viewed quotations past expiry_date become expired (also done by pg_cron, see the migration). */
+export async function expireQuotations(now = today()) {
+  const { count } = await prisma.quotation.updateMany({ where: { status: { in: ['sent', 'viewed'] }, expiryDate: { lt: new Date(now) } }, data: { status: 'expired' } });
+  return count;
 }
+
+/** Import ops (see importPartOps). Quotation ids are pre-assigned in `ids`; `link` runs after the invoices exist. */
+export const importQuotationOps = (rows: any[], ids: Map<string, string>) => ({
+  wipe: prisma.quotation.deleteMany(),
+  create: rows.map((q) => {
+    const at = `quotation ${q.id}`;
+    return prisma.quotation.create({ data: {
+      id: ids.get(q.id)!, legacyId: q.id, quoteNumber: q.quoteNumber, customerId: refer(ids, q.customerId, at), locationId: refer(ids, q.locationId, at),
+      jobId: q.jobId ? refer(ids, q.jobId, at) : null, issueDate: new Date(q.issueDate), expiryDate: new Date(q.expiryDate), status: q.status ?? 'draft',
+      subtotal: q.subtotal ?? 0, vatRatePercent: q.vatRatePercent ?? 0, vatAmount: q.vatAmount ?? 0, total: q.total ?? 0,
+      terms: q.terms ?? '', notes: q.notes, acceptedAt: date(q.acceptedAt), acceptedBy: q.acceptedBy,
+      convertedToJobId: q.convertedToJobId ? refer(ids, q.convertedToJobId, at) : null, createdAt: date(q.createdAt),
+      items: { create: lineImport(q.items) },
+    } });
+  }),
+  link: rows.filter((q) => q.convertedToInvoiceId).map((q) =>
+    prisma.quotation.update({ where: { id: ids.get(q.id)! }, data: { convertedToInvoiceId: refer(ids, q.convertedToInvoiceId, `quotation ${q.id}`) } })),
+});
