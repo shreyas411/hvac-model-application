@@ -8,7 +8,7 @@ interface RoleBannerProps {
 }
 
 export const RoleBanner: React.FC<RoleBannerProps> = ({ onSelectTab }) => {
-  const { currentUser, switchUserRole } = useApp();
+  const { currentUser, switchUserRole, realAuth } = useApp();
 
   const roleConfigs: Record<
     UserRole,
@@ -63,8 +63,9 @@ export const RoleBanner: React.FC<RoleBannerProps> = ({ onSelectTab }) => {
           </div>
         </div>
 
-        {/* Quick Switch Buttons for Testing Roles */}
+        {/* Quick Switch Buttons for Testing Roles (dev only: signed-in users can't switch) */}
         <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+          {!realAuth && (<>
           <span className="text-[11px] text-slate-500 font-medium mr-1 hidden sm:inline">
             Test as:
           </span>
@@ -111,6 +112,7 @@ export const RoleBanner: React.FC<RoleBannerProps> = ({ onSelectTab }) => {
           >
             Accountant
           </button>
+          </>)}
 
           {currentConfig.primaryAction && (
             <button

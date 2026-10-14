@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { services } from '../services';
-import { setDevUser } from '../services/api';
+import { REAL_AUTH, setDevUser } from '../services/api';
+import { useAuth } from '../components/auth/AuthGate';
 import { useDataStore } from '../store/useDataStore';
 import {
   CompanySettings,
@@ -43,6 +44,9 @@ interface AppContextType {
   setCurrentUser: (user: User) => void;
   switchUserRole: (role: UserRole) => void;
   users: User[];
+  /** True when signed in with a real account: no role switching, and `logout` is available. */
+  realAuth: boolean;
+  logout: () => Promise<void>;
   
   // Settings
   settings: CompanySettings;
@@ -130,8 +134,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const [users] = useState<User[]>(INITIAL_USERS);
+  const { user: signedIn, logout } = useAuth();
+  const [users] = useState<User[]>(() => (signedIn ? [signedIn] : INITIAL_USERS));
   const [currentUser, setCurrentUser] = useState<User>(() => {
+    if (signedIn) return signedIn; // real account: the server decides who this is
     const u = loadStored('currentUser', INITIAL_USERS[0]);
     setDevUser(`dev-${u.role}`); // before any data loads, so the first requests carry the right identity
     return u;
@@ -169,11 +175,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Persist the active profile; everything else lives on the server.
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY}_currentUser`, JSON.stringify(currentUser));
+    if (!signedIn) localStorage.setItem(`${STORAGE_KEY}_currentUser`, JSON.stringify(currentUser));
   }, [currentUser]);
 
   // Role switching: the backend identifies the dev user by header, so reload everything it scopes by role.
   const switchUserRole = (role: UserRole) => {
+    if (REAL_AUTH) return; // signed-in users can't impersonate other roles
     const userForRole = users.find((u) => u.role === role);
     if (userForRole) {
       setDevUser(`dev-${role}`);
@@ -472,6 +479,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUser,
         switchUserRole,
         users,
+        realAuth: REAL_AUTH,
+        logout,
         settings,
         updateSettings,
         resetAllData,

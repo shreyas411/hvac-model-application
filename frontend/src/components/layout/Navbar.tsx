@@ -9,7 +9,8 @@ import {
   Menu, 
   X, 
   HelpCircle,
-  Bell
+  Bell,
+  LogOut,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -25,7 +26,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenWorkflowGuide,
   onQuickAction,
 }) => {
-  const { currentUser, switchUserRole, users, notifications } = useApp();
+  const { currentUser, switchUserRole, users, notifications, realAuth, logout } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
@@ -220,7 +221,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => setRoleMenuOpen(!roleMenuOpen)}
                 className="flex items-center gap-2 px-2.5 py-1.5 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors text-left"
-                title="Switch active user & role to test permissions"
+                title={realAuth ? 'Account' : 'Switch active user & role to test permissions'}
               >
                 <div className="w-6 h-6 rounded bg-slate-900 text-white text-xs flex items-center justify-center font-bold">
                   {currentUser.name.charAt(0)}
@@ -238,6 +239,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {roleMenuOpen && (
                 <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-lg shadow-xl p-2 z-50">
+                  {realAuth ? (
+                    <div className="space-y-1">
+                      <div className="px-2 py-1.5 border-b border-slate-100">
+                        <p className="text-xs font-semibold text-slate-900">{currentUser.name}</p>
+                        <p className="text-[11px] text-slate-500">{currentUser.email} · <span className="capitalize">{currentUser.role}</span></p>
+                      </div>
+                      <button
+                        onClick={logout}
+                        className="w-full flex items-center gap-2 px-2 py-2 text-xs font-medium text-slate-700 rounded-md hover:bg-slate-50"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        Sign out
+                      </button>
+                    </div>
+                  ) : (
+                  <>
                   <div className="px-2 py-1.5 border-b border-slate-100 mb-1">
                     <p className="text-xs font-semibold text-slate-900">Switch User & Role</p>
                     <p className="text-[11px] text-slate-500">Test multi-role permissions in real time</p>
@@ -268,6 +285,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       );
                     })}
                   </div>
+                  </>
+                  )}
                 </div>
               )}
             </div>

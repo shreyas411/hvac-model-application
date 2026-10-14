@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+import { AuthGate } from './components/auth/AuthGate';
 import { Navbar } from './components/layout/Navbar';
 import { RoleBanner } from './components/layout/RoleBanner';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -202,8 +203,10 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
+    <AuthGate>
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </AuthGate>
   );
 }
