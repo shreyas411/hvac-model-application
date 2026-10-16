@@ -17,6 +17,8 @@ export interface TechnicianProfile {
   email: string;
   gasSafeLicense?: string;
   fGasLicense?: string;
+  gasSafeExpiry?: string;
+  fGasExpiry?: string;
   skills: string[]; // e.g. ['Domestic Gas', 'Commercial Gas', 'F-Gas Heat Pumps', 'VRF Air Conditioning']
   color: string; // for calendar display
   active: boolean;
@@ -178,6 +180,7 @@ export interface Job {
   customerId: string;
   locationId: string;
   equipmentIds: string[];
+  refrigerantLogs?: RefrigerantLogEntry[];
   type: JobType;
   priority: Priority;
   status: JobStatus;
@@ -218,6 +221,7 @@ export interface LineItem {
   description: string;
   quantity: number;
   unitPrice: number;
+  vatRatePercent?: number;
   amount: number;
 }
 
@@ -245,7 +249,7 @@ export interface Quotation {
   updatedAt: string;
 }
 
-export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'overdue' | 'void';
+export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'overdue' | 'void' | 'credited';
 
 export interface PaymentRecord {
   id: string;
@@ -314,7 +318,7 @@ export interface CustomerNotification {
   channel: 'email' | 'sms';
   subject: string;
   messageBody: string;
-  status: 'draft' | 'ready_to_send' | 'sent' | 'failed';
+  status: 'draft' | 'ready_to_send' | 'sending' | 'sent' | 'failed';
   sentAt?: string;
   approvedBy?: string;
   createdAt: string;
@@ -334,7 +338,7 @@ export interface CompanySettings {
   postcode: string;
   website: string;
   currencySymbol: string;
-  defaultVatRate: number;
+  defaultVatRate: number; defaultHourlyRate: number; defaultTravelCharge: number;
   availableVatRates: number[];
   workingHoursStart: string;
   workingHoursEnd: string;
@@ -350,4 +354,27 @@ export interface CompanySettings {
     iban?: string;
   };
   termsAndConditions: string;
+}
+
+export interface ChecklistTemplate {
+  id: string;
+  jobType: JobType;
+  label: string;
+  category: JobChecklistItem['category'];
+}
+
+export interface RefrigerantLogEntry {
+  id: string; equipmentId?: string; refrigerant: string; action: 'charge' | 'recover' | 'reclaim' | 'leak_check';
+  amountKg: number; cylinderId: string; certNumber: string; notes?: string; createdBy: string; createdAt: string;
+}
+
+export interface MaintenanceAgreement {
+  id: string;
+  customerId: string;
+  locationId: string;
+  equipmentId?: string | null;
+  frequency: 'quarterly' | 'biannual' | 'annual';
+  nextDueDate: string;
+  active: boolean;
+  notes?: string | null;
 }

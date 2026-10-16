@@ -1,7 +1,9 @@
 import React, { useState, useRef } from 'react';
+import { downloadSheet } from '../../utils/pdf';
 import { useApp } from '../../context/AppContext';
 import { Job, JobStatus, JobChecklistItem, EquipmentReading, TechnicianProfile } from '../../types';
-import { formatGBP, formatDateUK, formatTimeOnly } from '../../utils/formatters';
+import { useChecklistTemplates, toChecklistItems } from '../../data/checklistTemplates';
+import { formatGBP, formatDateUK, formatTimeOnly, canMoveJob } from '../../utils/formatters';
 import { 
   CheckCircle2, 
   Clock, 
@@ -18,7 +20,8 @@ import {
   RotateCcw,
   Plus,
   Flame,
-  Printer
+  Printer,
+  Download
 } from 'lucide-react';
 
 interface TechnicianPortalViewProps {
@@ -86,6 +89,14 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
   const techJobs = jobs.filter(
     (j) => j.technicianId === activeTech.id && j.status !== 'cancelled'
   );
+
+  // Add a template item (or a custom one) to the job's checklist
+  const { templates } = useChecklistTemplates();
+  const [customItem, setCustomItem] = useState('');
+  const addChecklistItems = (items: JobChecklistItem[]) => {
+    if (!activeJob || !items.length) return;
+    updateJob(activeJob.id, { checklist: [...activeJob.checklist, ...items] }, 'Added checklist items');
+  };
 
   // Toggle checklist item
   const handleChecklistToggle = (itemId: string) => {
@@ -290,8 +301,11 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               <label className="block text-xs font-semibold text-slate-600 mb-2">
                 Update Job Status Progress:
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
+                  { status: 'new' as JobStatus, label: 'New', color: 'bg-slate-600 text-white' },
+                  { status: 'awaiting_approval' as JobStatus, label: 'Awaiting Approval', color: 'bg-amber-600 text-white' },
+                  { status: 'scheduled' as JobStatus, label: 'Scheduled', color: 'bg-indigo-600 text-white' },
                   { status: 'dispatched' as JobStatus, label: 'On the Way', color: 'bg-purple-600 text-white' },
                   { status: 'in_progress' as JobStatus, label: 'Arrived / Start', color: 'bg-sky-600 text-white' },
                   { status: 'on_hold' as JobStatus, label: 'On Hold', color: 'bg-orange-600 text-white' },
@@ -299,11 +313,15 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                   { status: 'cancelled' as JobStatus, label: 'Cancel', color: 'bg-rose-600 text-white' },
                 ].map((item) => {
                   const isActive = activeJob.status === item.status;
+                  // backend limits technicians to TECH_TARGETS (jobs/service.ts); admins viewing the portal are only bound by the workflow
+                  const techOk = currentUser.role !== 'technician' || ['dispatched', 'in_progress', 'on_hold', 'completed'].includes(item.status);
+                  const allowed = isActive || (techOk && canMoveJob(activeJob.status, item.status));
                   return (
                     <button
                       key={item.status}
+                      disabled={!allowed}
                       onClick={() => updateJobStatus(activeJob.id, item.status)}
-                      className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all border ${
+                      className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all border disabled:opacity-40 disabled:cursor-not-allowed ${
                         isActive
                           ? `${item.color} shadow-xs border-transparent ring-2 ring-slate-900`
                           : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
@@ -413,6 +431,59 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                 </label>
               ))}
             </div>
+
+            {(() => {
+              const have = new Set(activeJob.checklist.map((c) => c.label));
+              const available = templates.filter((t) => t.jobType === activeJob.type && !have.has(t.label));
+              return (
+                <div className="pt-3 border-t border-slate-100 space-y-2 text-xs">
+                  {available.length > 0 && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700 capitalize">
+                          {activeJob.type.replace(/_/g, ' ')} checklist
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => addChecklistItems(toChecklistItems(available))}
+                          className="text-sky-700 font-semibold hover:underline"
+                        >
+                          Add all
+                        </button>
+                      </div>
+                      {available.map((t) => (
+                        <button
+                          key={t.label}
+                          type="button"
+                          onClick={() => addChecklistItems(toChecklistItems([t]))}
+                          className="w-full text-left px-2 py-1.5 rounded-lg border border-dashed border-slate-300 hover:bg-slate-50"
+                        >
+                          + {t.label}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  <form
+                    className="flex gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const label = customItem.trim();
+                      if (!label) return;
+                      addChecklistItems([{ id: crypto.randomUUID(), label, category: 'general', checked: false }]);
+                      setCustomItem('');
+                    }}
+                  >
+                    <input
+                      value={customItem}
+                      onChange={(e) => setCustomItem(e.target.value)}
+                      placeholder="Custom checklist item"
+                      className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5"
+                    />
+                    <button type="submit" className="px-3 rounded-lg bg-sky-700 text-white font-semibold">Add</button>
+                  </form>
+                </div>
+              );
+            })()}
           </div>
 
           {/* HVAC Diagnostic Readings & Findings Input */}
@@ -719,6 +790,13 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               </span>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={(e) => downloadSheet(e.currentTarget, `${activeJob.jobNumber}-report.pdf`)}
+                  className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+                <button
                   onClick={() => window.print()}
                   className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1"
                 >
@@ -735,7 +813,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             </div>
 
             {/* Printable Report Sheet */}
-            <div className="p-6 overflow-y-auto space-y-4 text-xs font-sans">
+            <div data-pdf-sheet className="p-6 overflow-y-auto space-y-4 text-xs font-sans">
               <div className="flex justify-between items-start border-b border-slate-200 pb-4">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">{settings.companyName}</h2>

@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { AuthGate } from './components/auth/AuthGate';
 import { Navbar } from './components/layout/Navbar';
+import { useTabRoute } from './routes';
 import { RoleBanner } from './components/layout/RoleBanner';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { DispatchBoardView } from './components/scheduling/DispatchBoardView';
@@ -19,6 +20,8 @@ import { InvoicesView } from './components/invoices/InvoicesView';
 import { InventoryView } from './components/inventory/InventoryView';
 import { NotificationsView } from './components/notifications/NotificationsView';
 import { ReportsView } from './components/reports/ReportsView';
+import { MaintenanceView } from './components/maintenance/MaintenanceView';
+import { ChecklistsView } from './components/checklists/ChecklistsView';
 import { SettingsView } from './components/settings/SettingsView';
 import { WorkflowGuideModal } from './components/workflows/WorkflowGuideModal';
 import { QuickCreateModals } from './components/modals/QuickCreateModals';
@@ -26,7 +29,7 @@ import { CheckCircle2, AlertCircle, Info, Flame } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { currentUser, toastMessage, settings } = useApp();
-  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [currentTab, setCurrentTab] = useTabRoute(currentUser.role);
   const [workflowGuideOpen, setWorkflowGuideOpen] = useState<boolean>(false);
   const [quickActionModal, setQuickActionModal] = useState<
     'customer' | 'job' | 'request' | 'quote' | 'invoice' | null
@@ -153,6 +156,9 @@ const AppContent: React.FC = () => {
         {currentTab === 'notifications' && <NotificationsView />}
 
         {currentTab === 'reports' && <ReportsView />}
+
+        {currentTab === 'maintenance' && currentUser.role !== 'technician' && <MaintenanceView />}
+        {currentTab === 'checklists' && currentUser.role === 'admin' && <ChecklistsView />}
 
         {currentTab === 'settings' && <SettingsView />}
       </main>

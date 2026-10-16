@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Flame, Loader2 } from 'lucide-react';
 import type { User } from '../../types';
-import { ApiError, REAL_AUTH, SESSION_EXPIRED, setSession } from '../../services/api';
+import { ApiError, REAL_AUTH, SESSION_EXPIRED } from '../../services/api';
 import { auth } from '../../services/auth';
 
 interface AuthState { user: User | null; logout: () => Promise<void> }
@@ -25,7 +25,6 @@ function Login({ onDone, notice }: { onDone: (u: User) => void; notice?: string 
       await auth.login(email.trim(), password);
       onDone((await auth.me())!);
     } catch (err) {
-      setSession(null);
       setError(
         err instanceof ApiError && err.status === 401 && err.code === 'UNAUTHENTICATED'
           ? 'Signed in, but this account has no profile yet. Ask an administrator to set it up.'
@@ -76,14 +75,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!REAL_AUTH) return;
     auth.me().then(setUser)
-      .catch((e) => { if (e instanceof ApiError && e.status === 401) setSession(null); }) // only a refused session signs out, not a network error
+      .catch(() => {}) // network error: stay on the login screen rather than signing anything out
       .finally(() => setChecking(false));
     const expired = () => { setUser(null); setNotice('Your session expired. Please sign in again.'); };
     window.addEventListener(SESSION_EXPIRED, expired);
     return () => window.removeEventListener(SESSION_EXPIRED, expired);
   }, []);
 
-  if (!REAL_AUTH) return <>{children}</>;
+  if (!REAL_AUTH) return <AuthContext.Provider value={{ user: { id: 'dev-admin', name: 'Dev Admin', email: 'admin@dev.local', role: 'admin', phone: '' }, logout: async () => {} }}>{children}</AuthContext.Provider>;
   if (checking) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
   if (!user) return <Login onDone={(u) => { setNotice(undefined); setUser(u); }} notice={notice} />;
 

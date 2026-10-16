@@ -3,6 +3,7 @@ import type { CustomerNotification } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
 import { conflict, notFound, unprocessable } from '../../common/errors.js';
 import { date, isUuid, plain, prisma, refer } from '../../common/prisma.js';
+import { pageFrom } from '../../common/paginate.js';
 import { logger } from '../../common/logger.js';
 import { getCustomer } from '../customers/service.js';
 
@@ -19,6 +20,7 @@ export async function getNotification(id: string) {
   if (!row) throw notFound('Notification');
   return toNotification(row);
 }
+export const pageNotifications = (query: unknown) => pageFrom(query, prisma.notification, { searchFields: ['subject', 'recipient', 'messageBody'] }, toNotification);
 export const listNotifications = async () => (await prisma.notification.findMany({ orderBy: { createdAt: 'desc' } })).map(toNotification);
 
 type Input = Pick<CustomerNotification, 'customerId' | 'type' | 'channel' | 'subject' | 'messageBody'> & { recipient?: string; status?: 'draft' | 'ready_to_send' };
@@ -35,23 +37,22 @@ export async function createNotification(i: Input) {
 }
 
 /**
- * Sends one ready_to_send notification. The row stays locked while the provider runs, and SKIP LOCKED makes a second
- * caller (the API and a separate worker, say) pass over it, so a notification is never sent twice.
- * ponytail: the lock is held for the provider call (30s cap); switch to a `sending` status if real providers are slow.
+ * Sends one ready_to_send notification. A conditional UPDATE claims it (ready_to_send -> sending), so a second caller
+ * (the API and a separate worker, say) finds nothing to claim and a notification is never sent twice. The provider
+ * runs outside any transaction, so a slow provider holds no database connection or lock.
  */
 async function deliver(id: string) {
-  await prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<unknown[]>`SELECT 1 FROM customer_notifications WHERE id = ${id}::uuid AND status = 'ready_to_send' FOR UPDATE SKIP LOCKED`;
-    if (!locked.length) return;
-    const n = toNotification(await tx.notification.findUniqueOrThrow({ where: { id } }));
+  const claim = await prisma.notification.updateMany({ where: { id, status: 'ready_to_send' }, data: { status: 'sending', claimedAt: new Date() } });
+  if (claim.count) {
+    const n = toNotification(await prisma.notification.findUniqueOrThrow({ where: { id } }));
     try {
       await provider.send(n);
-      await tx.notification.update({ where: { id }, data: { status: 'sent', sentAt: new Date() } });
+      await prisma.notification.update({ where: { id }, data: { status: 'sent', sentAt: new Date() } });
     } catch (e) {
       logger.error({ id, err: e }, 'notification delivery failed');
-      await tx.notification.update({ where: { id }, data: { status: 'failed' } });
+      await prisma.notification.update({ where: { id }, data: { status: 'failed' } });
     }
-  }, { timeout: 30_000 });
+  }
   return getNotification(id);
 }
 
@@ -65,7 +66,11 @@ export async function approveAndSend(id: string, who: Actor) {
   return deliver(id);
 }
 
+const STUCK_SENDING_MS = 5 * 60_000;
+
 export async function deliverApproved() {
+  // A worker that died mid-send leaves `sending` rows behind: put them back in the queue (at-least-once for those rare rows).
+  await prisma.notification.updateMany({ where: { status: 'sending', claimedAt: { lt: new Date(Date.now() - STUCK_SENDING_MS) } }, data: { status: 'ready_to_send' } });
   const queued = await prisma.notification.findMany({ where: { status: 'ready_to_send', approvedBy: { not: null } }, select: { id: true } });
   for (const { id } of queued) await deliver(id);
   return queued.length;

@@ -69,3 +69,7 @@ Slide-in panel with name, type badge and company. Sections:
 - The drawer has no links to create jobs, quotes or invoices (props for that go unused) and shows no quotations or service requests.
 - The "All" count and archive filter do not reflect the active search or type filter.
 - Customer data lives in browser localStorage (via `AppContext`), so changes are per-browser.
+
+## Updates: postcode lookup
+
+Adding a service site has a postcode lookup (`frontend/src/services/postcode.ts`) that fills address line, city and postcode. It is currently a **mock** with a few test postcodes (SW1A 1AA, EC1A 1BB, M1 1AE, B1 1BB) and a simulated delay; swap in Loqate, GetAddress or Postcodes.io for production. Customer lists are paged and searched on the server.

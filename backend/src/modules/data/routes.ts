@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { allow } from '../../common/auth.js';
-import { h } from '../../common/errors.js';
+import { h, unprocessable } from '../../common/errors.js';
+import { audit } from '../../common/audit.js';
+import { actor } from '../../common/auth.js';
 import { counterOps } from '../../common/numbering.js';
 import { prisma } from '../../common/prisma.js';
 import { importCustomerOps, listCustomers } from '../customers/service.js';
@@ -48,6 +50,7 @@ dataRouter.get('/export', h(async () => ({
  * are only replaced when present. One transaction, so a bad file writes nothing.
  */
 dataRouter.post('/import', h(async (req) => {
+  if (req.query.confirm !== 'wipe') throw unprocessable('CONFIRMATION_REQUIRED', 'Import replaces all data: re-send with ?confirm=wipe (export first to keep a backup)');
   const data = payload.parse(req.body) as Record<string, any>;
   const settings = data.settings && settingsSchema.parse(data.settings);
   const nulled = req.query.nullDangling === 'true' ? ([] as string[]) : undefined; // spec §9.4: report, then null
@@ -77,5 +80,6 @@ dataRouter.post('/import', h(async (req) => {
       invoice: data.invoices?.map((i: any) => i.invoiceNumber), request: data.serviceRequests?.map((r: any) => r.requestNumber),
     }),
   ]);
+  await audit(prisma, 'data', 'import', actor(req), 'import', `replaced all data: ${keys.filter((k) => data[k]).map((k) => `${k}=${data[k].length}`).join(', ')}`);
   return { imported: Object.fromEntries(keys.filter((k) => data[k]).map((k) => [k, data[k].length])), ...(nulled?.length && { nulledReferences: nulled }) };
 }));

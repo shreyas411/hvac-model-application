@@ -10,3 +10,4 @@ Read-only.
 | GET | `/reports/technicians` | A C | Per technician: jobs, completed, hours, billable labour |
 | GET | `/reports/low-stock` | A C | Parts at or below `minStockLevel` |
 | GET | `/dashboard` | A D C | Job counts, new requests, outstanding quotes, unpaid invoices, collected and outstanding revenue, equipment maintenance due within 5 days |
+| GET | `/reports/vat` | A C | `?start=YYYY-MM-DD&end=YYYY-MM-DD` (both required). `{ period, box1, box4, netVat, isReclaimable }`: `box1` output VAT on non-void invoices issued in the period, `box4` input VAT on `restock_purchase` movements |

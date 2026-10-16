@@ -79,3 +79,8 @@ Dates use `new Date().toISOString().split('T')[0]` (UTC date).
 - No Escape/backdrop close, no form reset between uses, archived customers are selectable.
 - Navbar hides "+ New" for technicians, but the modal itself performs no role check; any view that passes `onOpenQuickAction` can open it.
 - Invoice VAT options are hard-coded rather than read from `settings.availableVatRates`.
+
+## Updates
+
+- The Quick Create **job** form now pre-fills the checklist from the checklist templates for the chosen job type ([checklists-features.md](checklists-features.md)) and no longer forces a placeholder required skill.
+- Customer defaults to the first loaded customer at render time (customers load after login), and request, job, quote and invoice creation need a customer *and* a service location.

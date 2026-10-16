@@ -12,3 +12,5 @@ Read: A D T. Write: A D. Service records: A D T.
 | PATCH | `/equipment/:id` | Partial |
 | DELETE | `/equipment/:id` | |
 | POST | `/equipment/:id/service-records` | `{ date, jobId, technicianName, serviceType, findings, readings?, partsReplaced?, recommendations? }`. Sets `lastServiceDate` and recomputes `nextServiceDueDate` |
+
+Technicians can only add service records for their own jobs, and the equipment must be on that job (`EQUIPMENT_NOT_ON_JOB`, `JOB_CLOSED`). `GET /equipment` is paged in the database.

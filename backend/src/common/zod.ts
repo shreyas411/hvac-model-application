@@ -10,4 +10,5 @@ export const lineItems = z.array(z.object({
   description: z.string().min(1),
   quantity: z.number().finite().positive(),
   unitPrice: z.number().finite(), // discounts are negative
+  vatRatePercent: z.number().min(0).max(100).optional(), // overrides the document's VAT rate for this line
 }));

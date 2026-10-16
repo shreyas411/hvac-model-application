@@ -69,3 +69,11 @@ Status buttons (`:552-571`) call `updateJobStatus` immediately (independent of S
 - `selectedJobId` from the Dashboard is not used; the target job is not opened.
 - The board always uses the hardcoded "today" of 2026-10-13.
 - Job cards cannot be created here beyond launching the Book Job quick-action modal.
+
+## Updates: guards and status rules
+
+- **Today** is the real current date (`getTodayISO()`), no longer the hard-coded 2026-10-13.
+- Assigning a technician is blocked with a "Certification Requirement Gap" banner when they lack a required skill, licence or have an expired licence; see [compliance-features.md](compliance-features.md).
+- Schedule conflicts now include a 30 minute travel buffer; the banner says whether it is an overlap or a buffer clash.
+- Status buttons cover all eight statuses and are disabled when the move is not allowed by the workflow (`canMoveJob`). Admins get a "Force status (skip workflow rules)" checkbox that sends `override=true` (a reason is required by the API).
+- Maintenance agreements create unassigned jobs here; see [maintenance-features.md](maintenance-features.md).

@@ -9,6 +9,7 @@ export const settingsSchema = z.object({
   vatNumber: z.string(), companyNumber: z.string(), email: z.string(), phone: z.string(),
   addressLine1: z.string(), city: z.string(), postcode: z.string(), website: z.string(),
   currencySymbol: z.string(), defaultVatRate: z.number().min(0).max(100),
+  defaultHourlyRate: z.number().nonnegative(), defaultTravelCharge: z.number().nonnegative(),
   availableVatRates: z.array(z.number().min(0).max(100)),
   workingHoursStart: z.string(), workingHoursEnd: z.string(), enableInventory: z.boolean(),
   prefixJob: z.string(), prefixQuote: z.string(), prefixInvoice: z.string(),
@@ -19,5 +20,9 @@ export const settingsSchema = z.object({
 }).partial();
 
 export const settingsRouter = Router();
-settingsRouter.get('/', h(getSettings));
+// Bank details are only for the roles that handle invoices.
+settingsRouter.get('/', h(async (req) => {
+  const { bankDetails, ...rest } = await getSettings();
+  return ['admin', 'accountant'].includes(req.user.role) ? { ...rest, bankDetails } : rest;
+}));
 settingsRouter.patch('/', allow('admin'), h((req) => updateSettings(settingsSchema.parse(req.body))));

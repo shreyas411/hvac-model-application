@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
-import { paginate } from '../../common/paginate.js';
 import { hhmm, isoDate, lineItems } from '../../common/zod.js';
 import * as svc from './service.js';
 
@@ -16,7 +15,7 @@ const slot = z.object({ appointmentDate: isoDate, startTime: hhmm, endTime: hhmm
 
 export const quotationsRouter = Router();
 quotationsRouter.use(allow('admin', 'dispatcher', 'accountant'));
-quotationsRouter.get('/', h(async (req) => paginate(await svc.listQuotations(), req.query)));
+quotationsRouter.get('/', h((req) => svc.pageQuotations(req.query)));
 quotationsRouter.get('/:id', h((req) => svc.getQuotation(req.params.id)));
 quotationsRouter.post('/', h((req) => svc.createQuotation(quotation.parse(req.body)), 201));
 quotationsRouter.patch('/:id', h((req) => svc.updateQuotation(req.params.id, base.partial().parse(req.body))));

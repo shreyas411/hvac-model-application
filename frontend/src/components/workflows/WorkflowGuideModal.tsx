@@ -27,7 +27,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
   onOpenQuickAction,
 }) => {
   const { switchUserRole } = useApp();
-  const [activeWorkflow, setActiveWorkflow] = useState<'A' | 'B' | 'C' | 'D'>('A');
+  const [activeWorkflow, setActiveWorkflow] = useState<'A' | 'B' | 'C' | 'D' | 'E' | 'F'>('A');
 
   if (!isOpen) return null;
 
@@ -59,10 +59,12 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
             { id: 'B', title: 'Workflow B: Quote to Job to Invoice' },
             { id: 'C', title: 'Workflow C: Preventive Maintenance' },
             { id: 'D', title: 'Workflow D: On-Site Finding & Follow-up' },
+            { id: 'E', title: 'Workflow E: Compliance & Safety' },
+            { id: 'F', title: 'Workflow F: Credit Notes & Refunds' },
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveWorkflow(tab.id as 'A' | 'B' | 'C' | 'D')}
+              onClick={() => setActiveWorkflow(tab.id as 'A' | 'B' | 'C' | 'D' | 'E' | 'F')}
               className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 activeWorkflow === tab.id
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
@@ -79,7 +81,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
           {activeWorkflow === 'A' && (
             <div className="space-y-4">
               <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-900">
-                <span className="font-bold">Workflow A Overview:</span> Customer enquiry → Service Request logged → Dispatcher books technician → Technician arrives, finishes checklist & captures customer signature → Service report printed → Invoice generated → BACS Payment recorded.
+                <span className="font-bold">Workflow A Overview:</span> Customer enquiry → Service Request logged → Dispatcher books technician → Technician arrives, finishes checklist & captures customer signature → Service report printed or downloaded as PDF → Invoice generated → BACS Payment recorded. Works offline: changes made without signal are queued and replayed.
               </div>
 
               <div className="space-y-3">
@@ -104,7 +106,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
                   <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">2</div>
                   <div className="flex-1">
                     <p className="font-semibold text-slate-900">Dispatcher Schedules Job</p>
-                    <p className="text-xs text-slate-600 mt-0.5">Convert request to job, assign an F-Gas certified technician (David Ross or Liam Campbell) with automatic conflict checking.</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Convert request to job, assign an F-Gas certified technician (David Ross or Liam Campbell) with automatic conflict checking (30-minute travel buffer) and licence/expiry checks.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -121,7 +123,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
                   <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">3</div>
                   <div className="flex-1">
                     <p className="font-semibold text-slate-900">Technician Van Portal Execution</p>
-                    <p className="text-xs text-slate-600 mt-0.5">Switch role to Technician. Mark "Arrived" → execute checklist → enter refrigerant/pressure readings → capture sign-off → generate Service Report.</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Switch role to Technician. Mark "Arrived" → add checklist items from the job type's template → tick the checklist → log refrigerant handling and pressure readings → capture sign-off → generate and download the Service Report. No signal? Keep going: the app queues your changes.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -139,7 +141,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
                   <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">4</div>
                   <div className="flex-1">
                     <p className="font-semibold text-slate-900">Generate Invoice & Record Payment</p>
-                    <p className="text-xs text-slate-600 mt-0.5">Generate VAT invoice from completed job labour and parts. Record BACS or card payment and balance reconciliation.</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Generate VAT invoice from completed job labour and parts. Record BACS or card payment and balance reconciliation, then use Download PDF on the invoice sheet.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -201,7 +203,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
           {activeWorkflow === 'C' && (
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
-                <span className="font-bold">Workflow C Overview:</span> System tracks equipment next service due dates → Flags upcoming/overdue maintenance → Office books appointment → Tech completes safety checklist → Equipment service history is updated.
+                <span className="font-bold">Workflow C Overview:</span> A Maintenance Plan (quarterly, six-monthly or annual) is set up per site → the daily sweep raises a preventive-maintenance job 14 days before it is due, with the checklist template → Dispatcher assigns a technician → Tech completes the safety checklist → Equipment service history is updated.
               </div>
 
               <div className="space-y-3">
@@ -225,9 +227,18 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
                 <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
                   <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">2</div>
                   <div className="flex-1">
-                    <p className="font-semibold text-slate-900">Book Preventive Maintenance Job</p>
-                    <p className="text-xs text-slate-600 mt-0.5">1-click "Book Service" pre-fills customer, equipment model, and Gas Safe requirements directly onto the dispatch board.</p>
+                    <p className="font-semibold text-slate-900">Set Up a Maintenance Plan</p>
+                    <p className="text-xs text-slate-600 mt-0.5">Add an agreement for a customer site (optionally one appliance) with a frequency and first due date. The system then books each visit onto the dispatch board for you; no manual re-booking.</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onNavigateTab('maintenance');
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200"
+                  >
+                    Maintenance Plans
+                  </button>
                 </div>
 
                 <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
@@ -293,12 +304,64 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
               </div>
             </div>
           )}
+
+          {(activeWorkflow === 'E' || activeWorkflow === 'F') && (() => {
+            const w = activeWorkflow === 'E'
+              ? {
+                  banner: 'bg-rose-50 border-rose-200 text-rose-900',
+                  overview: 'Technician is checked against the job (Gas Safe / F-Gas licence and expiry, travel buffer) → On site, safety checklist items are ticked and refrigerant handling is logged → The job cannot be completed without checklist, work performed and customer signature → Admin can override with a recorded reason.',
+                  steps: [
+                    { t: 'Assign a Qualified Technician', d: 'Open a job on a boiler or heat pump and try to assign a technician with no licence or an expired one: the board shows a Certification Requirement Gap and blocks the save. Set licence numbers and expiry dates under Settings → Technicians.', b: 'Open Dispatch', tab: 'dispatch', role: false },
+                    { t: 'Log Refrigerant and Tick Safety Items', d: 'As the technician, add the Inspection or Repair checklist items, tick the gas safety and electrical ones, and record refrigerant type, kg, cylinder and certificate number.', b: 'Tech Van Portal', tab: 'technician_portal', role: true },
+                    { t: 'Completion Gate', d: 'Try to complete with an unticked safety item or no signature: the job is refused and lists what is missing. Admins can force the status in the dispatch modal with a reason.', b: 'Open Dispatch', tab: 'dispatch', role: false },
+                    { t: 'Manage Checklist Templates', d: 'Admins edit which items each job type offers, and reorder them by drag and drop.', b: 'Checklists', tab: 'checklists', role: false },
+                  ],
+                }
+              : {
+                  banner: 'bg-violet-50 border-violet-200 text-violet-900',
+                  overview: 'An issued invoice contains an error or the customer returns work → Accountant raises a credit note for part or all of the invoice → Any payment already taken is refunded → The invoice moves to Credited and everything is audited. VAT return reflects the change.',
+                  steps: [
+                    { t: 'Find the Invoice', d: 'Open an issued or paid invoice. Void is only available while no payment or credit note exists, and needs a reason.', b: 'View Invoices', tab: 'invoices', role: false },
+                    { t: 'Raise a Credit Note', d: 'Credit part or all of the invoice (VAT-inclusive amount plus a reason). The CN- number is allocated automatically and the balance is recalculated; a fully credited invoice shows the Credited status.', b: 'View Invoices', tab: 'invoices', role: false },
+                    { t: 'Refund a Payment', d: 'Refund a recorded payment once; the invoice balance re-opens. Duplicate payment references are rejected.', b: 'View Invoices', tab: 'invoices', role: false },
+                    { t: 'Check the VAT Return', d: 'Output VAT on invoices and input VAT on stock purchases for any period are available from the reports API (GET /reports/vat).', b: 'View Reports', tab: 'reports', role: false },
+                  ],
+                };
+            return (
+              <div className="space-y-4">
+                <div className={`border rounded-lg p-3 text-xs ${w.banner}`}>
+                  <span className="font-bold">Workflow {activeWorkflow} Overview:</span> {w.overview}
+                </div>
+                <div className="space-y-3">
+                  {w.steps.map((step, i) => (
+                    <div key={step.t} className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300">
+                      <div className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-900">{step.t}</p>
+                        <p className="text-xs text-slate-600 mt-0.5">{step.d}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (step.role) switchUserRole('technician');
+                          onClose();
+                          onNavigateTab(step.tab);
+                        }}
+                        className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300"
+                      >
+                        {step.b}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
           <span className="text-xs text-slate-500">
-            Current Role: <strong className="capitalize">{activeWorkflow}</strong> test sequence
+            Workflow <strong>{activeWorkflow}</strong> test sequence
           </span>
           <button
             onClick={onClose}

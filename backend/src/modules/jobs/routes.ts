@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
-import { paginate } from '../../common/paginate.js';
 import { hhmm, isoDate, money, priority } from '../../common/zod.js';
+import { getSettings } from '../settings/service.js';
 import { generateFromJob } from '../invoices/service.js';
 import * as svc from './service.js';
 
@@ -13,7 +13,7 @@ const checklist = z.array(z.object({
   id: z.string().default(() => svc.newId()), label: z.string().min(1),
   category: z.enum(['gas_safety', 'electrical', 'refrigerant', 'general']), checked: z.boolean().default(false), notes: z.string().optional(),
 }));
-const signature = z.object({ name: z.string().min(1), dataUrl: z.string().min(1), signedAt: z.string() });
+const signature = z.object({ name: z.string().min(1), dataUrl: z.string().max(1_000_000).regex(/^data:image\/(png|jpeg|svg\+xml)[;,]/), signedAt: z.string() });
 
 const job = z.object({
   requestId: z.string().optional(),
@@ -25,7 +25,7 @@ const job = z.object({
   estimatedDurationMinutes: z.number().int().positive().optional(),
   requiredSkills: z.array(z.string()).default([]), description: z.string().min(1),
   internalNotes: z.string().optional(), workPerformed: z.string().optional(),
-  labourHours: z.number().nonnegative().default(0), hourlyRate: money.default(85),
+  labourHours: z.number().nonnegative().default(0), hourlyRate: money.optional(),
   travelTimeMinutes: z.number().int().nonnegative().default(0), travelCharge: money.default(0),
   customerSignature: signature.optional(), checklist: checklist.default([]),
   followUpRecommended: z.boolean().optional(), followUpNotes: z.string().optional(),
@@ -45,7 +45,7 @@ const field = allow('admin', 'dispatcher', 'technician');
 
 // Technicians only ever see their own jobs.
 jobsRouter.get('/', field, h(async (req) =>
-  paginate(await svc.listJobs(req.user.role === 'technician' ? { technicianId: req.user.technicianId } : undefined), req.query)));
+  svc.pageJobs(req.query, req.user.role === 'technician' ? { technicianId: req.user.technicianId } : undefined)));
 
 jobsRouter.get('/conflicts', staff, h(async (req) => {
   const q = z.object({ technicianId: z.string(), date: isoDate, startTime: hhmm, endTime: hhmm, excludeJobId: z.string().optional() }).parse(req.query);
@@ -58,9 +58,9 @@ jobsRouter.get('/:id', field, h(async (req) => {
   return j;
 }));
 
-jobsRouter.post('/', staff, h((req) => {
+jobsRouter.post('/', staff, h(async (req) => {
   const d = job.parse(req.body);
-  return svc.createJob({ ...d, estimatedDurationMinutes: d.estimatedDurationMinutes ?? mins(d) }, actor(req));
+  return svc.createJob({ ...d, hourlyRate: d.hourlyRate ?? (await getSettings()).defaultHourlyRate, estimatedDurationMinutes: d.estimatedDurationMinutes ?? mins(d) }, actor(req));
 }, 201));
 
 jobsRouter.patch('/:id', field, h(async (req) => {
@@ -86,4 +86,20 @@ jobsRouter.post('/:id/parts', field, h(async (req) => {
   return svc.addPartUsed(j.id, b.partId, b.quantity, actor(req));
 }));
 
-jobsRouter.post('/:id/invoice', allow('admin', 'accountant'), h(async (req) => generateFromJob(await svc.getJob(req.params.id), actor(req)), 201));
+jobsRouter.post('/:id/refrigerant', field, h(async (req) => {
+  const b = z.object({
+    refrigerant: z.string().trim().min(1), action: z.enum(['charge', 'recover', 'reclaim', 'leak_check']), amountKg: z.number().nonnegative().max(10_000),
+    cylinderId: z.string().default(''), certNumber: z.string().trim().min(1), equipmentId: z.string().uuid().optional(), notes: z.string().optional(),
+  }).parse(req.body);
+  const j = await svc.getJob(req.params.id);
+  if (req.user.role === 'technician') svc.assertOwnJob(j, req.user);
+  return svc.addRefrigerantLog(j.id, b, actor(req));
+}, 201));
+
+jobsRouter.delete('/:id/parts/:usedId', field, h(async (req) => {
+  const j = await svc.getJob(req.params.id);
+  if (req.user.role === 'technician') svc.assertOwnJob(j, req.user);
+  return svc.removePartUsed(j.id, req.params.usedId, actor(req));
+}));
+
+jobsRouter.post('/:id/invoice', allow('admin', 'accountant'), h(async (req) => generateFromJob(req.params.id, actor(req)), 201));

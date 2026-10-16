@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Job, JobStatus, Priority, JobType } from '../../types';
-import { formatGBP, formatDateUK } from '../../utils/formatters';
-import { 
-  Calendar as CalendarIcon, 
+import { formatGBP, formatDateUK, getTodayISO, canMoveJob } from '../../utils/formatters';
+import {
+  Calendar as CalendarIcon,
   Clock, 
   AlertTriangle, 
   Plus, 
@@ -32,12 +32,14 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   selectedJobId,
   onSelectJob,
 }) => {
-  const { 
-    jobs, 
-    technicians, 
-    customers, 
-    equipment, 
-    updateJob, 
+  console.log('%c[SCHE-DEBUG] 🛠️ DispatchBoardView Component Mounted', 'color: #ff00ff; font-weight: bold;');
+  const {
+    jobs,
+    technicians,
+    customers,
+    equipment,
+    updateJob,
+
     updateJobStatus, 
     checkScheduleConflict,
     currentUser,
@@ -45,8 +47,9 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   } = useApp();
 
   const [viewMode, setViewMode] = useState<'board' | 'list' | 'calendar'>('board');
-  const [selectedDate, setSelectedDate] = useState<string>('2026-10-13'); // Today
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayISO()); // Today
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [forceStatus, setForceStatus] = useState(false); // admin-only: send override=true to skip the workflow
 
   // Quick state for modal editing/rescheduling
   const [modalDate, setModalDate] = useState<string>('');
@@ -55,6 +58,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   const [modalTechnicianId, setModalTechnicianId] = useState<string>('');
   const [modalDescription, setModalDescription] = useState<string>('');
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+  const [certWarning, setCertWarning] = useState<string | null>(null);
 
   const openEditModal = (job: Job) => {
     setEditingJob(job);
@@ -64,11 +68,38 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     setModalTechnicianId(job.technicianId || '');
     setModalDescription(job.description);
     setConflictWarning(null);
+    setCertWarning(null);
   };
 
   const handleModalSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingJob) return;
+
+    // Check certification first
+    if (modalTechnicianId) {
+      const tech = technicians.find(t => t.id === modalTechnicianId);
+      const required = editingJob.requiredSkills || [];
+
+      if (required.length > 0 && tech) {
+        const techSkillsLower = tech.skills.map(s => s.toLowerCase());
+        const missingSkills = required.filter(s => !techSkillsLower.includes(s.toLowerCase()));
+        const missingLicenses: string[] = [];
+        if (required.some(s => s.toLowerCase() === 'gas_safe') && !tech.gasSafeLicense) missingLicenses.push('Gas Safe License');
+        if (required.some(s => s.toLowerCase() === 'f_gas') && !tech.fGasLicense) missingLicenses.push('F-Gas License');
+
+        if (missingSkills.length > 0 || missingLicenses.length > 0) {
+          const details = [
+            ...(missingSkills.length ? [`Missing skills: ${missingSkills.join(', ')}`] : []),
+            ...(missingLicenses.length ? [`Missing licenses: ${missingLicenses.join(', ')}`] : [])
+          ].join('; ');
+
+          console.warn('[Scheduling Guard] Blocked by Certification Gap:', details);
+          setCertWarning(`Certification Gap: Technician lacks required qualifications for this job. ${details}`);
+          return;
+        }
+      }
+    }
+
 
     // Check conflict
     if (modalTechnicianId) {
@@ -94,22 +125,31 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
         (parseInt(modalStartTime.split(':')[0]) * 60 + parseInt(modalStartTime.split(':')[1])))
     );
 
-    await updateJob(
-      editingJob.id,
-      {
-        appointmentDate: modalDate,
-        startTime: modalStartTime,
-        endTime: modalEndTime,
-        technicianId: modalTechnicianId || null,
-        description: modalDescription,
-        estimatedDurationMinutes: durationMins,
-        status: editingJob.status === 'new' && modalTechnicianId ? 'scheduled' : editingJob.status,
-      },
-      `Rescheduled appointment to ${modalDate} ${modalStartTime}-${modalEndTime} (${modalTechnicianId ? 'Assigned' : 'Unassigned'})`
-    );
+    console.log('%c[DEBUG] 🚀 Step 1: handleModalSave triggered', 'color: blue; font-weight: bold; font-size: 14px;');
+    console.log('[DEBUG] Current state:', { modalDate, modalStartTime, modalEndTime, modalTechnicianId });
+
+    try {
+      await updateJob(
+        editingJob.id,
+        {
+          appointmentDate: modalDate,
+          startTime: modalStartTime,
+          endTime: modalEndTime,
+          technicianId: modalTechnicianId || null,
+          description: modalDescription,
+          estimatedDurationMinutes: durationMins,
+          status: editingJob.status === 'new' && modalTechnicianId ? 'scheduled' : editingJob.status,
+        },
+        `Rescheduled appointment to ${modalDate} ${modalStartTime}-${modalEndTime} (${modalTechnicianId ? 'Assigned' : 'Unassigned'})`
+      );
+      console.log('%c[DEBUG] ✅ Step 2: updateJob call completed successfully', 'color: green; font-weight: bold; font-size: 14px;');
+    } catch (e) {
+      console.error('%c[DEBUG] ❌ Step 2: updateJob call failed', 'color: red; font-weight: bold; font-size: 14px;', e);
+    }
 
     setEditingJob(null);
   };
+
 
   const statusColors: Record<JobStatus, { bg: string; text: string; label: string }> = {
     new: { bg: 'bg-slate-100 border-slate-200', text: 'text-slate-800', label: 'New / Unassigned' },
@@ -192,7 +232,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
           </button>
 
           <span className="font-bold text-slate-900 text-sm px-2">
-            {formatDateUK(selectedDate)} {selectedDate === '2026-10-13' && '(Today)'}
+            {formatDateUK(selectedDate)} {selectedDate === getTodayISO() && '(Today)'}
           </span>
 
           <button
@@ -208,7 +248,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
           </button>
 
           <button
-            onClick={() => setSelectedDate('2026-10-13')}
+            onClick={() => setSelectedDate(getTodayISO())}
             className="ml-2 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded text-xs"
           >
             Jump to Today
@@ -463,12 +503,28 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               
               {/* Conflict warning banner */}
               {conflictWarning && (
-                <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 flex items-start gap-2">
+                <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <div className="text-xs">
-                    <p className="font-bold">Schedule Overlap Conflict!</p>
+                    <p className="font-bold">Scheduling Conflict!</p>
                     <p className="mt-0.5">{conflictWarning}</p>
-                    <p className="mt-1 text-[11px] text-rose-700">Please choose a different technician or time slot to prevent double-booking.</p>
+                    <p className="mt-1 text-[11px] text-rose-700 font-medium">
+                      {conflictWarning.includes('buffer') 
+                        ? 'Pro Tip: Try moving the start time back by 30 mins to accommodate travel.' 
+                        : 'Please choose a different technician or a completely different time slot.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Certification warning banner */}
+              {certWarning && (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <p className="font-bold">Certification Requirement Gap!</p>
+                    <p className="mt-0.5">{certWarning}</p>
+                    <p className="mt-1 text-[11px] text-amber-700">This technician is not qualified for the required skills/licenses of this job. Assignment blocked for safety.</p>
                   </div>
                 </div>
               )}
@@ -483,6 +539,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                   onChange={(e) => {
                     setModalTechnicianId(e.target.value);
                     setConflictWarning(null);
+                    setCertWarning(null);
                   }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 text-xs focus:ring-1 focus:ring-sky-500"
                 >
@@ -553,21 +610,32 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               <div className="pt-2 border-t border-slate-100">
                 <span className="block font-semibold text-slate-700 mb-1.5">Update Status:</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {(['scheduled', 'dispatched', 'in_progress', 'completed', 'cancelled'] as JobStatus[]).map((st) => (
+                  {(['new', 'awaiting_approval', 'scheduled', 'dispatched', 'in_progress', 'on_hold', 'completed', 'cancelled'] as JobStatus[]).map((st) => {
+                    const current = jobs.find((j) => j.id === editingJob.id)?.status ?? editingJob.status;
+                    const forced = forceStatus && currentUser.role === 'admin';
+                    return (
                     <button
                       key={st}
                       type="button"
-                      onClick={() => updateJobStatus(editingJob.id, st)}
-                      className={`px-2 py-1 rounded text-[11px] font-medium border ${
-                        editingJob.status === st
+                      disabled={current !== st && !forced && !canMoveJob(current, st)}
+                      onClick={() => updateJobStatus(editingJob.id, st, undefined, forced || undefined)}
+                      className={`px-2 py-1 rounded text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed ${
+                        current === st
                           ? 'bg-slate-900 text-white border-slate-900'
                           : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
                       }`}
                     >
                       {st.replace('_', ' ')}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
+                {currentUser.role === 'admin' && (
+                  <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-600">
+                    <input type="checkbox" checked={forceStatus} onChange={(e) => setForceStatus(e.target.checked)} />
+                    Force status (skip workflow rules)
+                  </label>
+                )}
               </div>
 
               {/* Audit trail preview */}

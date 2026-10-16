@@ -52,3 +52,10 @@ Submit calls `addTechnician` with `skills` split on commas and trimmed, `color: 
 - Add-technician form state is not reset after saving; no duplicate checks; no edit/remove of technicians; colour not selectable.
 - Prefix, VAT-number, sort code and account number formats are not validated.
 - All data is browser localStorage; there is no server-side persistence.
+
+## Updates
+
+- **Default Hourly Rate** (default 85) and **Default Travel Charge** (default 35) are now company settings, used for new jobs and maintenance jobs instead of hard-coded values.
+- **Technician edit form** (Edit Field Technician) adds Gas Safe / F-Gas licence numbers and **Gas Safe Expiry / F-Gas Expiry** dates; an expired licence blocks assignment to jobs that require it ([compliance-features.md](compliance-features.md)).
+- Bank details are only returned by the API to admin and accountant.
+- Admin-only **Checklists** tab manages job checklist templates ([checklists-features.md](checklists-features.md)).

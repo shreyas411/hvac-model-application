@@ -55,3 +55,7 @@ All rounded to whole percent; show "0%" when the denominator is 0.
 - Hard-coded "4 Active Engineers" and 85 hourly fallback.
 - Export covers only the eight summary metrics, not the technician table or ratios.
 - Currency is fixed to GBP.
+
+## Updates: VAT return
+
+`GET /reports/vat?start&end` returns output VAT (box 1), input VAT on stock purchases (box 4) and net VAT for a period; see [billing-corrections-features.md](billing-corrections-features.md). The Reports screen itself does not yet show it.

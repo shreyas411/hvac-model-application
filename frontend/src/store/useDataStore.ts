@@ -38,8 +38,11 @@ export const useDataStore = create<DataStore>((set, get) => ({
     }
   },
   run: async (key, call) => {
+    console.log(`%c[STORE-DEBUG] 🔵 Starting run for key: ${key}`, 'color: #007bff; font-weight: bold;');
     try {
+      console.log('%c[STORE-DEBUG] ⚙️ Executing service call...', 'color: #007bff;');
       const row = await call();
+      console.log('%c[STORE-DEBUG] ✅ Call successful, updating state', 'color: #28a745; font-weight: bold;');
       if (row) set((s) => {
         const rows = s.data[key] as { id: string }[];
         const next = rows.some((r) => r.id === row.id) ? rows.map((r) => (r.id === row.id ? row : r)) : [row, ...rows];
@@ -47,6 +50,7 @@ export const useDataStore = create<DataStore>((set, get) => ({
       });
       return row;
     } catch (e) {
+      console.error('%c[STORE-DEBUG] ❌ Call failed:', 'color: #dc3545; font-weight: bold;', e);
       set({ error: (e as Error).message });
       throw e;
     }

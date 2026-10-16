@@ -1,6 +1,7 @@
 import '../config.js'; // must load .env.<APP_ENV> before the client reads DATABASE_URL
 import { Prisma, PrismaClient } from '@prisma/client';
 import { unprocessable } from './errors.js';
+import { pageFrom } from './paginate.js';
 
 export const prisma = new PrismaClient();
 
@@ -21,6 +22,7 @@ export const plain = (row: object, drop: string[] = [], dates: string[] = []) =>
 export const prismaRepo = <T extends { id: string }>(model: any, drop = ['legacyId', 'updatedAt']) => {
   const out = (r: any) => plain(r, drop) as unknown as T;
   return {
+    page: (query: unknown, searchFields: string[]) => pageFrom(query, model, { searchFields }, out),
     all: async () => (await model.findMany({ orderBy: { createdAt: 'desc' } })).map(out) as T[],
     find: async (id: string) => (isUuid(id) ? ((r) => (r ? out(r) : undefined))(await model.findUnique({ where: { id } })) : undefined),
     insert: async (data: object) => out(await model.create({ data })),
@@ -39,5 +41,5 @@ export const refer = (ids: Map<string, string>, old: unknown, from: string) => {
 };
 
 /** `SELECT ... FOR UPDATE` on one row: serialises concurrent writers (payments, conversions, edits) on the same record. */
-export const lockRow = (tx: Tx, table: 'invoices' | 'quotations', id: string) =>
+export const lockRow = (tx: Tx, table: 'invoices' | 'quotations' | 'jobs', id: string) =>
   tx.$queryRawUnsafe(`SELECT 1 FROM "${table}" WHERE id = $1::uuid FOR UPDATE`, id); // `table` is a literal union, never user input

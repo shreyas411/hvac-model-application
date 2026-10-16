@@ -17,7 +17,7 @@ const convert = z.object({ appointmentDate: isoDate, startTime: hhmm, endTime: h
 
 export const requestsRouter = Router();
 requestsRouter.use(allow('admin', 'dispatcher'));
-requestsRouter.get('/', h(async (req) => paginate(await svc.requestsRepo.all(), req.query)));
+requestsRouter.get('/', h((req) => svc.pageRequests(req.query)));
 requestsRouter.get('/:id', h((req) => svc.getRequest(req.params.id)));
 requestsRouter.post('/', h((req) => svc.createRequest(request.parse(req.body)), 201));
 requestsRouter.patch('/:id', h((req) =>

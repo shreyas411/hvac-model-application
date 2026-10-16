@@ -3,6 +3,7 @@ import type { Quotation } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
 import { conflict, notFound } from '../../common/errors.js';
 import { toMinutes, today } from '../../common/dates.js';
+import { pageFrom } from '../../common/paginate.js';
 import { totals } from '../../common/money.js';
 import { nextNumber } from '../../common/numbering.js';
 import { date, isUuid, lockRow, plain, prisma, refer, type Tx } from '../../common/prisma.js';
@@ -24,6 +25,7 @@ export async function getQuotation(id: string, c: Tx = prisma) {
   if (!row) throw notFound('Quotation');
   return toQuotation(row);
 }
+export const pageQuotations = (query: unknown) => pageFrom(query, prisma.quotation, { include, searchFields: ['quoteNumber', 'notes'] }, toQuotation);
 export const listQuotations = async () => (await prisma.quotation.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toQuotation);
 
 type Input = {
@@ -34,7 +36,7 @@ type Input = {
 const priced = async (items: ItemInput[], vatRatePercent?: number) => {
   const rows = lineRows(items);
   const vat = vatRatePercent ?? (await getSettings()).defaultVatRate;
-  return { rows, vatRatePercent: vat, ...totals(rows.map((x) => x.amount), vat) };
+  return { rows, vatRatePercent: vat, ...totals(rows, vat) };
 };
 
 export async function createQuotation(i: Input) {
@@ -44,7 +46,7 @@ export async function createQuotation(i: Input) {
   return toQuotation(await prisma.$transaction(async (tx) => tx.quotation.create({
     include,
     data: {
-      quoteNumber: await nextNumber('quote'), customerId: i.customerId, locationId: i.locationId, jobId: i.jobId,
+      quoteNumber: await nextNumber('quote', new Date(), tx), customerId: i.customerId, locationId: i.locationId, jobId: i.jobId,
       issueDate: new Date(i.issueDate), expiryDate: new Date(i.expiryDate), status: 'draft', ...p,
       terms: i.terms ?? (await getSettings()).termsAndConditions, notes: i.notes, items: { create: rows },
     },
@@ -92,14 +94,15 @@ export function convertToJob(id: string, slot: { appointmentDate: string; startT
   return prisma.$transaction(async (tx) => {
     await lockRow(tx, 'quotations', id);
     const q = await getQuotation(id, tx);
-    assertConvertible(q, q.convertedToJobId);
+    assertConvertible(q, q.convertedToJobId ?? q.convertedToInvoiceId);
+    const rates = await getSettings();
     const labourHours = q.items.filter((i) => i.type === 'labour').reduce((a, l) => a + l.quantity, 0) || 4;
     const job = await createJob({
       customerId: q.customerId, locationId: q.locationId, equipmentIds: [], type: 'installation', priority: 'medium',
       technicianId: slot.technicianId || null, ...slot,
       estimatedDurationMinutes: Math.max(60, toMinutes(slot.endTime) - toMinutes(slot.startTime)),
-      requiredSkills: ['F-Gas Heat Pumps', 'Domestic Gas'], description: `Installation work as agreed per Quotation ${q.quoteNumber}`,
-      internalNotes: q.notes, labourHours, hourlyRate: 85, travelTimeMinutes: 30, travelCharge: 35,
+      requiredSkills: [], description: `Installation work as agreed per Quotation ${q.quoteNumber}`,
+      internalNotes: q.notes, labourHours, hourlyRate: rates.defaultHourlyRate, travelTimeMinutes: 30, travelCharge: rates.defaultTravelCharge,
       checklist: ['Pre-installation survey & isolate services', 'Position equipment on secure mounts', 'Connect pipework & leak test', 'Commissioning & customer handover']
         .map((label, i) => ({ id: `chk-${i + 1}`, category: 'general' as const, label, checked: false })),
       auditAction: 'Created from Quotation', auditDetails: `Generated from accepted quote ${q.quoteNumber}`,
@@ -113,7 +116,7 @@ export function convertToInvoice(id: string) {
   return prisma.$transaction(async (tx) => {
     await lockRow(tx, 'quotations', id);
     const q = await getQuotation(id, tx);
-    assertConvertible(q, q.convertedToInvoiceId);
+    assertConvertible(q, q.convertedToJobId ?? q.convertedToInvoiceId);
     const invoice = await fromQuotation(q, tx);
     await tx.quotation.update({ where: { id }, data: { convertedToInvoiceId: invoice.id } });
     return { invoice, quotation: await getQuotation(id, tx) };

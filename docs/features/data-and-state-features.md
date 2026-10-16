@@ -155,3 +155,7 @@ Fictional UK company "Apex Climate Solutions Ltd" (trading "Apex HVAC Engineerin
 - Stock clamps at 0 while recording the unclamped delta, so movement history may not sum to the stock level; removing a used part does not restock.
 - Notifications are never auto-generated and "send" is simulated.
 - Import does not validate record shapes and does not restore `currentUser`.
+
+## Updates
+
+Data now lives in Postgres behind the API (see `backend/`), not browser `localStorage`. The frontend keeps a zustand store (`useDataStore`) that loads from the API, and the service worker caches reads and queues writes while offline ([offline-and-pwa-features.md](offline-and-pwa-features.md)). Sessions are httpOnly cookies ([security-and-auth-features.md](security-and-auth-features.md)). Treat the localStorage sections above as legacy where they conflict. `POST /import` now needs `?confirm=wipe`.

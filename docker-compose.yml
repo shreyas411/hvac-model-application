@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: hvac
       POSTGRES_PASSWORD: hvac
       POSTGRES_DB: hvac
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5433:5432"]
     volumes: [dbdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "hvac"]
@@ -38,12 +38,14 @@ services:
     build: ./backend
     image: hvac-backend:local
     environment:
+      APP_ENV: local
+      NODE_ENV: development
       PORT: 3001
       APP_URL: http://localhost:3000
       DATABASE_URL: postgresql://hvac:hvac@db:5432/hvac
       DIRECT_URL: postgresql://hvac:hvac@db:5432/hvac
     env_file: [./backend/.env]
-    ports: ["3001:3001"]
+    ports: ["127.0.0.1:3001:3001"]
     depends_on:
       db: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}

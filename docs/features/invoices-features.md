@@ -67,3 +67,9 @@ The payment date is today (`new Date().toISOString()` date part). Confirm calls 
 - KPIs include every invoice regardless of status or filter, and the VAT card label is hard-coded to 20%.
 - Printing uses `window.print()` on the whole page; no PDF export.
 - No role restriction beyond tab visibility; `onNavigateTab` and `currentUser` are unused.
+
+## Updates: credit notes, refunds, VAT and PDF
+
+- New status **`credited`** (violet badge) when credit notes cover the whole invoice; credit notes (`CN-…`), payment refunds, void-with-reason, per-line VAT and the default rate card are described in [billing-corrections-features.md](billing-corrections-features.md).
+- The invoice sheet modal now has a **Download PDF** button (A4 PDF of the on-screen sheet) next to Print.
+- List, search and paging are served by the backend (`GET /invoices?q&status&cursor`).

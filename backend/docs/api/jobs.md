@@ -9,11 +9,13 @@ Read/write work record: A D T (technicians are limited to their own jobs). Creat
 | GET | `/jobs` | A D T | Technicians only see jobs where `technicianId` matches their profile |
 | GET | `/jobs/conflicts` | A D | `?technicianId&date&startTime&endTime&excludeJobId` → `{ conflict: Job \| null }` |
 | GET | `/jobs/:id` | A D T | |
-| POST | `/jobs` | A D | Job fields; `status` may be `new`, `awaiting_approval` or `scheduled`. `SCHEDULE_CONFLICT` if the technician overlaps |
+| POST | `/jobs` | A D | Job fields; `hourlyRate` defaults to the company default rate; assigning a technician checks certifications (`403` if not qualified: skill, licence or expired licence; `GAS_SAFE` / `F_GAS` are added from boiler / refrigerant equipment); `status` may be `new`, `awaiting_approval` or `scheduled`. `SCHEDULE_CONFLICT` if the technician overlaps another job or is within 30 minutes of one |
 | PATCH | `/jobs/:id` | A D T | A/D: dispatch fields. T: only `workPerformed`, `labourHours`, `customerSignature`, `checklist`, `followUpRecommended`, `followUpNotes` |
-| POST | `/jobs/:id/status` | A D T | `{ status, note?, override? }`. Transitions are enforced; `override` is admin only. T may only set `in_progress`, `on_hold` or `completed`. First `in_progress` sets `arrivalTime`, first `completed` sets `completionTime` |
+| POST | `/jobs/:id/status` | A D T | `{ status, note?, override? }`. Transitions are enforced; `override` is admin only and needs a `note` (`REASON_REQUIRED`). Moving to `completed` without override needs ticked safety checklist items, a refrigerant log if the job has a refrigerant checklist item, `workPerformed` and a customer signature (`NOT_COMPLETABLE`). T may only set `in_progress`, `on_hold` or `completed`. First `in_progress` sets `arrivalTime`, first `completed` sets `completionTime` |
 | POST | `/jobs/:id/parts` | A D T | `{ partId, quantity }`. Adds to `partsUsed` and writes a `used_on_job` movement when inventory is enabled (one transaction) |
-| POST | `/jobs/:id/invoice` | A C | Builds an invoice from labour, travel and parts. `ALREADY_CONVERTED` if the job has a non-void invoice |
+| POST | `/jobs/:id/refrigerant` | A D T | `{ refrigerant, action: charge \| recover \| reclaim \| leak_check, amountKg, cylinderId?, certNumber, equipmentId?, notes? }`, 201. Technicians: own open jobs only. `JOB_CLOSED` once completed/cancelled |
+| DELETE | `/jobs/:id/parts/:usedId` | A D T | Removes a part line and returns stock. Technicians: own jobs only. `JOB_CLOSED`, `JOB_INVOICED` |
+| POST | `/jobs/:id/invoice` | A C | Builds an invoice from labour, travel and parts. `ALREADY_CONVERTED` if the job has a non-void invoice; `JOB_NOT_COMPLETED` unless the job is completed; `NOTHING_TO_INVOICE`. Audited |
 
 Allowed transitions:
 
@@ -26,3 +28,5 @@ Allowed transitions:
 | `in_progress` | `on_hold`, `completed`, `cancelled` |
 | `on_hold` | `scheduled`, `dispatched`, `in_progress`, `cancelled` |
 | `completed`, `cancelled` | none |
+
+Completed and cancelled jobs are read-only (`JOB_CLOSED`) except for admin. `GET /jobs` is paged in the database (`?q`, `?status`, `?cursor`). Cancelling a job whose parts were never invoiced returns the stock. A customer signature must be a `png`/`jpeg`/`svg` data URL under 1 MB.

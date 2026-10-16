@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { allow } from '../../common/auth.js';
 import { actor } from '../../common/auth.js';
 import { crud } from '../../common/crud.js';
-import { ApiError, h } from '../../common/errors.js';
+import { ApiError, forbidden, h } from '../../common/errors.js';
 import { paginate } from '../../common/paginate.js';
 import { getSettings } from '../settings/service.js';
 import { money } from '../../common/zod.js';
@@ -16,7 +16,7 @@ const part = z.object({
 });
 const adjust = z.object({
   delta: z.number().int(), type: z.enum(['used_on_job', 'stock_adjustment', 'restock_purchase']),
-  notes: z.string().default(''), jobId: z.string().optional(),
+  notes: z.string().default(''), jobId: z.string().uuid().optional(),
 });
 
 /** Mounted at the API root: serves /parts/* and /movements. */
@@ -30,12 +30,15 @@ inventoryRouter.get('/movements', all, h(async (req) => {
   return paginate(await svc.listMovements(partId), req.query);
 }));
 inventoryRouter.post('/parts', allow('admin', 'dispatcher'), h((req) => svc.createPart(part.parse(req.body), actor(req)), 201));
-inventoryRouter.post('/parts/:id/adjust', allow('admin', 'dispatcher', 'technician'), h((req) => {
+// Technicians record parts only through POST /jobs/:id/parts, which ties the stock movement to a billable job line.
+inventoryRouter.post('/parts/:id/adjust', allow('admin', 'dispatcher'), h((req) => {
   const b = adjust.parse(req.body);
+  if (b.type === 'used_on_job') throw forbidden('Record parts used on a job via POST /jobs/:id/parts');
   return svc.adjustStock(req.params.id, b.delta, b.type, b.notes, actor(req), b.jobId);
 }));
 inventoryRouter.use('/parts', crud({
   repo: svc.partsRepo, label: 'Part', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin', 'dispatcher'],
   create: part, update: part.omit({ stockQuantity: true }).partial(), // stock changes only via /parts/:id/adjust
   filter: (rows, q) => (q.lowStock === 'true' ? rows.filter(svc.isLowStock) : rows),
+  page: (q) => (q.lowStock === 'true' ? undefined : svc.partsRepo.page(q, ['name', 'sku', 'category'])), // low stock compares two columns: in memory
 }));

@@ -1,13 +1,24 @@
 import type {
   CompanySettings,
-  Customer, CustomerNotification, Equipment, EquipmentServiceRecord, InventoryMovement, Invoice, Job, JobStatus,
+  ChecklistTemplate,
+  Customer, CustomerNotification, MaintenanceAgreement, Equipment, EquipmentServiceRecord, InventoryMovement, Invoice, Job, JobStatus,
   PartItem, PaymentRecord, Quotation, ServiceLocation, ServiceRequest, TechnicianProfile,
 } from '../types';
 import { api } from './api';
 
+/** Follows nextCursor so a list is never silently cut at one page. */
+async function listAll<T>(path: string) {
+  const out: T[] = [];
+  for (let cursor = ''; ; ) {
+    const r = await api<{ data: T[]; nextCursor: string | null }>('GET', `${path}?limit=200${cursor && `&cursor=${cursor}`}`);
+    out.push(...r.data);
+    if (!r.nextCursor) return out;
+    cursor = r.nextCursor;
+  }
+}
+
 const resource = <T extends { id: string }>(path: string) => ({
-  // ponytail: first page only (limit 200); follow nextCursor if a list outgrows that
-  list: () => api<{ data: T[] }>('GET', `${path}?limit=200`).then((r) => r.data),
+  list: () => listAll<T>(path),
   get: (id: string) => api<T>('GET', `${path}/${id}`),
   create: (body: Partial<T>) => api<T>('POST', path, body),
   update: (id: string, body: Partial<T>) => api<T>('PATCH', `${path}/${id}`, body),
@@ -33,7 +44,7 @@ export const services = {
   },
   jobs: {
     ...resource<Job>('/jobs'),
-    setStatus: (id: string, status: JobStatus, note?: string) => post<Job>(`/jobs/${id}/status`, { status, note }),
+    setStatus: (id: string, status: JobStatus, note?: string, override?: boolean) => post<Job>(`/jobs/${id}/status`, { status, note, override }),
     invoice: (id: string) => post<Invoice>(`/jobs/${id}/invoice`),
     addPart: (id: string, partId: string, quantity: number) => post<Job>(`/jobs/${id}/parts`, { partId, quantity }),
   },
@@ -49,16 +60,26 @@ export const services = {
     ...resource<Invoice>('/invoices'),
     pay: (id: string, p: Omit<PaymentRecord, 'id' | 'recordedBy'>) => post<Invoice>(`/invoices/${id}/payments`, p),
     issue: (id: string) => post<Invoice>(`/invoices/${id}/issue`),
-    void: (id: string) => post<Invoice>(`/invoices/${id}/void`),
+    void: (id: string, reason: string) => post<Invoice>(`/invoices/${id}/void`, { reason }),
+    credit: (id: string, amount: number, reason: string) => post<{ invoice: Invoice }>(`/invoices/${id}/credit-notes`, { amount, reason }),
   },
   parts: {
     ...resource<PartItem>('/parts'),
     adjust: (id: string, body: object) => post<{ part: PartItem; movement: InventoryMovement }>(`/parts/${id}/adjust`, body),
   },
-  movements: { list: () => api<{ data: InventoryMovement[] }>('GET', '/movements?limit=200').then((r) => r.data) },
+  movements: { list: () => listAll<InventoryMovement>('/movements') },
   notifications: {
     ...resource<CustomerNotification>('/notifications'),
     approveSend: (id: string) => post<CustomerNotification>(`/notifications/${id}/approve-send`),
+  },
+  maintenance: {
+    ...resource<MaintenanceAgreement>('/maintenance-agreements'),
+    remove: (id: string) => api<void>('DELETE', `/maintenance-agreements/${id}`),
+  },
+  checklistTemplates: {
+    ...resource<ChecklistTemplate>('/checklist-templates'),
+    remove: (id: string) => api<void>('DELETE', `/checklist-templates/${id}`),
+    reorder: (ids: string[]) => post<void>('/checklist-templates/reorder', { ids }),
   },
   settings: {
     get: () => api<CompanySettings>('GET', '/settings'),
@@ -66,7 +87,7 @@ export const services = {
   },
   data: {
     export: () => api<Record<string, unknown>>('GET', '/export'),
-    import: (body: unknown) => api<{ imported: Record<string, number> }>('POST', '/import', body),
+    import: (body: unknown) => api<{ imported: Record<string, number> }>('POST', '/import?confirm=wipe', body),
   },
   dashboard: () => api('GET', '/dashboard'),
 };

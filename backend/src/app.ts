@@ -1,8 +1,11 @@
 import cors from 'cors';
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
+import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
 import { randomUUID } from 'node:crypto';
 import { authenticate } from './common/auth.js';
+import { idempotency } from './common/idempotency.js';
 import { errorHandler } from './common/errors.js';
 import { logger } from './common/logger.js';
 import { prisma } from './common/prisma.js';
@@ -18,6 +21,8 @@ import { notificationsRouter } from './modules/notifications/routes.js';
 import { quotationsRouter } from './modules/quotations/routes.js';
 import { reportsRouter } from './modules/reports/routes.js';
 import { requestsRouter } from './modules/requests/routes.js';
+import { checklistsRouter } from './modules/checklists/routes.js';
+import { maintenanceRouter } from './modules/maintenance/routes.js';
 import { settingsRouter } from './modules/settings/routes.js';
 import { techniciansRouter } from './modules/technicians/routes.js';
 import { usersRouter } from './modules/users/routes.js';
@@ -25,26 +30,35 @@ import { usersRouter } from './modules/users/routes.js';
 export function createApp() {
   const app = express();
   app.use(pinoHttp({ logger, genReqId: (req, res) => {
-    const id = (req.headers['x-request-id'] as string) ?? randomUUID();
+    const given = req.headers['x-request-id'];
+    const id = typeof given === 'string' && /^[\w-]{1,64}$/.test(given) ? given : randomUUID();
     res.setHeader('x-request-id', id);
     return id;
   } }));
-  app.use(cors({ origin: config.appUrl.split(',') }));
-  app.use(express.json({ limit: '5mb' })); // signatures arrive as data URLs
+  app.set('trust proxy', config.trustProxy);
+  app.use(helmet());
+  app.use('/api', (_req, res, next) => (res.setHeader('cache-control', 'no-store'), next()));
+  app.use(cors({ origin: config.corsOrigins, credentials: true }));
 
-  app.get('/healthz', (_req, res) => void res.json({ ok: true }));
+  app.get('/healthz', (_req, res) => void res.json({ ok: true })); // liveness only; /readyz checks the DB
   app.get('/readyz', (_req, res) => void prisma.$queryRaw`SELECT 1`.then(() => res.json({ ok: true }), () => res.status(503).json({ ok: false })));
 
   const api = express.Router();
-  api.use('/auth', authRouter); // login/refresh/logout are public; /me authenticates itself
+  // login/refresh/logout are public (small bodies, rate limited); /me authenticates itself
+  api.use('/auth', rateLimit({ windowMs: 15 * 60_000, limit: config.appEnv === 'local' ? 300 : 30, standardHeaders: 'draft-8', legacyHeaders: false }), express.json({ limit: '100kb' }), authRouter);
   api.use(authenticate);
+  api.use(rateLimit({ windowMs: 60_000, limit: 600, keyGenerator: (req) => req.user.id, standardHeaders: 'draft-8', legacyHeaders: false, validate: { keyGeneratorIpFallback: false } }));
+  api.use(express.json({ limit: '5mb' })); // signatures arrive as data URLs; only parsed for signed-in users
+  api.use(idempotency);
   api.use('/users', usersRouter);
   api.use('/settings', settingsRouter);
+  api.use('/checklist-templates', checklistsRouter);
   api.use('/technicians', techniciansRouter);
   api.use('/customers', customersRouter);
   api.use('/equipment', equipmentRouter);
   api.use('/requests', requestsRouter);
   api.use('/jobs', jobsRouter);
+  api.use('/maintenance-agreements', maintenanceRouter);
   api.use('/quotations', quotationsRouter);
   api.use('/invoices', invoicesRouter);
   api.use('/notifications', notificationsRouter);

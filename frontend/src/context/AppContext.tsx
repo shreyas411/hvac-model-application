@@ -83,7 +83,7 @@ interface AppContextType {
   jobs: Job[];
   addJob: (jobData: Omit<Job, 'id' | 'jobNumber' | 'createdAt' | 'updatedAt' | 'auditTrail'>) => Promise<Job | undefined>;
   updateJob: (id: string, updates: Partial<Job>, auditAction?: string) => Promise<void>;
-  updateJobStatus: (id: string, newStatus: JobStatus, note?: string) => Promise<void>;
+  updateJobStatus: (id: string, newStatus: JobStatus, note?: string, override?: boolean) => Promise<void>;
   addJobPart: (jobId: string, partId: string, quantity: number) => Promise<void>;
   checkScheduleConflict: (technicianId: string, date: string, startTime: string, endTime: string, excludeJobId?: string) => Job | null;
 
@@ -357,8 +357,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 'Job updated');
   };
 
-  const updateJobStatus: AppContextType['updateJobStatus'] = async (id, newStatus, note) => {
-    await apiCall('jobs', () => services.jobs.setStatus(id, newStatus, note), `Job marked as ${newStatus.replace('_', ' ')}`);
+  const updateJobStatus: AppContextType['updateJobStatus'] = async (id, newStatus, note, override) => {
+    await apiCall('jobs', () => services.jobs.setStatus(id, newStatus, note, override), `Job marked as ${newStatus.replace('_', ' ')}`);
   };
 
   // Server records the part and writes the stock movement when inventory is enabled.

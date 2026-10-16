@@ -10,3 +10,6 @@ coverage/
 !frontend/.env.development
 !frontend/.env.staging
 !frontend/.env.production
+.playwright-mcp
+LOOPHOLES.md
+.qwen

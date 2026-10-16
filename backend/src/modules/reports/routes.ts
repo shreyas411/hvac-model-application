@@ -6,9 +6,11 @@ import { addDays, today } from '../../common/dates.js';
 import { prisma } from '../../common/prisma.js';
 import { isLowStock, partsRepo } from '../inventory/service.js';
 import { techniciansRepo } from '../technicians/service.js';
+import { z } from 'zod';
 
 const sum = (n: number[]) => round2(n.reduce((a, b) => a + b, 0));
 const n = (d: { toNumber(): number } | null) => round2(d?.toNumber() ?? 0);
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)');
 
 export async function financial() {
   const [inv, quotes, accepted] = await Promise.all([
@@ -22,6 +24,40 @@ export async function financial() {
     estimatedPipeline: n(quotes._sum.total), acceptedQuotesValue: n(accepted._sum.total),
     completedJobs: await prisma.job.count({ where: { status: 'completed' } }),
     openJobs: await prisma.job.count({ where: { status: { notIn: ['completed', 'cancelled'] } } }),
+  };
+}
+
+export async function vatReturn(params: { start: string; end: string }) {
+  const start = new Date(params.start);
+  const end = new Date(params.end);
+  end.setHours(23, 59, 59, 999);
+
+  const [salesVat, purchaseVat] = await Promise.all([
+    prisma.invoice.aggregate({ 
+      where: { 
+        issueDate: { gte: start, lte: end }, 
+        status: { not: 'void' } 
+      }, 
+      _sum: { vatAmount: true } 
+    }),
+    prisma.inventoryMovement.aggregate({
+      where: {
+        type: 'restock_purchase',
+        createdAt: { gte: start, lte: end }
+      },
+      _sum: { vatAmount: true }
+    }),
+  ]);
+
+  const outputTax = n(salesVat._sum?.vatAmount);
+  const inputTax = n(purchaseVat._sum?.vatAmount);
+
+  return {
+    period: { start: params.start, end: params.end },
+    box1: outputTax, // VAT due on sales
+    box4: inputTax, // VAT reclaimed on purchases
+    netVat: round2(outputTax - inputTax),
+    isReclaimable: inputTax > outputTax,
   };
 }
 
@@ -64,6 +100,10 @@ export async function dashboard(now = today()) {
 export const reportsRouter = Router();
 const fin = allow('admin', 'accountant');
 reportsRouter.get('/reports/financial', fin, h(financial));
+reportsRouter.get('/reports/vat', fin, h(async (req) => {
+  const q = z.object({ start: isoDate, end: isoDate }).parse(req.query);
+  return vatReturn(q);
+}));
 reportsRouter.get('/reports/technicians', fin, h(technicianUtilisation));
 reportsRouter.get('/reports/low-stock', fin, h(async () => (await partsRepo.all()).filter(isLowStock)));
 reportsRouter.get('/dashboard', allow('admin', 'dispatcher', 'accountant'), h(() => dashboard()));

@@ -1,18 +1,22 @@
 import type { User } from '../types';
-import { api, getSession, setSession, type Session } from './api';
+import { api, ApiError, refresh } from './api';
 
-/** Supabase login through the backend; the API never stores passwords. */
+/** Login goes through the backend; it answers with httpOnly cookies, so there is nothing to store here. */
 export const auth = {
   async login(email: string, password: string) {
-    setSession(await api<Session>('POST', '/auth/login', { email, password }));
+    await api('POST', '/auth/login', { email, password });
   },
-  /** The signed-in user's profile, or null when there's no valid session. */
+  /** The signed-in user's profile, or null when there's no valid session (a network error still throws). */
   async me(): Promise<User | null> {
-    if (!getSession()) return null;
-    return api<User>('GET', '/auth/me');
+    try {
+      return await api<User>('GET', '/auth/me');
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+      return (await refresh()) === 'renewed' ? api<User>('GET', '/auth/me').catch(() => null) : null;
+    }
   },
   async logout() {
-    try { await api('POST', '/auth/logout'); } catch { /* the token is dropped locally either way */ }
-    setSession(null);
+    try { await api('POST', '/auth/logout'); } catch { /* the cookies are cleared server-side; a reload shows the login */ }
+    await caches?.delete('api-cache'); // the service worker's offline copy of the last user's data
   },
 };

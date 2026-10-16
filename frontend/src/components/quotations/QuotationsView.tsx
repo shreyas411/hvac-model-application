@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { downloadSheet } from '../../utils/pdf';
 import { useApp } from '../../context/AppContext';
 import { Quotation, LineItem, QuotationStatus } from '../../types';
 import { formatGBP, formatDateUK } from '../../utils/formatters';
@@ -7,7 +8,7 @@ import {
   Plus, 
   CheckCircle2, 
   Calendar, 
-  Printer, 
+  Printer, Download, 
   Trash2, 
   ArrowRight,
   Send,
@@ -246,6 +247,13 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               </span>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={(e) => downloadSheet(e.currentTarget, `${selectedQuote.quoteNumber}.pdf`)}
+                  className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+                <button
                   onClick={() => window.print()}
                   className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1"
                 >
@@ -262,7 +270,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
             </div>
 
             {/* Printable Document Sheet */}
-            <div className="p-8 overflow-y-auto space-y-6 text-xs font-sans">
+            <div data-pdf-sheet className="p-8 overflow-y-auto space-y-6 text-xs font-sans">
               
               {/* Header block with Company Branding */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-5">

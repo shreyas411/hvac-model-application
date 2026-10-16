@@ -2,24 +2,26 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Customer, CustomerType, ServiceLocation } from '../../types';
 import { formatDateUK, formatGBP } from '../../utils/formatters';
-import { 
-  Building2, 
-  User, 
-  MapPin, 
-  Phone, 
-  Mail, 
-  Search, 
-  Plus, 
-  Archive, 
-  Eye, 
-  Edit3, 
-  Wrench, 
-  FileText, 
-  Receipt, 
+import {
+  Building2,
+  User,
+  MapPin,
+  Phone,
+  Mail,
+  Search,
+  Plus,
+  Archive,
+  Eye,
+  Edit3,
+  Wrench,
+  FileText,
+  Receipt,
   CheckCircle,
   ExternalLink,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
+import { lookupPostcode } from '../../services/postcode';
 
 interface CustomersViewProps {
   onOpenQuickAction: (action: 'customer' | 'job' | 'quote' | 'invoice') => void;
@@ -68,6 +70,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [formPref, setFormPref] = useState<'email' | 'sms' | 'both'>('email');
   const [formGdpr, setFormGdpr] = useState(true);
 
+  // Postcode lookup state
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [lookupResults, setLookupResults] = useState<any[]>([]);
+
   // Multi-site add state in drawer
   const [newSiteLabel, setNewSiteLabel] = useState('');
   const [newSiteAddress1, setNewSiteAddress1] = useState('');
@@ -75,6 +81,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [newSitePostcode, setNewSitePostcode] = useState('');
   const [newSiteAccessNotes, setNewSiteAccessNotes] = useState('');
   const [showAddSiteForm, setShowAddSiteForm] = useState(false);
+
+  // Postcode lookup for new site
+  const [isSiteLookingUp, setIsSiteLookingUp] = useState(false);
+  const [siteLookupResults, setSiteLookupResults] = useState<any[]>([]);
 
   // Filtered customer list
   const filteredCustomers = useMemo(() => {
@@ -203,6 +213,26 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     setNewSitePostcode('');
     setNewSiteAccessNotes('');
     setShowAddSiteForm(false);
+  };
+
+  const handleSiteLookup = async () => {
+    if (!newSitePostcode) return;
+    setIsSiteLookingUp(true);
+    try {
+      const results = await lookupPostcode(newSitePostcode);
+      setSiteLookupResults(results);
+    } catch (e) {
+      console.error('Site postcode lookup failed', e);
+    } finally {
+      setIsSiteLookingUp(false);
+    }
+  };
+
+  const selectSiteAddress = (addr: any) => {
+    setNewSiteAddress1(addr.addressLine1);
+    setNewSiteCity(addr.city);
+    setNewSitePostcode(addr.postcode);
+    setSiteLookupResults([]);
   };
 
   return (

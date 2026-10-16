@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Priority, JobType, LineItem } from '../../types';
 import { formatGBP } from '../../utils/formatters';
+import { useChecklistTemplates, toChecklistItems } from '../../data/checklistTemplates';
 import { AlertTriangle, Plus, Trash2, X } from 'lucide-react';
 
 interface QuickCreateModalsProps {
@@ -29,8 +30,10 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   } = useApp();
 
   // Common customer selector
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[0]?.id || '');
-  const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
+  // Customers load async after login; this component mounts earlier, so default at render time, not in useState.
+  const [pickedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const selectedCustomer = customers.find((c) => c.id === pickedCustomerId) ?? customers[0];
+  const selectedCustomerId = selectedCustomer?.id ?? '';
   const selectedLocation = selectedCustomer?.serviceLocations[0];
 
   // Request state
@@ -40,6 +43,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   const [reqEquipmentId, setReqEquipmentId] = useState('');
 
   // Job state
+  const { templates } = useChecklistTemplates();
   const [jobType, setJobType] = useState<JobType>('repair');
   const [jobPriority, setJobPriority] = useState<Priority>('medium');
   const [jobDate, setJobDate] = useState('2026-10-14');
@@ -71,7 +75,10 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   const [vatRate, setVatRate] = useState<number>(settings.defaultVatRate);
   const [terms, setTerms] = useState(settings.termsAndConditions);
 
-  if (!activeModal || activeModal === 'customer') return null;
+  if (!activeModal) return null;
+
+  // Note: customer creation is handled via navigation to the customers tab
+  if (activeModal === 'customer') return null;
 
   // Add line item
   const handleAddLineItem = () => {
@@ -110,11 +117,11 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   // Submit Request
   const handleSubmitRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || !selectedLocation) return;
 
     const created = await addServiceRequest({
       customerId: selectedCustomer.id,
-      locationId: selectedLocation?.id || selectedCustomer.serviceLocations[0]?.id,
+      locationId: selectedLocation.id,
       equipmentId: reqEquipmentId || undefined,
       reportedProblem: reqProblem,
       priority: reqPriority,
@@ -132,7 +139,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   // Submit Job
   const handleSubmitJob = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || !selectedLocation) return;
 
     // Check conflict
     if (jobTechId) {
@@ -153,7 +160,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
 
     const created = await addJob({
       customerId: selectedCustomer.id,
-      locationId: selectedLocation?.id || selectedCustomer.serviceLocations[0]?.id,
+      locationId: selectedLocation.id,
       equipmentIds: [],
       type: jobType,
       priority: jobPriority,
@@ -163,18 +170,14 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       startTime: jobStartTime,
       endTime: jobEndTime,
       estimatedDurationMinutes: durationMins,
-      requiredSkills: ['System Diagnostics'],
+      requiredSkills: [],
       description: jobDesc,
       partsUsed: [],
       labourHours: durationMins / 60,
       hourlyRate: 85.00,
       travelTimeMinutes: 30,
       travelCharge: 35.00,
-      checklist: [
-        { id: `c-1`, category: 'general', label: 'Initial visual survey and isolate supply', checked: false },
-        { id: `c-2`, category: 'general', label: 'Perform diagnostic testing and maintenance', checked: false },
-        { id: `c-3`, category: 'general', label: 'Verify operational safety and test burn/cycle', checked: false },
-      ],
+      checklist: toChecklistItems(templates.filter((t) => t.jobType === jobType)),
     });
     if (!created) return;
 
@@ -185,14 +188,14 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   // Submit Quote
   const handleSubmitQuote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || !selectedLocation) return;
 
     const issueDate = new Date().toISOString().split('T')[0];
     const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     const created = await addQuotation({
       customerId: selectedCustomer.id,
-      locationId: selectedLocation?.id || selectedCustomer.serviceLocations[0]?.id,
+      locationId: selectedLocation.id,
       issueDate,
       expiryDate,
       status: 'sent',
@@ -212,14 +215,14 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   // Submit Invoice
   const handleSubmitInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || !selectedLocation) return;
 
     const issueDate = new Date().toISOString().split('T')[0];
     const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     const created = await addInvoice({
       customerId: selectedCustomer.id,
-      locationId: selectedLocation?.id || selectedCustomer.serviceLocations[0]?.id,
+      locationId: selectedLocation.id,
       issueDate,
       dueDate,
       status: 'issued',
@@ -271,6 +274,9 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
                 </option>
               ))}
             </select>
+            {selectedCustomer && !selectedLocation && (
+              <p className="mt-1 text-red-600">This customer has no service location. Add a site in Customers first.</p>
+            )}
           </div>
 
           {/* SERVICE REQUEST FORM */}

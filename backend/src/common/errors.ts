@@ -35,6 +35,8 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof ApiError) ({ status, code } = err), (detail = err.message);
   else if (err instanceof ZodError) (status = 400), (code = 'VALIDATION'), (detail = 'Invalid request'), (extra = { issues: err.issues });
   else if (err instanceof Prisma.PrismaClientKnownRequestError && PRISMA[err.code]) ([status, code] = PRISMA[err.code]), (detail = PRISMA[err.code][2]);
+  else if (String(err?.message).includes('jobs_technician_no_overlap')) (status = 409), (code = 'SCHEDULE_CONFLICT'), (detail = 'Scheduling Conflict: technician already booked in that time');
+  else if (err?.type === 'entity.too.large') (status = 413), (code = 'TOO_LARGE'), (detail = 'Request body too large');
   else if (err?.type === 'entity.parse.failed') (status = 400), (code = 'BAD_JSON'), (detail = 'Malformed JSON');
   else (req as any).log?.error(err);
   res.status(status).type('application/problem+json').json({ type: 'about:blank', title: code, status, code, detail, ...extra });

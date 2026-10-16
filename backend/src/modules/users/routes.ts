@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { crud } from '../../common/crud.js';
 import { prisma, prismaRepo } from '../../common/prisma.js';
+import { conflict } from '../../common/errors.js';
 import type { User } from '../../types.js';
 
 const user = z.object({
@@ -10,7 +11,15 @@ const user = z.object({
   avatar: z.string().optional(), technicianId: z.string().uuid().optional(),
 });
 
+const repo = prismaRepo<User>(prisma.user, ['createdAt', 'updatedAt']);
+/** Never delete the last admin: nobody could manage users afterwards. */
+const remove = async (id: string) => {
+  const target = await repo.find(id);
+  if (target?.role === 'admin' && (await prisma.user.count({ where: { role: 'admin' } })) <= 1) throw conflict('LAST_ADMIN', 'Cannot delete the last admin');
+  return repo.remove(id);
+};
+
 export const usersRouter = crud({
-  repo: prismaRepo<User>(prisma.user, ['createdAt', 'updatedAt']), label: 'User', read: ['admin'], write: ['admin'], del: true,
+  repo: { ...repo, remove }, label: 'User', read: ['admin'], write: ['admin'], del: true,
   create: user, update: user.omit({ id: true }).partial(),
 });

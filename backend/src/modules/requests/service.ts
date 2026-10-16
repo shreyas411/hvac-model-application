@@ -6,9 +6,11 @@ import { nextNumber } from '../../common/numbering.js';
 import { date, isUuid, plain, prisma, prismaRepo, refer, type Tx } from '../../common/prisma.js';
 import { assertLocation } from '../customers/service.js';
 import { getEquipment } from '../equipment/service.js';
+import { getSettings } from '../settings/service.js';
 import { createJob } from '../jobs/service.js';
 
 export const requestsRepo = prismaRepo<ServiceRequest>(prisma.serviceRequest, ['legacyId']);
+export const pageRequests = (query: unknown) => requestsRepo.page(query, ['requestNumber', 'reportedProblem']);
 
 export async function getRequest(id: string, c: Tx = prisma) {
   const r = isUuid(id) ? await c.serviceRequest.findUnique({ where: { id } }) : null;
@@ -39,13 +41,14 @@ export function convertToJob(id: string, slot: { appointmentDate: string; startT
     if (r.status === 'cancelled') throw conflict('REQUEST_CANCELLED', `${r.requestNumber} is cancelled`);
     const claim = await tx.serviceRequest.updateMany({ where: { id, status: { in: ['new', 'awaiting_approval'] } }, data: { status: 'converted' } });
     if (!claim.count) throw conflict('ALREADY_CONVERTED', `${r.requestNumber} is already converted`);
+    const rates = await getSettings();
     const duration = Math.max(30, toMinutes(slot.endTime) - toMinutes(slot.startTime));
     const job = await createJob({
       requestId: r.id, customerId: r.customerId, locationId: r.locationId, equipmentIds: r.equipmentId ? [r.equipmentId] : [],
       type: r.priority === 'emergency' ? 'emergency_callout' : 'repair', priority: r.priority,
       technicianId: slot.technicianId || null, ...slot, estimatedDurationMinutes: duration,
-      requiredSkills: ['System Diagnostics'], description: r.reportedProblem, internalNotes: r.internalNotes,
-      labourHours: duration / 60, hourlyRate: 85, travelTimeMinutes: 30, travelCharge: 35,
+      requiredSkills: [], description: r.reportedProblem, internalNotes: r.internalNotes,
+      labourHours: duration / 60, hourlyRate: rates.defaultHourlyRate, travelTimeMinutes: 30, travelCharge: rates.defaultTravelCharge,
       checklist: [
         'Initial visual inspection & safety check', 'Perform diagnostics & identify root cause', 'Test operation and log readings',
       ].map((label, i) => ({ id: `chk-${i + 1}`, category: 'general' as const, label, checked: false })),

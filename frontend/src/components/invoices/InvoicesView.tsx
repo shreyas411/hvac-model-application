@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Invoice, InvoiceStatus, PaymentRecord } from '../../types';
 import { formatGBP, formatDateUK } from '../../utils/formatters';
+import { downloadSheet } from '../../utils/pdf';
 import { 
   Receipt, 
   Plus, 
@@ -9,6 +10,7 @@ import {
   Clock, 
   AlertTriangle, 
   Printer, 
+  Download,
   CreditCard, 
   Building2, 
   X,
@@ -93,6 +95,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     paid: { bg: 'bg-emerald-50 border border-emerald-200', text: 'text-emerald-800' },
     overdue: { bg: 'bg-rose-50 border border-rose-200', text: 'text-rose-800 font-bold' },
     void: { bg: 'bg-slate-50 border border-slate-200', text: 'text-slate-400' },
+    credited: { bg: 'bg-violet-50 border border-violet-200', text: 'text-violet-800' },
   };
 
   return (
@@ -286,6 +289,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </span>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={(e) => downloadSheet(e.currentTarget, `${selectedInvoice.invoiceNumber}.pdf`)}
+                  className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+                <button
                   onClick={() => window.print()}
                   className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1"
                 >
@@ -302,7 +312,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </div>
 
             {/* Document sheet */}
-            <div className="p-8 overflow-y-auto space-y-6 text-xs font-sans">
+            <div data-pdf-sheet className="p-8 overflow-y-auto space-y-6 text-xs font-sans">
               
               {/* Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-5">

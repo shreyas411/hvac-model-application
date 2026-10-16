@@ -1,31 +1,33 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { CompanySettings, TechnicianProfile } from '../../types';
-import { 
-  Building, 
-  Settings as SettingsIcon, 
-  ShieldCheck, 
-  CreditCard, 
-  Clock, 
-  RotateCcw, 
-  Download, 
-  Upload, 
-  Users, 
+import {
+  Building,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  CreditCard,
+  Clock,
+  RotateCcw,
+  Download,
+  Upload,
+  Users,
   Plus,
   Flame,
-  Check
+  Check,
+  Edit2
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
-  const { 
-    settings, 
-    updateSettings, 
-    technicians, 
-    addTechnician, 
-    resetAllData, 
-    exportDataJson, 
+  const {
+    settings,
+    updateSettings,
+    technicians,
+    addTechnician,
+    updateTechnician,
+    resetAllData,
+    exportDataJson,
     importDataJson,
-    showToast 
+    showToast
   } = useApp();
 
   const [form, setForm] = useState<CompanySettings>(settings);
@@ -40,8 +42,22 @@ export const SettingsView: React.FC = () => {
   const [techFGasLicense, setTechFGasLicense] = useState('FGAS-2079');
   const [techVan, setTechVan] = useState('LO24 KMP');
 
+  // Edit Tech modal
+  const [showEditTechModal, setShowEditTechModal] = useState(false);
+  const [editingTech, setEditingTech] = useState<TechnicianProfile | null>(null);
+  const [editTechName, setEditTechName] = useState('');
+  const [editTechEmail, setEditTechEmail] = useState('');
+  const [editTechPhone, setEditTechPhone] = useState('');
+  const [editTechSkills, setEditTechSkills] = useState('');
+  const [editTechGasLicense, setEditTechGasLicense] = useState('');
+  const [editTechFGasLicense, setEditTechFGasLicense] = useState('');
+  const [editTechGasExpiry, setEditTechGasExpiry] = useState('');
+  const [editTechFGasExpiry, setEditTechFGasExpiry] = useState('');
+  const [editTechVan, setEditTechVan] = useState('');
+
   // Import JSON input ref
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +81,40 @@ export const SettingsView: React.FC = () => {
     setShowTechModal(false);
   };
 
+  const handleEditTechOpen = (tech: TechnicianProfile) => {
+    setEditingTech(tech);
+    setEditTechName(tech.name);
+    setEditTechEmail(tech.email);
+    setEditTechPhone(tech.phone);
+    setEditTechSkills(tech.skills.join(', '));
+    setEditTechGasLicense(tech.gasSafeLicense || '');
+    setEditTechFGasLicense(tech.fGasLicense || '');
+    setEditTechGasExpiry(tech.gasSafeExpiry?.slice(0, 10) || '');
+    setEditTechFGasExpiry(tech.fGasExpiry?.slice(0, 10) || '');
+    setEditTechVan(tech.vanRegistration || '');
+    setShowEditTechModal(true);
+  };
+
+  const handleEditTechSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTech) return;
+    await updateTechnician(editingTech.id, {
+      name: editTechName,
+      email: editTechEmail,
+      phone: editTechPhone,
+      skills: editTechSkills.split(',').map((s) => s.trim()).filter(Boolean),
+      gasSafeLicense: editTechGasLicense,
+      fGasLicense: editTechFGasLicense,
+      gasSafeExpiry: editTechGasExpiry || undefined,
+      fGasExpiry: editTechFGasExpiry || undefined,
+      vanRegistration: editTechVan,
+    });
+    setShowEditTechModal(false);
+    showToast(`Updated technician ${editTechName}`);
+  };
+
   const handleDownloadBackup = async () => {
+
     const jsonStr = await exportDataJson().catch((e) => { showToast(e.message, 'error'); return null; });
     if (!jsonStr) return;
     const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -254,6 +303,26 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
+              <label className="block font-semibold text-slate-700 mb-1">Default Hourly Rate</label>
+              <input
+                type="number" min={0} step="0.01"
+                value={form.defaultHourlyRate}
+                onChange={(e) => setForm({ ...form, defaultHourlyRate: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Default Travel Charge</label>
+              <input
+                type="number" min={0} step="0.01"
+                value={form.defaultTravelCharge}
+                onChange={(e) => setForm({ ...form, defaultTravelCharge: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
+              />
+            </div>
+
+            <div>
               <label className="block font-semibold text-slate-700 mb-1">Job Number Prefix</label>
               <input
                 type="text"
@@ -398,14 +467,23 @@ export const SettingsView: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           {technicians.map((t) => (
             <div key={t.id} className="p-3 border border-slate-200 rounded-lg bg-slate-50/50 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between">
+              <div className="flex justify-between items-start">
+                <div>
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: t.color }} />
                     <span className="font-bold text-slate-900">{t.name}</span>
                   </div>
-                  <span className="font-mono text-slate-600">{t.vanRegistration}</span>
+                  <span className="font-mono text-slate-600 text-[11px]">{t.vanRegistration}</span>
                 </div>
+                <button
+                  onClick={() => handleEditTechOpen(t)}
+                  className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors"
+                  title="Edit Technician"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="mt-1">
                 <p className="text-slate-500 mt-1">{t.email} · {t.phone}</p>
                 <p className="text-slate-700 font-medium mt-1">Skills: {t.skills.join(', ')}</p>
               </div>
@@ -415,6 +493,7 @@ export const SettingsView: React.FC = () => {
             </div>
           ))}
         </div>
+
       </div>
 
       {/* Add Technician Modal */}
@@ -512,6 +591,132 @@ export const SettingsView: React.FC = () => {
                   className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg"
                 >
                   Add Technician
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Technician Modal */}
+      {showEditTechModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-3 text-xs">
+            <h3 className="font-bold text-sm text-slate-900">Edit Field Technician</h3>
+            <form onSubmit={handleEditTechSubmit} className="space-y-3">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editTechName}
+                  onChange={(e) => setEditTechName(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={editTechEmail}
+                    onChange={(e) => setEditTechEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    required
+                    value={editTechPhone}
+                    onChange={(e) => setEditTechPhone(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-sky-50 p-3 rounded-lg border border-sky-100 space-y-3">
+                <div className="flex items-center gap-2 text-sky-800 font-bold mb-1">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Regulatory Certifications & Skills</span>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-sky-700 mb-1">Qualified Skills (comma separated)</label>
+                  <input
+                    type="text"
+                    value={editTechSkills}
+                    onChange={(e) => setEditTechSkills(e.target.value)}
+                    placeholder="e.g. GAS_SAFE, F_GAS, AC_INSTALL"
+                    className="w-full px-3 py-2 border border-sky-200 rounded-md text-xs bg-white"
+                  />
+                  <p className="text-[10px] text-sky-600 mt-1">Important: Use uppercase keys like GAS_SAFE and F_GAS to pass scheduling guards.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">Gas Safe License #</label>
+                    <input
+                      type="text"
+                      value={editTechGasLicense}
+                      onChange={(e) => setEditTechGasLicense(e.target.value)}
+                      className="w-full px-2 py-1.5 border border-sky-200 rounded text-xs font-mono bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">F-Gas License #</label>
+                    <input
+                      type="text"
+                      value={editTechFGasLicense}
+                      onChange={(e) => setEditTechFGasLicense(e.target.value)}
+                      className="w-full px-2 py-1.5 border border-sky-200 rounded text-xs font-mono bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">Gas Safe Expiry</label>
+                    <input
+                      type="date"
+                      value={editTechGasExpiry}
+                      onChange={(e) => setEditTechGasExpiry(e.target.value)}
+                      className="w-full px-2 py-1.5 border border-sky-200 rounded text-xs font-mono bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">F-Gas Expiry</label>
+                    <input
+                      type="date"
+                      value={editTechFGasExpiry}
+                      onChange={(e) => setEditTechFGasExpiry(e.target.value)}
+                      className="w-full px-2 py-1.5 border border-sky-200 rounded text-xs font-mono bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Van Registration</label>
+                <input
+                  type="text"
+                  value={editTechVan}
+                  onChange={(e) => setEditTechVan(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono uppercase"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditTechModal(false)}
+                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg"
+                >
+                  Update Profile
                 </button>
               </div>
             </form>

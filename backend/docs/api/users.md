@@ -11,3 +11,5 @@ All routes A only. The `id` is the Supabase `auth.users.id`.
 | POST | `/users` | `{ id, name, email, phone?, role, avatar?, technicianId? }` |
 | PATCH | `/users/:id` | Partial |
 | DELETE | `/users/:id` | |
+
+The last admin cannot be deleted (`409 LAST_ADMIN`).

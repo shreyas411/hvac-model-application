@@ -17,3 +17,5 @@ Read/write: A D C. Convert to job: A D. Convert to invoice: A C.
 | POST | `/quotations/:id/convert-to-invoice` | → `{ invoice, quotation }`. Copies items and totals. Requires `accepted` |
 
 `expired` is set by the daily sweep for `sent`/`viewed` quotations past `expiryDate`.
+
+Items may include `vatRatePercent` (per-line VAT). `GET /quotations` is paged in the database (`?q`, `?status`, `?cursor`).

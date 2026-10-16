@@ -10,5 +10,7 @@ Mounted at the API root. Returns 403 `FEATURE_DISABLED` when `enableInventory` i
 | GET | `/parts/:id` | A D T C | |
 | POST | `/parts` | A D | `stockQuantity` becomes an opening `stock_adjustment` movement. `DUPLICATE_SKU` |
 | PATCH | `/parts/:id` | A D | Cannot change stock; use `adjust` |
-| POST | `/parts/:id/adjust` | A D T | `{ delta, type: used_on_job \| stock_adjustment \| restock_purchase, notes?, jobId? }` → `{ part, movement }`. `INSUFFICIENT_STOCK` if it would go negative |
+| POST | `/parts/:id/adjust` | A D | `{ delta, type: used_on_job \| stock_adjustment \| restock_purchase, notes?, jobId? }` → `{ part, movement }`. `INSUFFICIENT_STOCK` if it would go negative |
 | GET | `/movements` | A D T C | `?partId` filter; append-only ledger |
+
+Technicians can no longer adjust stock; parts used on a job go through `POST /jobs/:id/parts`, and `type: used_on_job` is rejected on `adjust` (`403`). Movements carry a `vatAmount` that feeds the VAT return (`/reports/vat`).

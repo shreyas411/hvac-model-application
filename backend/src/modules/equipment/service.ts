@@ -1,7 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import type { Equipment, EquipmentServiceRecord } from '../../types.js';
+import { pageFrom } from '../../common/paginate.js';
 import { addMonths } from '../../common/dates.js';
-import { notFound } from '../../common/errors.js';
+import { conflict, notFound, unprocessable } from '../../common/errors.js';
 import { date, isUuid, plain, prisma, refer, type Tx } from '../../common/prisma.js';
 import { assertLocation } from '../customers/service.js';
 import { getJob } from '../jobs/service.js';
@@ -24,6 +25,7 @@ export async function getEquipment(id: string, c: Tx = prisma) {
 }
 
 /** Plugs into crud(): reads and delete only, writes go through the functions below. */
+export const pageEquipment = (query: unknown) => pageFrom(query, prisma.equipment, { include, searchFields: ['brand', 'model', 'serialNumber'] }, toEquipment);
 export const equipmentStore = {
   all: async () => (await prisma.equipment.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toEquipment),
   find: (id: string) => getEquipment(id).catch(() => undefined),
@@ -49,8 +51,10 @@ export async function updateEquipment(id: string, patch: Partial<Equipment>) {
 
 /** Records a visit, sets last_service_date and recomputes next_service_due_date from the maintenance frequency. */
 export async function addServiceRecord(id: string, rec: Omit<EquipmentServiceRecord, 'id'>) {
-  await getJob(rec.jobId);
   return prisma.$transaction(async (tx) => {
+    const job = await getJob(rec.jobId, tx);
+    if (!job.equipmentIds.includes(id)) throw unprocessable('EQUIPMENT_NOT_ON_JOB', 'That equipment is not attached to this job');
+    if (job.status === 'cancelled') throw conflict('JOB_CLOSED', 'Cannot record service on a cancelled job');
     const eq = await getEquipment(id, tx);
     await tx.equipmentServiceRecord.create({ data: {
       equipmentId: id, date: new Date(rec.date), jobId: rec.jobId, technicianName: rec.technicianName, serviceType: rec.serviceType,

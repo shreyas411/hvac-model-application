@@ -75,3 +75,12 @@ Modal with company name, address, Gas Safe and F-Gas numbers (from `settings`), 
 - Parts cannot be removed; stock deduction is not checked against availability.
 - `formatTimeOnly`, `onNavigateTab`, several icons are unused.
 - Uses a service report modal that prints the whole page via `window.print()`.
+
+## Updates
+
+- **Checklist templates:** under the service checklist, "Add all" / `+ item` add the job type's template items, and a "Custom checklist item" box adds a general item ([checklists-features.md](checklists-features.md)).
+- **Status buttons** now include New, Awaiting Approval and Scheduled and are disabled for moves the workflow or the technician role does not allow (technicians may only go to dispatched, in progress, on hold, completed).
+- **Completion gate:** completing needs ticked safety items, a refrigerant log for refrigerant checklists, work performed and a customer signature ([compliance-features.md](compliance-features.md)).
+- **Refrigerant log:** entries are recorded with `POST /jobs/:id/refrigerant`.
+- **Service report:** a Download (PDF) button sits beside Print.
+- **Offline:** actions made without signal are queued and replayed ([offline-and-pwa-features.md](offline-and-pwa-features.md)).

@@ -28,6 +28,8 @@ export const INITIAL_SETTINGS: CompanySettings = {
   website: 'https://apexhvac.co.uk',
   currencySymbol: '£',
   defaultVatRate: 20,
+  defaultHourlyRate: 85,
+  defaultTravelCharge: 35,
   availableVatRates: [20, 5, 0],
   workingHoursStart: '08:00',
   workingHoursEnd: '17:30',

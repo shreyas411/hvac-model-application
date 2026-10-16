@@ -26,6 +26,8 @@ interface Opts<T extends { id: string }> {
   /** Validate references / derive fields before insert. */
   beforeCreate?: (data: any, req: import('express').Request) => any;
   beforeUpdate?: (current: T, data: any) => any;
+  /** DB-side paging for the list route; return undefined to fall back to the in-memory path (e.g. for a filter SQL can't express). */
+  page?: (query: any) => Promise<unknown> | undefined;
   del?: boolean;
 }
 
@@ -33,16 +35,16 @@ interface Opts<T extends { id: string }> {
 export function crud<T extends { id: string }>(o: Opts<T>) {
   const r = Router();
   const must = async (id: string) => (await o.repo.find(id)) ?? Promise.reject(notFound(o.label));
-  r.get('/', allow(...o.read), h(async (req) => paginate(o.filter ? o.filter(await o.repo.all(), req.query) : await o.repo.all(), req.query)));
+  r.get('/', allow(...o.read), h(async (req) => o.page?.(req.query) ?? paginate(o.filter ? o.filter(await o.repo.all(), req.query) : await o.repo.all(), req.query)));
   r.get('/:id', allow(...o.read), h((req) => must(req.params.id)));
-  r.post('/', allow(...o.write), h((req) => {
+  r.post('/', allow(...o.write), h(async (req) => {
     const data = o.create.parse(req.body);
-    return o.repo.insert(o.beforeCreate ? o.beforeCreate(data, req) : data);
+    return o.repo.insert(o.beforeCreate ? await o.beforeCreate(data, req) : data);
   }, 201));
   r.patch('/:id', allow(...o.write), h(async (req) => {
     const cur = await must(req.params.id);
     const data = o.update.parse(req.body);
-    return o.repo.update(cur.id, o.beforeUpdate ? o.beforeUpdate(cur, data) : data);
+    return o.repo.update(cur.id, o.beforeUpdate ? await o.beforeUpdate(cur, data) : data);
   }));
   if (o.del) r.delete('/:id', allow(...o.write), h(async (req) => { await must(req.params.id); await o.repo.remove(req.params.id); }));
   return r;

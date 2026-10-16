@@ -53,3 +53,7 @@ On "Save to Queue", `createNotification` is called with `recipient` = customer e
 - Customer's contact preferences/consent are not enforced; the recipient may be an empty string if the customer lacks that email/phone.
 - Draft form state is not reset after saving.
 - The default customer is captured once at mount (empty if customers load later).
+
+## Updates: safe sending
+
+Notifications have a new `sending` status. Sending claims the row with a conditional update (`ready_to_send` to `sending`) so two workers can never send the same message; the provider call runs outside any DB transaction, and rows stuck in `sending` for 5 minutes are put back in the queue (at-least-once for those rare rows). See [security-and-auth-features.md](security-and-auth-features.md).

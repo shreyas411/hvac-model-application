@@ -30,6 +30,6 @@ customersRouter.post('/:id/locations', rw, h((req) => svc.addLocation(req.params
 customersRouter.patch('/:id/locations/:locId', rw, h((req) => svc.updateLocation(req.params.id, req.params.locId, location.partial().parse(req.body))));
 customersRouter.delete('/:id/locations/:locId', rw, h((req) => svc.removeLocation(req.params.id, req.params.locId)));
 const read = allow('admin', 'dispatcher', 'accountant');
-customersRouter.get('/', read, h(async (req) => paginate(await svc.listCustomers(), req.query)));
+customersRouter.get('/', read, h((req) => svc.pageCustomers(req.query)));
 customersRouter.get('/:id', read, h((req) => svc.getCustomer(req.params.id)));
 customersRouter.patch('/:id', rw, h((req) => svc.updateCustomer(req.params.id, customer.omit({ serviceLocations: true }).partial().parse(req.body))));

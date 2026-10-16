@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { pageFrom } from '../../common/paginate.js';
 import type { Prisma } from '@prisma/client';
 import type { Customer, ServiceLocation } from '../../types.js';
 import { ApiError, notFound } from '../../common/errors.js';
@@ -17,7 +18,7 @@ export async function getCustomer(id: string) {
   return toCustomer(row);
 }
 
-// ponytail: loads every customer, then paginate() slices in memory. Push limit/cursor/q into the query when the table gets big.
+export const pageCustomers = (query: unknown) => pageFrom(query, prisma.customer, { include, searchFields: ['name', 'email', 'phone'] }, toCustomer);
 export const listCustomers = async () => (await prisma.customer.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toCustomer);
 
 export async function assertLocation(customerId: string, locationId: string) {

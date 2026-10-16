@@ -22,10 +22,14 @@ Base path `/api/v1`. JSON in and out. Roles: **A** admin, **D** dispatcher, **T*
 | notifications | [notifications.md](notifications.md) |
 | reports and dashboard | [reports.md](reports.md) |
 | data | [data.md](data.md) |
+| checklists | [checklists.md](checklists.md) |
+| maintenance | [maintenance.md](maintenance.md) |
 
 ## Conventions
 
-- **Auth:** `Authorization: Bearer <Supabase JWT>`. In dev with no Supabase secret set, send `x-dev-user: dev-admin|dev-dispatcher|dev-technician|dev-accountant`. Only `/auth/login|refresh|logout` and the health routes are public.
+- **Auth:** the web app signs in with httpOnly session cookies (`hvac_at`, `hvac_rt`); cookie-authenticated writes must send `x-requested-with: apexhvac`. API clients may send `Authorization: Bearer <Supabase JWT>`. With `APP_ENV=local` and no Supabase secret, send `x-dev-user: dev-admin|dev-dispatcher|dev-technician|dev-accountant` (or log in with a local password). Only `/auth/login|refresh|logout` and the health routes are public.
+- **Idempotency:** a write may carry `x-idempotency-key` (1-64 word characters). It runs once per (user, key); replays get the stored response, and reuse with a different method/path/body is `422 IDEMPOTENCY_KEY_REUSED`. A replay while the first request is running gets `503` + `Retry-After`. Keys are pruned after 7 days.
+- **Rate limits:** `/auth/*` 30 requests per 15 minutes per IP; everything else 600 per minute per user (`429`).
 - **Lists** return `{ data: [...], nextCursor }` and accept `?limit` (1-200, default 50), `?cursor` (id of the last row of the previous page), `?q` (text search) and `?status`.
 - **Errors** are RFC 7807 (`application/problem+json`): `{ title, status, code, detail }`, plus `issues` for validation errors.
 - **Numbers** (`JOB-2026-0001`, `QTE-…`, `INV-…`, `SR-n`) and all totals are assigned and computed by the server.
@@ -35,15 +39,15 @@ Base path `/api/v1`. JSON in and out. Roles: **A** admin, **D** dispatcher, **T*
 |---|---|
 | 400 | `VALIDATION`, `BAD_JSON` |
 | 401 | `UNAUTHENTICATED` |
-| 403 | `FORBIDDEN`, `FEATURE_DISABLED` |
+| 403 | `FORBIDDEN`, `FEATURE_DISABLED` (also technician not qualified: missing skill, licence or expired licence) |
 | 404 | `NOT_FOUND` |
-| 409 | `SCHEDULE_CONFLICT`, `INVALID_TRANSITION`, `ALREADY_CONVERTED`, `NOT_ACCEPTED`, `INSUFFICIENT_STOCK`, `DUPLICATE_SKU`, `NOT_EDITABLE`, `NOT_DRAFT`, `NOT_PAYABLE`, `HAS_PAYMENTS`, `INVOICE_VOID`, `LOCATION_IN_USE`, `ALREADY_SENT`, `REQUEST_CANCELLED` |
-| 422 | `OVERPAYMENT`, `INVALID_LOCATION`, `INVALID_TIME`, `INVALID_QUANTITY`, `CONSENT_REQUIRED`, `CHANNEL_NOT_PREFERRED` |
+| 409 | `SCHEDULE_CONFLICT`, `INVALID_TRANSITION`, `ALREADY_CONVERTED`, `NOT_ACCEPTED`, `INSUFFICIENT_STOCK`, `DUPLICATE_SKU`, `NOT_EDITABLE`, `NOT_DRAFT`, `NOT_PAYABLE`, `HAS_PAYMENTS`, `INVOICE_VOID`, `LOCATION_IN_USE`, `ALREADY_SENT`, `REQUEST_CANCELLED`, `JOB_CLOSED`, `JOB_NOT_ACTIVE`, `JOB_INVOICED`, `JOB_NOT_COMPLETED`, `NOT_CREDITABLE`, `HAS_CREDITS`, `ALREADY_REFUNDED`, `DUPLICATE_PAYMENT_REFERENCE`, `LAST_ADMIN` |
+| 422 | `NOT_COMPLETABLE`, `REASON_REQUIRED`, `EMPTY_INVOICE`, `NOTHING_TO_INVOICE`, `OVER_CREDIT`, `EQUIPMENT_NOT_ON_JOB`, `CONFIRMATION_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `BAD_IDEMPOTENCY_KEY`, `OVERPAYMENT`, `INVALID_LOCATION`, `INVALID_TIME`, `INVALID_QUANTITY`, `CONSENT_REQUIRED`, `CHANNEL_NOT_PREFERRED` |
 
 ## Health (public)
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/healthz` (root, not under `/api/v1`) | Process is up |
-| GET | `/readyz` (root) | Always ready until the DB exists |
+| GET | `/readyz` (root) | 200 when the DB answers `SELECT 1`, else 503 |
 

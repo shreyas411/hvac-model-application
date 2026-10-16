@@ -102,3 +102,9 @@ A strip under the navbar, rendered on every tab (`App.tsx:60`). It shows, for th
 - `users` cannot be added or edited in the UI.
 - Technician quick-create is hidden in Navbar only; dashboards or views passing `onOpenQuickAction` are not role-filtered by this code.
 - Menus do not close on outside click or Escape.
+
+## Updates
+
+- Tabs are defined once in `frontend/src/routes.ts` (`navLinks`) and the current tab lives in the URL path (`/invoices`, `/maintenance`, ...), so refresh and back/forward work. A tab the role may not see redirects to the role's home (Technician Portal for technicians, Dashboard otherwise); `notifications` is open to all.
+- New tabs: **Maintenance Plans** (admin, dispatcher, accountant) and **Checklists** (admin).
+- Roles are now enforced server-side as well; see [security-and-auth-features.md](security-and-auth-features.md) and [compliance-features.md](compliance-features.md) for technician restrictions.

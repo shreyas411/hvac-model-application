@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
+import { navLinks } from '../../routes';
 import { 
   Flame, 
   Plus, 
@@ -33,19 +34,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const pendingNotifications = notifications.filter((n) => n.status === 'ready_to_send').length;
 
-  const navLinks = [
-    { id: 'dashboard', label: 'Dashboard', allowedRoles: ['admin', 'dispatcher', 'accountant'] },
-    { id: 'technician_portal', label: 'Technician Portal', allowedRoles: ['admin', 'dispatcher', 'technician'] },
-    { id: 'dispatch', label: 'Dispatch & Jobs', allowedRoles: ['admin', 'dispatcher'] },
-    { id: 'customers', label: 'Customers', allowedRoles: ['admin', 'dispatcher', 'accountant'] },
-    { id: 'equipment', label: 'Equipment & Assets', allowedRoles: ['admin', 'dispatcher', 'technician'] },
-    { id: 'requests', label: 'Service Requests', allowedRoles: ['admin', 'dispatcher'] },
-    { id: 'quotations', label: 'Quotations', allowedRoles: ['admin', 'dispatcher', 'accountant'] },
-    { id: 'invoices', label: 'Invoices & Payments', allowedRoles: ['admin', 'accountant'] },
-    { id: 'inventory', label: 'Parts & Stock', allowedRoles: ['admin', 'dispatcher', 'technician', 'accountant'] },
-    { id: 'reports', label: 'Reports', allowedRoles: ['admin', 'accountant'] },
-    { id: 'settings', label: 'Settings', allowedRoles: ['admin'] },
-  ];
 
   const visibleLinks = navLinks.filter((l) => l.allowedRoles.includes(currentUser.role));
 

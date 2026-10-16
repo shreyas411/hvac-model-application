@@ -4,5 +4,5 @@ Base path `/api/v1`. Roles: **A** admin, **D** dispatcher, **T** technician, **C
 
 | Method | Path | Roles | Notes |
 |---|---|---|---|
-| GET | `/settings` | any | Single `CompanySettings` object |
-| PATCH | `/settings` | A | Partial update (VAT rates, number prefixes, `enableInventory`, bank details…) |
+| GET | `/settings` | any | Single `CompanySettings` object; `bankDetails` only for A and C |
+| PATCH | `/settings` | A | Partial update (VAT rates, number prefixes, `enableInventory`, `defaultHourlyRate`, `defaultTravelCharge`, bank details…) |
