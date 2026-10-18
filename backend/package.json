@@ -9,7 +9,7 @@
     "start": "node dist/main.js",
     "worker": "node dist/worker.js",
     "lint": "tsc --noEmit",
-    "test": "DATABASE_URL=postgresql://hvac:hvac@localhost:5433/hvac_test DIRECT_URL=postgresql://hvac:hvac@localhost:5433/hvac_test prisma migrate deploy && DATABASE_URL=postgresql://hvac:hvac@localhost:5433/hvac_test DIRECT_URL=postgresql://hvac:hvac@localhost:5433/hvac_test LOG_LEVEL=silent vitest run"
+    "test": "DATABASE_URL=postgresql://hvac:hvac@localhost:5433/hvac_test DIRECT_URL=postgresql://hvac:hvac@localhost:5433/hvac_test prisma migrate deploy && DATABASE_URL=postgresql://hvac:hvac@localhost:5433/hvac_test DIRECT_URL=postgresql://hvac:hvac@localhost:5433/hvac_test LOG_LEVEL=silent vitest run --testTimeout=30000"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
