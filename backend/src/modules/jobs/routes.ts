@@ -25,7 +25,7 @@ const job = z.object({
   technicianId: z.string().nullable().default(null),
   appointmentDate: isoDate, startTime: hhmm, endTime: hhmm,
   estimatedDurationMinutes: z.number().int().positive().optional(),
-  requiredSkills: z.array(z.string()).default([]), description: z.string().min(1),
+  requiredSkills: z.array(z.string()).default([]), title: z.string().trim().min(1).max(200), description: z.string().min(1),
   internalNotes: z.string().optional(), workPerformed: z.string().optional(),
   labourHours: z.number().nonnegative().default(0), hourlyRate: money.optional(),
   travelTimeMinutes: z.number().int().nonnegative().default(0), travelCharge: money.default(0),

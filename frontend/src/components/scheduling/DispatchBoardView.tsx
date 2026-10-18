@@ -63,6 +63,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   const [modalStartTime, setModalStartTime] = useState<string>('');
   const [modalEndTime, setModalEndTime] = useState<string>('');
   const [modalTechnicianId, setModalTechnicianId] = useState<string>('');
+  const [modalTitle, setModalTitle] = useState<string>('');
   const [modalDescription, setModalDescription] = useState<string>('');
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
   const [certWarning, setCertWarning] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     setModalStartTime(job.startTime);
     setModalEndTime(job.endTime);
     setModalTechnicianId(job.technicianId || '');
+    setModalTitle(job.title ?? '');
     setModalDescription(job.description);
     setConflictWarning(null);
     setCertWarning(null);
@@ -134,6 +136,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
         startTime: modalStartTime,
         endTime: modalEndTime,
         technicianId: modalTechnicianId || null,
+        title: modalTitle.trim(),
         description: modalDescription,
         estimatedDurationMinutes: durationMins,
         status: editingJob.status === 'new' && modalTechnicianId ? 'scheduled' : editingJob.status,
@@ -310,7 +313,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               All Scheduled Jobs ({paged.total})
             </span>
             <div className="flex flex-wrap gap-2">
-              <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" placeholder="Search job no. or notes" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" placeholder="Search job no., title or notes" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs" />
               <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs capitalize">
                 <option value="">All statuses</option>
                 {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
@@ -345,6 +348,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                     <tr key={job.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
                         {job.jobNumber}
+                        <span className="block text-[11px] font-sans font-medium text-slate-700 truncate max-w-[220px]">{job.title}</span>
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         <span className="font-medium text-slate-900 block">{job.appointmentDate}</span>
@@ -429,6 +433,16 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
             </div>
 
             <form onSubmit={handleModalSave} className="p-5 space-y-4 overflow-y-auto text-xs">
+              <div>
+                <label htmlFor="ds-title" className="block font-semibold text-slate-700 mb-1">Job Title</label>
+                <input
+                  required maxLength={200} autoComplete="off"
+                  id="ds-title" name="title" value={modalTitle}
+                  onChange={(e) => setModalTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
+                />
+              </div>
+
               
               {/* Conflict warning banner */}
               {conflictWarning && (

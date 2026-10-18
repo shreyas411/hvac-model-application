@@ -176,6 +176,7 @@ export interface JobChecklistItem {
 export interface Job {
   id: string;
   jobNumber: string;
+  title: string;
   requestId?: string;
   customerId: string;
   locationId: string;

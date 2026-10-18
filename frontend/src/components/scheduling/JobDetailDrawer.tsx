@@ -44,7 +44,7 @@ export const JobDetailDrawer: React.FC<{ job: Job; onClose: () => void; onEdit?:
     <div role="dialog" aria-modal="true" aria-label={`Job ${job.jobNumber}`} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
       <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
-          <span className="font-bold text-sm text-slate-900 font-mono">{job.jobNumber}</span>
+          <span className="font-bold text-sm text-slate-900 font-mono">{job.jobNumber}{job.title && <span className="font-sans font-semibold"> · {job.title}</span>}</span>
           <div className="flex items-center gap-2">
             {onEdit && <button onClick={onEdit} className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold">Edit / Reassign</button>}
             <button onClick={(e) => downloadSheet(e.currentTarget, `${job.jobNumber}-report.pdf`)} className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1">
@@ -87,6 +87,7 @@ export const JobDetailDrawer: React.FC<{ job: Job; onClose: () => void; onEdit?:
           </div>
 
           <Section title="Job description">
+            {job.title && <p className="font-semibold text-slate-900">{job.title}</p>}
             <p className="text-slate-800 whitespace-pre-wrap">{job.description || '—'}</p>
             {job.internalNotes && <p className="text-slate-500 whitespace-pre-wrap">Internal: {job.internalNotes}</p>}
             {job.requiredSkills.length > 0 && <p className="text-slate-500">Skills: {job.requiredSkills.join(', ')}</p>}

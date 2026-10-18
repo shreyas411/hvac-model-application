@@ -280,7 +280,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                     <span className="text-[10px] capitalize opacity-80">{job.status.replace('_', ' ')}</span>
                   </div>
                   <p className="text-xs font-medium mt-0.5 truncate max-w-[160px]">
-                    {cust?.name || job.jobNumber}
+                    {job.title || cust?.name || job.jobNumber}
                   </p>
                 </button>
               );

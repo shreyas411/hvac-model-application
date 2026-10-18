@@ -133,7 +133,7 @@ export async function convertToJob(id: string, slot: { appointmentDate: string; 
       customerId: q.customerId, locationId: q.locationId, equipmentIds: [], type: 'installation', priority: 'medium',
       technicianId: slot.technicianId || null, ...slot,
       estimatedDurationMinutes: Math.max(60, toMinutes(slot.endTime) - toMinutes(slot.startTime)),
-      requiredSkills: [], description: `Installation work as agreed per Quotation ${q.quoteNumber}`,
+      requiredSkills: [], title: `Installation per ${q.quoteNumber}`, description: `Installation work as agreed per Quotation ${q.quoteNumber}`,
       internalNotes: q.notes, labourHours, hourlyRate: rates.defaultHourlyRate, travelTimeMinutes: 30, travelCharge: rates.defaultTravelCharge,
       checklist: ['Pre-installation survey & isolate services', 'Position equipment on secure mounts', 'Connect pipework & leak test', 'Commissioning & customer handover']
         .map((label, i) => ({ id: `chk-${i + 1}`, category: 'general' as const, label, checked: false })),

@@ -686,6 +686,7 @@ export const INITIAL_JOBS: Job[] = [
   {
     id: 'job-1',
     jobNumber: 'JOB-2026-0810',
+    title: 'Annual cascade boiler service',
     customerId: 'cust-1',
     locationId: 'loc-1',
     equipmentIds: ['eq-1'],
@@ -754,6 +755,7 @@ export const INITIAL_JOBS: Job[] = [
   {
     id: 'job-2',
     jobNumber: 'JOB-2026-0811',
+    title: 'Quarterly F-Gas leak test',
     customerId: 'cust-2',
     locationId: 'loc-3',
     equipmentIds: ['eq-3'],
@@ -795,6 +797,7 @@ export const INITIAL_JOBS: Job[] = [
   {
     id: 'job-3',
     jobNumber: 'JOB-2026-0808',
+    title: 'Heat pump annual maintenance',
     customerId: 'cust-4',
     locationId: 'loc-5',
     equipmentIds: ['eq-5'],
@@ -859,6 +862,7 @@ export const INITIAL_JOBS: Job[] = [
   {
     id: 'job-4',
     jobNumber: 'JOB-2026-0812',
+    title: 'Refrigerant pressure drop diagnosis',
     customerId: 'cust-1',
     locationId: 'loc-1',
     equipmentIds: ['eq-2'],

@@ -51,7 +51,7 @@ export async function pageJobs(query: unknown, only?: { technicianId?: string | 
   const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)) ? new Date(v) : undefined);
   const { from, to } = (query ?? {}) as Record<string, unknown>;
   const range = day(from) || day(to) ? { appointmentDate: { gte: day(from), lte: day(to) } } : {};
-  return pageFrom(query, prisma.job, { where: { ...(only && { technicianId: only.technicianId }), ...range }, include, searchFields: ['jobNumber', 'description', 'internalNotes', 'workPerformed'] }, toJob);
+  return pageFrom(query, prisma.job, { where: { ...(only && { technicianId: only.technicianId }), ...range }, include, searchFields: ['jobNumber', 'title', 'description', 'internalNotes', 'workPerformed'] }, toJob);
 }
 
 // DECIDE (spec 6.2): default transition map, admins may override with `override: true`.
@@ -204,7 +204,7 @@ export async function createJob(input: JobInput, who: Actor, tx?: Tx): Promise<J
 
 const SCALARS = [
   'customerId', 'locationId', 'type', 'priority', 'technicianId', 'startTime', 'endTime', 'estimatedDurationMinutes', 'requiredSkills',
-  'description', 'internalNotes', 'workPerformed', 'labourHours', 'hourlyRate', 'travelTimeMinutes', 'travelCharge', 'followUpRecommended', 'followUpNotes',
+  'title', 'description', 'internalNotes', 'workPerformed', 'labourHours', 'hourlyRate', 'travelTimeMinutes', 'travelCharge', 'followUpRecommended', 'followUpNotes',
 ] as const;
 
 export function updateJob(id: string, patch: Partial<Job>, who: Actor, action = 'Job updated') {
@@ -359,7 +359,7 @@ export function importJobOps(rows: any[], ids: Map<string, string>) {
         type: j.type, priority: j.priority ?? 'medium', status: j.status ?? 'new',
         technicianId: j.technicianId ? refer(ids, j.technicianId, at) : null,
         appointmentDate: new Date(j.appointmentDate), startTime: j.startTime, endTime: j.endTime,
-        estimatedDurationMinutes: j.estimatedDurationMinutes ?? 60, requiredSkills: j.requiredSkills ?? [], description: j.description ?? '',
+        estimatedDurationMinutes: j.estimatedDurationMinutes ?? 60, requiredSkills: j.requiredSkills ?? [], title: j.title ?? '', description: j.description ?? '',
         internalNotes: j.internalNotes, workPerformed: j.workPerformed,
         labourHours: j.labourHours ?? 0, hourlyRate: j.hourlyRate ?? 0, travelTimeMinutes: j.travelTimeMinutes ?? 0, travelCharge: j.travelCharge ?? 0,
         customerSignature: j.customerSignature, followUpRecommended: j.followUpRecommended, followUpNotes: j.followUpNotes,

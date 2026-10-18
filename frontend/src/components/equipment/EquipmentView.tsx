@@ -62,6 +62,7 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
       customerId: eq.customerId,
       locationId: eq.locationId,
       equipmentIds: [eq.id],
+      title: `Service: ${eq.brand} ${eq.model}`.slice(0, 200),
       type: 'preventive_maintenance',
       priority: 'medium',
       status: 'new',

@@ -56,7 +56,7 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
   const needle = qJob.trim().toLowerCase();
   const unassigned = jobs
     .filter((j) => !j.technicianId && j.status !== 'cancelled')
-    .filter((j) => !needle || `${j.jobNumber} ${j.description} ${customerById.get(j.customerId)?.name || ''}`.toLowerCase().includes(needle))
+    .filter((j) => !needle || `${j.jobNumber} ${j.title} ${j.description} ${customerById.get(j.customerId)?.name || ''}`.toLowerCase().includes(needle))
     .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.appointmentDate.localeCompare(b.appointmentDate));
 
   const dayJobs = jobs.filter((j) => j.appointmentDate === selectedDate && j.technicianId && j.status !== 'cancelled');
@@ -106,6 +106,7 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
                 <span className="font-mono font-bold text-xs text-slate-900">{job.jobNumber}</span>
                 <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${PRIORITY_BADGE[job.priority]}`}>{job.priority}</span>
               </div>
+              {job.title && <p className="text-xs font-semibold text-slate-900 truncate">{job.title}</p>}
               <p className="text-xs font-semibold text-slate-800 truncate">{customerById.get(job.customerId)?.name}</p>
               <p className="text-[11px] text-slate-500 line-clamp-1">{job.description}</p>
               <div className="flex items-center justify-between text-[11px] text-slate-400">
@@ -170,11 +171,11 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
                       const width = Math.max(48, ((mins(job.endTime) - mins(job.startTime)) / 60) * HOUR_W - 2);
                       return (
                         <DragCard id={job.id} key={job.id} {...open(job)}
-                          title={`${job.jobNumber} · ${customerById.get(job.customerId)?.name || ''} · ${job.startTime}-${job.endTime}`}
+                          title={`${job.jobNumber} · ${job.title} · ${customerById.get(job.customerId)?.name || ''} · ${job.startTime}-${job.endTime}`}
                           className={`absolute top-1.5 bottom-1.5 rounded px-1.5 py-0.5 text-white overflow-hidden cursor-grab active:cursor-grabbing shadow-2xs ${job.priority === 'emergency' || job.slaBreached ? 'ring-2 ring-red-500' : ''}`}
                           style={{ left, width, backgroundColor: tech.color }}>
                           <div className="text-[11px] font-mono font-bold leading-tight truncate">{job.jobNumber}</div>
-                          <div className="text-[10px] leading-tight truncate opacity-90">{customerById.get(job.customerId)?.name}</div>
+                          <div className="text-[10px] leading-tight truncate opacity-90">{job.title || customerById.get(job.customerId)?.name}</div>
                         </DragCard>
                       );
                     })}

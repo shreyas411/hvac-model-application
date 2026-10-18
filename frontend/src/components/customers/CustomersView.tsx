@@ -509,6 +509,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     <button key={job.id} type="button" onClick={() => setViewingJob(job)} aria-label={`View details of ${job.jobNumber}`} className="w-full text-left p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
                       <div>
                         <span className="font-mono font-bold text-slate-900">{job.jobNumber}</span>
+                        <span className="text-xs font-medium text-slate-700 block">{job.title}</span>
                         <span className="text-[11px] text-slate-500 block">{job.description}</span>
                       </div>
                       <div className="text-right">

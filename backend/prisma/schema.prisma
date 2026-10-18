@@ -400,6 +400,7 @@ model Job {
   endTime                  String          @map("end_time")
   estimatedDurationMinutes Int             @default(60) @map("estimated_duration_minutes")
   requiredSkills           String[]        @map("required_skills")
+  title                    String          @default("")
   description              String          @default("")
   internalNotes            String?         @map("internal_notes")
   workPerformed            String?         @map("work_performed")

@@ -24,7 +24,7 @@ export const TechJobHistory: React.FC<{ technicianId: string }> = ({ technicianI
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <h2 className="font-bold text-sm text-slate-900">Job history ({paged.total})</h2>
         <div className="flex flex-wrap gap-2">
-          <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" placeholder="Search job no. or notes" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" placeholder="Search job no., title or notes" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs" />
           <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs capitalize">
             <option value="">All statuses</option>
             {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
@@ -45,6 +45,7 @@ export const TechJobHistory: React.FC<{ technicianId: string }> = ({ technicianI
                 <span className="min-w-0">
                   <span className="font-mono font-bold text-slate-900">{job.jobNumber}</span>
                   <span className="text-slate-500"> · {customerById.get(job.customerId)?.name ?? ''}</span>
+                  <span className="block text-xs font-medium text-slate-700 truncate">{job.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">{job.description}</span>
                 </span>
                 <span className="text-right shrink-0">

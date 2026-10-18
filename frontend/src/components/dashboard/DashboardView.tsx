@@ -420,6 +420,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <span className="font-mono font-semibold text-slate-900 block">
                               {job.jobNumber}
                             </span>
+                            {job.title && <span className="text-[11px] font-medium text-slate-700 block">{job.title}</span>}
                             <span className="text-[11px] text-slate-500 capitalize">
                               {job.type.replace('_', ' ')}
                             </span>
@@ -536,6 +537,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span className="font-bold font-mono text-rose-900">{job.jobNumber}</span>
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-rose-700 bg-rose-100">Overdue</span>
                 </div>
+                {job.title && <p className="font-medium text-slate-800">{job.title}</p>}
                 <p className="text-slate-600">{customerById.get(job.customerId)?.name}</p>
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-[11px] text-slate-500 font-mono">Was due: {formatDateUK(job.appointmentDate)}</span>
