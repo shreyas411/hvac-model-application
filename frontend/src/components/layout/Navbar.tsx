@@ -117,7 +117,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
     <header ref={headerRef} className={`sticky top-0 z-30 bg-white border-b border-slate-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-60'}`}>
       {/* Top 3-Zone Navigation */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between lg:justify-end h-16 gap-4">
           
           {/* Brand Wordmark (mobile only; desktop brand lives in sidebar) */}

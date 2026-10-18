@@ -62,7 +62,7 @@ const AppContent: React.FC = () => {
         onToggleSidebar={toggleSidebar}
       />
 
-      <div className={`${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60'} flex-1 flex flex-col min-w-0`}>
+      <div className={`${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60'} flex-1 flex flex-col min-w-0 transition-[padding]`}>
       {/* Role & Permissions Banner */}
       <RoleBanner onSelectTab={setCurrentTab} />
 
@@ -162,7 +162,7 @@ const AppContent: React.FC = () => {
 
       {/* Quiet Footer */}
       <footer className="border-t border-slate-200 bg-white py-6 text-xs text-slate-500 no-print">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="w-full px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <IconFlame className="w-4 h-4 text-sky-700" />
             <span className="font-semibold text-slate-800">{settings.companyName}</span>

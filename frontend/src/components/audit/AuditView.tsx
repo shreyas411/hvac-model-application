@@ -7,7 +7,7 @@ export const AuditView: React.FC = () => {
   const paged = useServerPaged<AuditEntry>('/audit', { q: q.trim() || undefined });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-6 space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">Audit Log</h1>

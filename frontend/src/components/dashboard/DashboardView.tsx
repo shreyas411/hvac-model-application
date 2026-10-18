@@ -85,7 +85,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }), [jobs, serviceRequests, quotations, invoices, equipment, today, soon]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="space-y-6 w-full px-4 sm:px-6 lg:px-8 py-6">
       
       {/* Top Banner / Welcome with Quick Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
@@ -212,7 +212,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="bg-white p-3 border border-slate-200 rounded-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 text-slate-500 shrink-0">
           <IconFilter className="w-3.5 h-3.5" aria-hidden="true" />
-          <span className="font-semibold text-slate-700">IconFilter View:</span>
+          <span className="font-semibold text-slate-700">Filter View:</span>
         </div>
 
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
