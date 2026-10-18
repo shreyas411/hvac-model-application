@@ -178,6 +178,7 @@ export interface Job {
   slaDueAt?: string;
   slaBreached?: boolean; // contract response time passed while the job is still `new`
   jobNumber: string;
+  title: string;
   requestId?: string;
   customerId: string;
   locationId: string;

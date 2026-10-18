@@ -38,7 +38,7 @@ const SortableRow: React.FC<{ id: string; editing: boolean; children: (handle: R
 
 /** Admin-only: manage the checklist items offered for each job type. */
 export const ChecklistsView: React.FC = () => {
-  const { showToast } = useApp(['showToast']);
+  const { showToast, confirmToast } = useApp(['showToast', 'confirmToast']);
   const { templates, setTemplates, reload } = useChecklistTemplates();
   const [jobType, setJobType] = useState<JobType>('repair');
   const [label, setLabel] = useState('');
@@ -72,10 +72,10 @@ export const ChecklistsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 w-full px-4 sm:px-6 py-4">
-      <div className="flex items-center gap-2">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
+      <div className="pb-2 flex items-center gap-2">
         <IconSquareCheck className="w-5 h-5 text-sky-700" aria-hidden="true" />
-        <h1 className="text-lg font-bold text-slate-900">Job Checklists</h1>
+        <h1 className="text-lg font-bold tracking-tight text-slate-900">Job Checklists</h1>
       </div>
       <p className="text-xs text-slate-500">
         Items listed here are offered to technicians for jobs of that type, and added automatically to new jobs.
@@ -129,7 +129,7 @@ export const ChecklistsView: React.FC = () => {
                       </span>
                       <span className="text-[10px] text-slate-400 capitalize">{t.category.replace('_', ' ')}</span>
                       <button type="button" aria-label={`Edit ${t.label}`} onClick={() => startEdit(t)} className="text-slate-400 hover:text-sky-700"><IconPencil className="w-3.5 h-3.5" aria-hidden="true" /></button>
-                      <button type="button" aria-label={`Delete ${t.label}`} onClick={() => confirm(`Delete "${t.label}"?`) && void run(services.checklistTemplates.remove(t.id))} className="text-slate-400 hover:text-red-600"><IconTrash className="w-3.5 h-3.5" aria-hidden="true" /></button>
+                      <button type="button" aria-label={`Delete ${t.label}`} onClick={() => confirmToast(`Delete "${t.label}"?`, () => void run(services.checklistTemplates.remove(t.id)))} className="text-slate-400 hover:text-red-600"><IconTrash className="w-3.5 h-3.5" aria-hidden="true" /></button>
                     </>
                   )}
                 </>)}

@@ -35,7 +35,7 @@ const Thumb: React.FC<{ jobId: string; photo: JobPhoto; onRemove?: () => void }>
 };
 
 export const JobPhotos: React.FC<{ jobId: string; locked?: boolean }> = ({ jobId, locked }) => {
-  const { showToast } = useApp(['showToast']);
+  const { showToast, confirmToast } = useApp(['showToast', 'confirmToast']);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
   const [caption, setCaption] = useState('');
   const [busy, setBusy] = useState(false);
@@ -74,7 +74,7 @@ export const JobPhotos: React.FC<{ jobId: string; locked?: boolean }> = ({ jobId
       )}
       {photos.length === 0 ? <EmptyState icon={IconPhoto} compact>No photos yet.</EmptyState> : (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {photos.map((p) => <Thumb key={p.id} jobId={jobId} photo={p} onRemove={locked ? undefined : () => window.confirm('Delete this photo?') && void remove(p.id)} />)}
+          {photos.map((p) => <Thumb key={p.id} jobId={jobId} photo={p} onRemove={locked ? undefined : () => confirmToast('Delete this photo?', () => void remove(p.id))} />)}
         </div>
       )}
     </div>

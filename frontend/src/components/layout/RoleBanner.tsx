@@ -48,7 +48,7 @@ export const RoleBanner: React.FC<RoleBannerProps> = ({ onSelectTab }) => {
 
   return (
     <div className="bg-slate-100 border-b border-slate-200 py-2 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+      <div className="w-full flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
         {/* Current Role Info */}
         <div className="flex items-center gap-2.5">
           <div className="p-1.5 bg-white rounded border border-slate-200">

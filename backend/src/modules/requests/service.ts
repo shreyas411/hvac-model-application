@@ -48,7 +48,7 @@ export async function convertToJob(id: string, slot: { appointmentDate: string; 
       requestId: r.id, customerId: r.customerId, locationId: r.locationId, equipmentIds: r.equipmentId ? [r.equipmentId] : [],
       type: r.priority === 'emergency' ? 'emergency_callout' : 'repair', priority: r.priority,
       technicianId: slot.technicianId || null, ...slot, estimatedDurationMinutes: duration,
-      requiredSkills: [], description: r.reportedProblem, internalNotes: r.internalNotes,
+      requiredSkills: [], title: r.reportedProblem.slice(0, 80), description: r.reportedProblem, internalNotes: r.internalNotes,
       labourHours: duration / 60, hourlyRate: rates.defaultHourlyRate, travelTimeMinutes: 30, travelCharge: rates.defaultTravelCharge,
       checklist: [
         'Initial visual inspection & safety check', 'Perform diagnostics & identify root cause', 'Test operation and log readings',

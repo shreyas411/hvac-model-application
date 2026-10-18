@@ -124,12 +124,12 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-lg font-bold tracking-tight text-slate-900">
             Business Settings & Company Profile
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -312,6 +312,22 @@ export const SettingsView: React.FC = () => {
                 className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
               />
             </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="st-wh-start" className="block font-semibold text-slate-700 mb-1">Work Day Starts</label>
+              <input id="st-wh-start" type="time" required value={form.workingHoursStart}
+                onChange={(e) => setForm({ ...form, workingHoursStart: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono" />
+            </div>
+            <div>
+              <label htmlFor="st-wh-end" className="block font-semibold text-slate-700 mb-1">Work Day Ends</label>
+              <input id="st-wh-end" type="time" required value={form.workingHoursEnd} min={form.workingHoursStart}
+                onChange={(e) => setForm({ ...form, workingHoursEnd: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono" />
+            </div>
+            <p className="text-xs text-slate-500 col-span-2 sm:col-span-1 self-end">Sets the time range shown on the dispatch board and each technician's daily capacity.</p>
           </div>
 
           <div className="pt-2 border-t border-slate-100">

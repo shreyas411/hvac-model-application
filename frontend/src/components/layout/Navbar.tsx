@@ -3,13 +3,15 @@ import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
 import { navLinks } from '../../routes';
 import { useDataStore } from '../../store/useDataStore';
-import { IconBell, IconFlame, IconHelp, IconLogout, IconMenu2, IconPlus, IconUserCheck, IconX } from '@tabler/icons-react';
+import { IconBell, IconFlame, IconHelp, IconLogout, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconMenu2, IconPlus, IconUserCheck, IconX } from '@tabler/icons-react';
 
 interface NavbarProps {
   currentTab: string;
   onSelectTab: (tab: string) => void;
   onOpenWorkflowGuide: () => void;
   onQuickAction: (action: 'customer' | 'job' | 'request' | 'quote' | 'invoice') => void;
+  collapsed: boolean;
+  onToggleSidebar: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -17,6 +19,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectTab,
   onOpenWorkflowGuide,
   onQuickAction,
+  collapsed,
+  onToggleSidebar,
 }) => {
   const { currentUser, switchUserRole, users, notifications, realAuth, logout } = useApp(['currentUser', 'switchUserRole', 'users', 'notifications', 'realAuth', 'logout']);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -64,7 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="w-9 h-9 rounded-lg bg-sky-700 text-white flex items-center justify-center shadow-xs">
         <IconFlame className="w-5 h-5 text-amber-300" aria-hidden="true" />
       </div>
-      <div className="hidden sm:flex flex-col">
+      <div className={`${collapsed ? 'lg:hidden' : ''} hidden sm:flex flex-col`}>
         <span className="text-base font-bold tracking-tight text-slate-900 group-hover:text-sky-700 transition-colors whitespace-nowrap">
           ApexHVAC
         </span>
@@ -78,8 +82,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       {/* Left Sidebar Navigation (desktop) */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-60 flex-col bg-white border-r border-slate-200">
-        <div className="h-16 flex items-center px-4 border-b border-slate-200 shrink-0">
+      <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} flex-col transition-[width] bg-white border-r border-slate-200`}>
+        <div className={`h-16 flex items-center ${collapsed ? 'justify-center' : 'px-4'} border-b border-slate-200 shrink-0`}>
           {brandButton}
         </div>
         <nav aria-label="Main" className="flex-1 overflow-y-auto p-3 space-y-1">
@@ -88,22 +92,32 @@ export const Navbar: React.FC<NavbarProps> = ({
               key={item.id}
               onClick={() => onSelectTab(item.id)}
               aria-current={currentTab === item.id ? 'page' : undefined}
-              className={`w-full flex items-center gap-2.5 text-left px-3 py-2 text-sm font-medium rounded-md transition-colors ${focusRing} ${
+              title={collapsed ? item.label : undefined}
+              aria-label={item.label}
+              className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'} text-left px-3 py-2 text-sm font-medium rounded-md transition-colors ${focusRing} ${
                 currentTab === item.id
                   ? 'bg-slate-900 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               <item.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-              {item.label}
+              {!collapsed && item.label}
             </button>
           ))}
         </nav>
+        <button
+          onClick={onToggleSidebar}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={`m-3 flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'} px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md ${focusRing}`}
+        >
+          {collapsed ? <IconLayoutSidebarLeftExpand className="w-4 h-4" aria-hidden="true" /> : <><IconLayoutSidebarLeftCollapse className="w-4 h-4" aria-hidden="true" />Collapse</>}
+        </button>
       </aside>
 
-    <header ref={headerRef} className="sticky top-0 z-30 bg-white border-b border-slate-200 lg:pl-60">
+    <header ref={headerRef} className={`sticky top-0 z-30 bg-white border-b border-slate-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-60'}`}>
       {/* Top 3-Zone Navigation */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between lg:justify-end h-16 gap-4">
           
           {/* Brand Wordmark (mobile only; desktop brand lives in sidebar) */}

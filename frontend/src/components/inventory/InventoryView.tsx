@@ -8,7 +8,7 @@ import { IconArrowsExchange, IconPackage, IconPlus, IconSearch } from '@tabler/i
 import { useServerPaged } from '../common/Pager';
 
 export const InventoryView: React.FC = () => {
-  const { parts, inventoryMovements, addPart, adjustStock, deletePart, settings } = useApp(['parts', 'inventoryMovements', 'addPart', 'adjustStock', 'deletePart', 'settings']);
+  const { parts, inventoryMovements, addPart, adjustStock, deletePart, settings, confirmToast } = useApp(['parts', 'inventoryMovements', 'addPart', 'adjustStock', 'deletePart', 'settings', 'confirmToast']);
   const paged = useServerPaged<InventoryMovement>('/movements', {}, inventoryMovements);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -97,12 +97,12 @@ export const InventoryView: React.FC = () => {
   const lowStockCount = parts.filter((p) => p.stockQuantity <= p.minStockLevel).length;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
       
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-lg font-bold tracking-tight text-slate-900">
             HVAC Parts & Inventory Catalogue
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -215,7 +215,7 @@ export const InventoryView: React.FC = () => {
                         Adjust Stock
                       </button>
                       <button
-                        onClick={() => window.confirm(`Delete ${part.name}? Parts with stock history can't be deleted.`) && void deletePart(part.id)}
+                        onClick={() => confirmToast(`Delete ${part.name}? Parts with stock history can't be deleted.`, () => void deletePart(part.id))}
                         aria-label={`Delete ${part.name}`} className="ml-2 px-2.5 py-1 text-rose-700 hover:text-rose-900 bg-rose-50 border border-rose-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                       >
                         Delete

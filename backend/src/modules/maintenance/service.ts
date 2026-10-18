@@ -35,7 +35,7 @@ export async function raiseMaintenanceJobs(now = today()) {
       await createJob({
         customerId: a.customerId, locationId: a.locationId, equipmentIds: a.equipmentId ? [a.equipmentId] : [], type: 'preventive_maintenance', priority: 'medium',
         technicianId: null, appointmentDate: a.nextDueDate.toISOString().slice(0, 10), startTime: '09:00', endTime: '10:00', estimatedDurationMinutes: 60,
-        requiredSkills: [], description: `Scheduled ${a.frequency} maintenance${a.notes ? `: ${a.notes}` : ''}`, labourHours: 0, hourlyRate: rates.defaultHourlyRate,
+        requiredSkills: [], title: `Scheduled ${a.frequency} maintenance`, description: `Scheduled ${a.frequency} maintenance${a.notes ? `: ${a.notes}` : ''}`, labourHours: 0, hourlyRate: rates.defaultHourlyRate,
         travelTimeMinutes: 0, travelCharge: 0, checklist, auditAction: 'Created by maintenance agreement', auditDetails: `Agreement ${a.id}`,
       }, SYSTEM, tx);
       raised++;

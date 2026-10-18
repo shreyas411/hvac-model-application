@@ -65,3 +65,7 @@ Submit calls `addTechnician` with `skills` split on commas and trimmed, `color: 
 ## Updates: auto-send emails
 
 New checkbox **Send customer emails automatically** (`autoSendEmails`, default off) under the inventory toggle. Off: quote, invoice, booking and engineer-dispatched emails wait as drafts in Notifications. On: they send as soon as they are triggered. See [notifications-features.md](notifications-features.md).
+
+## Updates: work day hours
+
+Company settings now expose **Work Day Starts** / **Work Day Ends** (`workingHoursStart`/`workingHoursEnd`, time inputs; end cannot precede start). They set the dispatch board's time range and each technician's daily capacity. See [dispatch-features.md](dispatch-features.md).

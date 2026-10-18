@@ -1,3 +1,4 @@
+import { CustomerFormModal } from '../customers/CustomerFormModal';
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Priority, JobType, LineItem } from '../../types';
@@ -73,6 +74,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   const [jobStartTime, setJobStartTime] = useState('09:00');
   const [jobEndTime, setJobEndTime] = useState('11:30');
   const [jobTechId, setJobTechId] = useState(technicians[0]?.id || '');
+  const [jobTitle, setJobTitle] = useState('');
   const [jobDesc, setJobDesc] = useState('');
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
   // Quote / Invoice line items state
@@ -88,15 +90,14 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   // This component stays mounted, so every open starts clean: today's date, current settings, nothing left from the last form.
   useEffect(() => {
     if (!activeModal) return;
-    setJobDate(getTodayISO()); setReqProblem(''); setReqEquipmentId(''); setJobDesc(''); setConflictWarning(null); setPickedLocationId('');
+    setJobDate(getTodayISO()); setReqProblem(''); setReqEquipmentId(''); setJobTitle(''); setJobDesc(''); setConflictWarning(null); setPickedLocationId('');
     setLineItems(defaultLines(settings.defaultHourlyRate, settings.defaultTravelCharge)); setReverseCharge(false); setCisRate(0); setRetentionPct(0);
     setVatRate(settings.defaultVatRate); setTerms(settings.termsAndConditions);
   }, [activeModal]);
 
   if (!activeModal) return null;
 
-  // Note: customer creation is handled via navigation to the customers tab
-  if (activeModal === 'customer') return null;
+  if (activeModal === 'customer') return <CustomerFormModal customer={null} onClose={onClose} />;
 
   // Add line item
   const handleAddLineItem = () => {
@@ -199,6 +200,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       endTime: jobEndTime,
       estimatedDurationMinutes: durationMins,
       requiredSkills: [],
+      title: jobTitle.trim(),
       description: jobDesc,
       partsUsed: [],
       labourHours: durationMins / 60,
@@ -395,6 +397,17 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
           {/* BOOK JOB FORM */}
           {activeModal === 'job' && (
             <form onSubmit={guard(handleSubmitJob)} className="space-y-3">
+              <div>
+                <label htmlFor="qc-jtitle" className="block font-semibold text-slate-700 mb-1">Job Title</label>
+                <input
+                  required maxLength={200} autoComplete="off"
+                  id="qc-jtitle" name="title" value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                  placeholder="e.g. Annual boiler service"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                />
+              </div>
+
               {conflictWarning && (
                 <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 flex items-start gap-2">
                   <IconAlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" aria-hidden="true" />

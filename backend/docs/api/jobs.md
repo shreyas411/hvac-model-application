@@ -43,3 +43,12 @@ Completed and cancelled jobs are read-only (`JOB_CLOSED`) except for admin. `GET
 ## SLA
 
 Jobs carry `slaDueAt` when the site has an active maintenance agreement with `slaResponseHours` (not set on preventive-maintenance jobs). `slaBreached` is computed: `slaDueAt` has passed and the job is still `new`. The dispatch board flags it.
+
+## List filters
+
+`GET /jobs` also accepts:
+
+| Query | Notes |
+|---|---|
+| `from`, `to` | `YYYY-MM-DD`, inclusive bounds on `appointmentDate`. Malformed values are ignored |
+| `technicianId` | A D only: narrow to one technician (UUID; invalid ignored). Technicians are always scoped to their own jobs and cannot override it |

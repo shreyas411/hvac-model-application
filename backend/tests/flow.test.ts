@@ -51,7 +51,7 @@ test('request → job → conflict → status → parts → invoice → payment'
   expect(job).toMatchObject({ type: 'emergency_callout', status: 'scheduled', estimatedDurationMinutes: 90 });
   expect((await call('POST', `/requests/${sr.id}/convert`, slot)).body.code).toBe('ALREADY_CONVERTED');
 
-  const clash = await call('POST', '/jobs', { customerId: cust.id, locationId: loc.id, type: 'repair', description: 'x', ...slot, startTime: '10:00', endTime: '11:00' });
+  const clash = await call('POST', '/jobs', { customerId: cust.id, locationId: loc.id, type: 'repair', title: 't', description: 'x', ...slot, startTime: '10:00', endTime: '11:00' });
   expect(clash.body.code).toBe('SCHEDULE_CONFLICT');
 
   expect((await call('POST', `/jobs/${job.id}/status`, { status: 'completed' })).body.code).toBe('INVALID_TRANSITION');
@@ -82,10 +82,20 @@ test('request → job → conflict → status → parts → invoice → payment'
   expect((await call('POST', `/invoices/${inv.id}/payments`, { date: '2026-11-03', amount: 200, method: 'card' }, 'accountant')).body.status).toBe('paid');
 });
 
+test('jobs list filters by appointment date range', async () => {
+  const all = (await call('GET', '/jobs?limit=100')).body.data;
+  const [a] = all.map((j: any) => j.appointmentDate).sort();
+  const same = (await call('GET', `/jobs?from=${a}&to=${a}&limit=100`)).body.data;
+  expect(same.length).toBeGreaterThan(0);
+  expect(same.every((j: any) => j.appointmentDate === a)).toBe(true);
+  expect((await call('GET', '/jobs?to=1999-01-01')).body.data).toEqual([]);
+});
+
 test('rbac and technician scoping', async () => {
   expect((await call('GET', '/invoices', undefined, 'technician')).status).toBe(403);
   expect((await call('GET', '/users', undefined, 'dispatcher')).status).toBe(403);
   expect((await call('GET', '/jobs', undefined, 'technician')).body.data).toEqual([]); // no technicianId linked
+  expect((await call('GET', `/jobs?technicianId=${'00000000-0000-4000-8000-000000000000'}`, undefined, 'technician')).body.data).toEqual([]); // ?technicianId can't widen a technician's scope
   expect((await fetch(base + '/jobs')).status).toBe(401);
 });
 
@@ -195,7 +205,7 @@ test('bad imports write nothing', async () => {
 test('concurrent bookings of one slot: exactly one wins; stock never goes negative', async () => {
   const [cust] = (await call('GET', '/customers')).body.data;
   const [tech] = (await call('GET', '/technicians')).body.data;
-  const body = { customerId: cust.id, locationId: cust.serviceLocations[0].id, type: 'repair', description: 'd', technicianId: tech.id, appointmentDate: '2026-12-01', startTime: '09:00', endTime: '10:00' };
+  const body = { customerId: cust.id, locationId: cust.serviceLocations[0].id, type: 'repair', title: 't', description: 'd', technicianId: tech.id, appointmentDate: '2026-12-01', startTime: '09:00', endTime: '10:00' };
   const res = await Promise.all([1, 2, 3, 4, 5].map(() => call('POST', '/jobs', body)));
   expect(res.filter((r) => r.status === 201)).toHaveLength(1);
   expect(res.filter((r) => r.body.code === 'SCHEDULE_CONFLICT')).toHaveLength(4);
@@ -360,7 +370,7 @@ test('licence expiry, equipment-derived skills, refrigerant log gate, rate card,
   const eq = (await call('POST', '/equipment', { customerId: cust.id, locationId: loc, type: 'heat_pump', brand: 'b', model: 'm', serialNumber: 's1', installationDate: '2025-01-01', warrantyExpiryDate: '2030-01-01', maintenanceFrequency: 'annual' })).body;
   const expired = (await call('POST', '/technicians', { name: 'Old', phone: '1', email: 'old@x.co', fGasLicense: 'FG1', fGasExpiry: '2020-01-01' })).body;
   const valid = (await call('POST', '/technicians', { name: 'New', phone: '1', email: 'new@x.co', fGasLicense: 'FG2', fGasExpiry: '2099-01-01' })).body;
-  const base = { customerId: cust.id, locationId: loc, equipmentIds: [eq.id], type: 'repair', description: 'leak', appointmentDate: '2027-02-01', startTime: '09:00', endTime: '10:00',
+  const base = { customerId: cust.id, locationId: loc, equipmentIds: [eq.id], type: 'repair', title: 't', description: 'leak', appointmentDate: '2027-02-01', startTime: '09:00', endTime: '10:00',
     checklist: [{ id: 'c1', label: 'Leak test', category: 'refrigerant', checked: true }] };
   const bad = await call('POST', '/jobs', { ...base, technicianId: expired.id });
   expect(bad.status).toBe(403);
@@ -388,7 +398,7 @@ test('licence expiry, equipment-derived skills, refrigerant log gate, rate card,
 test('lists page in the database: limit, cursor, search, status', async () => {
   const cust = (await call('POST', '/customers', { type: 'residential', name: 'PG', phone: '1', email: 'pg@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
   const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
-  for (const d of ['alpha', 'beta', 'gamma']) await call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', description: `pg-${d}`, appointmentDate: '2027-03-01', startTime: '09:00', endTime: '10:00' });
+  for (const d of ['alpha', 'beta', 'gamma']) await call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', title: 't', description: `pg-${d}`, appointmentDate: '2027-03-01', startTime: '09:00', endTime: '10:00' });
   const p1 = (await call('GET', '/jobs?limit=2&q=pg-')).body;
   expect(p1.data).toHaveLength(2);
   expect(p1.nextCursor).toBeTruthy();
@@ -419,7 +429,7 @@ test('database refuses overlapping jobs for one technician even if the app check
   const cust = (await call('POST', '/customers', { type: 'residential', name: 'EX', phone: '1', email: 'ex@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
   const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
   const tech = (await call('POST', '/technicians', { name: 'Ex', phone: '1', email: 'ex-t@x.co' })).body;
-  const mk = (startTime: string, endTime: string) => call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', description: 'x', appointmentDate: '2027-04-01', startTime, endTime, technicianId: tech.id });
+  const mk = (startTime: string, endTime: string) => call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', title: 't', description: 'x', appointmentDate: '2027-04-01', startTime, endTime, technicianId: tech.id });
   await mk('08:00', '09:00');
   const far = (await mk('15:00', '16:00')).body;
   await expect(prisma.$executeRaw`UPDATE jobs SET start_time = '08:30', end_time = '09:30' WHERE id = ${far.id}::uuid`).rejects.toThrow(/jobs_technician_no_overlap/);
@@ -471,7 +481,7 @@ test('service contract: auto-invoices each visit, rejects bad terms, deactivates
   expect(inv).toHaveLength(1);
   expect(inv[0]).toMatchObject({ status: 'issued' });
   expect(Number(inv[0].subtotal)).toBe(100);
-  const mkJob = () => call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', priority: 'high', appointmentDate: '2028-06-02', startTime: '09:00', endTime: '10:00', estimatedDurationMinutes: 60, description: 'callout', requiredSkills: [], labourHours: 0, hourlyRate: 50, travelTimeMinutes: 0, travelCharge: 0 });
+  const mkJob = () => call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', priority: 'high', appointmentDate: '2028-06-02', startTime: '09:00', endTime: '10:00', estimatedDurationMinutes: 60, title: 't', description: 'callout', requiredSkills: [], labourHours: 0, hourlyRate: 50, travelTimeMinutes: 0, travelCharge: 0 });
   const co = await mkJob();
   expect(co.status).toBe(201);
   expect(Date.parse(co.body.slaDueAt) - Date.now()).toBeGreaterThan(23 * 3_600_000); // 24h SLA from the contract
@@ -591,7 +601,7 @@ test('gas safe certificates: engineer must be registered; CP12 expires in a year
 test('job photos: webp only, validated by content, technician limited to own job, bytes round-trip', async () => {
   const cust = (await call('POST', '/customers', { type: 'residential', name: 'Ph', phone: '1', email: 'p@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
   const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
-  const job = (await call('POST', '/jobs', { customerId: cust.id, locationId: loc.id, type: 'repair', description: 'x', appointmentDate: '2026-12-01', startTime: '09:00', endTime: '10:00' })).body;
+  const job = (await call('POST', '/jobs', { customerId: cust.id, locationId: loc.id, type: 'repair', title: 't', description: 'x', appointmentDate: '2026-12-01', startTime: '09:00', endTime: '10:00' })).body;
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==', 'base64');
   const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBPVP8L'), Buffer.alloc(30)]);
   const url = (b: Buffer, t = 'webp') => `data:image/${t};base64,${b.toString('base64')}`;

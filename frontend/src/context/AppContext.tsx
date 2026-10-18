@@ -110,8 +110,10 @@ interface AppContextType {
   sendNotification: (id: string) => Promise<CustomerNotification | undefined>;
 
   // Active Toast/Banner Feedback
-  toastMessage: { text: string; type: 'success' | 'error' | 'info' } | null;
+  toastMessage: { text: string; type: 'success' | 'error' | 'info'; onConfirm?: () => void } | null;
   showToast: (text: string, type?: 'success' | 'error' | 'info') => void;
+  // Toast with Confirm/Cancel buttons; replaces native window.confirm.
+  confirmToast: (text: string, onConfirm: () => void) => void;
 }
 
 const STORAGE_KEY = 'apexhvac_app_data_v1';
@@ -163,14 +165,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const notifications = useDataStore((st) => st.data.notifications);
   useEffect(() => { useDataStore.getState().load('notifications'); }, []);
 
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info'; onConfirm?: () => void } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
-    setToastMessage({ text, type });
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 4000);
+  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success', onConfirm?: () => void) => {
+    clearTimeout(toastTimer.current);
+    if (!text) return setToastMessage(null); // empty text dismisses
+    setToastMessage({ text, type, onConfirm });
+    toastTimer.current = setTimeout(() => setToastMessage(null), onConfirm ? 8000 : 4000);
   };
+  const confirmToast = (text: string, onConfirm: () => void) => showToast(text, 'info', onConfirm);
 
   // Persist the active profile; everything else lives on the server.
   useEffect(() => {
@@ -530,6 +534,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sendNotification,
     toastMessage,
     showToast,
+    confirmToast,
   };
 
   // Wrap every handler once so its identity never changes (it always calls the latest closure); only data/state fields change identity.

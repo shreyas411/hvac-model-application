@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
+import { isUuid } from '../../common/prisma.js';
 import { hhmm, isoDate, money, priority } from '../../common/zod.js';
 import { getSettings } from '../settings/service.js';
 import { generateFromJob } from '../invoices/service.js';
@@ -24,7 +25,7 @@ const job = z.object({
   technicianId: z.string().nullable().default(null),
   appointmentDate: isoDate, startTime: hhmm, endTime: hhmm,
   estimatedDurationMinutes: z.number().int().positive().optional(),
-  requiredSkills: z.array(z.string()).default([]), description: z.string().min(1),
+  requiredSkills: z.array(z.string()).default([]), title: z.string().trim().min(1).max(200), description: z.string().min(1),
   internalNotes: z.string().optional(), workPerformed: z.string().optional(),
   labourHours: z.number().nonnegative().default(0), hourlyRate: money.optional(),
   travelTimeMinutes: z.number().int().nonnegative().default(0), travelCharge: money.default(0),
@@ -45,8 +46,11 @@ const staff = allow('admin', 'dispatcher');
 const field = allow('admin', 'dispatcher', 'technician');
 
 // Technicians only ever see their own jobs.
-jobsRouter.get('/', field, h(async (req) =>
-  svc.pageJobs(req.query, req.user.role === 'technician' ? { technicianId: req.user.technicianId } : undefined)));
+// Office roles may narrow to one technician with ?technicianId=; a technician's own scope can never be overridden.
+jobsRouter.get('/', field, h(async (req) => {
+  const tech = typeof req.query.technicianId === 'string' && isUuid(req.query.technicianId) ? req.query.technicianId : undefined;
+  return svc.pageJobs(req.query, req.user.role === 'technician' ? { technicianId: req.user.technicianId } : tech ? { technicianId: tech } : undefined);
+}));
 
 jobsRouter.get('/conflicts', staff, h(async (req) => {
   const q = z.object({ technicianId: z.string(), date: isoDate, startTime: hhmm, endTime: hhmm, excludeJobId: z.string().optional() }).parse(req.query);
