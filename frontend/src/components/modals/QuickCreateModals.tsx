@@ -1,3 +1,4 @@
+import { CustomerFormModal } from '../customers/CustomerFormModal';
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Priority, JobType, LineItem } from '../../types';
@@ -95,8 +96,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
 
   if (!activeModal) return null;
 
-  // Note: customer creation is handled via navigation to the customers tab
-  if (activeModal === 'customer') return null;
+  if (activeModal === 'customer') return <CustomerFormModal customer={null} onClose={onClose} />;
 
   // Add line item
   const handleAddLineItem = () => {

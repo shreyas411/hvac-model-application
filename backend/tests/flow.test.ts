@@ -82,10 +82,20 @@ test('request → job → conflict → status → parts → invoice → payment'
   expect((await call('POST', `/invoices/${inv.id}/payments`, { date: '2026-11-03', amount: 200, method: 'card' }, 'accountant')).body.status).toBe('paid');
 });
 
+test('jobs list filters by appointment date range', async () => {
+  const all = (await call('GET', '/jobs?limit=100')).body.data;
+  const [a] = all.map((j: any) => j.appointmentDate).sort();
+  const same = (await call('GET', `/jobs?from=${a}&to=${a}&limit=100`)).body.data;
+  expect(same.length).toBeGreaterThan(0);
+  expect(same.every((j: any) => j.appointmentDate === a)).toBe(true);
+  expect((await call('GET', '/jobs?to=1999-01-01')).body.data).toEqual([]);
+});
+
 test('rbac and technician scoping', async () => {
   expect((await call('GET', '/invoices', undefined, 'technician')).status).toBe(403);
   expect((await call('GET', '/users', undefined, 'dispatcher')).status).toBe(403);
   expect((await call('GET', '/jobs', undefined, 'technician')).body.data).toEqual([]); // no technicianId linked
+  expect((await call('GET', `/jobs?technicianId=${'00000000-0000-4000-8000-000000000000'}`, undefined, 'technician')).body.data).toEqual([]); // ?technicianId can't widen a technician's scope
   expect((await fetch(base + '/jobs')).status).toBe(401);
 });
 

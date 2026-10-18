@@ -28,16 +28,19 @@ import { AuditView } from './components/audit/AuditView';
 import { SettingsView } from './components/settings/SettingsView';
 import { WorkflowGuideModal } from './components/workflows/WorkflowGuideModal';
 import { QuickCreateModals } from './components/modals/QuickCreateModals';
-import { IconAlertCircle, IconCircleCheck, IconFlame, IconInfoCircle } from '@tabler/icons-react';
+import { IconFlame } from '@tabler/icons-react';
+import { Toast } from './components/common/Toast';
 
 const AppContent: React.FC = () => {
-  const { currentUser, toastMessage, settings, realAuth } = useApp(['currentUser', 'toastMessage', 'settings', 'realAuth']);
+  const { currentUser, toastMessage, showToast, settings, realAuth } = useApp(['currentUser', 'toastMessage', 'showToast', 'settings', 'realAuth']);
   const [currentTab, setCurrentTab] = useTabRoute(currentUser.role);
   const [workflowGuideOpen, setWorkflowGuideOpen] = useState<boolean>(false);
   const [quickActionModal, setQuickActionModal] = useState<
     'customer' | 'job' | 'request' | 'quote' | 'invoice' | null
   >(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
+  const toggleSidebar = () => setSidebarCollapsed((c) => { localStorage.setItem('sidebarCollapsed', c ? '0' : '1'); return !c; });
   useDialogFocus(); // focus trap + restore for all modal dialogs
 
   // If user is technician, default to technician portal
@@ -54,42 +57,17 @@ const AppContent: React.FC = () => {
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         onOpenWorkflowGuide={() => setWorkflowGuideOpen(true)}
-        onQuickAction={(action) => {
-          if (action === 'customer') {
-            setCurrentTab('customers');
-          } else {
-            setQuickActionModal(action);
-          }
-        }}
+        onQuickAction={setQuickActionModal}
+        collapsed={sidebarCollapsed}
+        onToggleSidebar={toggleSidebar}
       />
 
-      <div className="lg:pl-60 flex-1 flex flex-col min-w-0">
+      <div className={`${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60'} flex-1 flex flex-col min-w-0`}>
       {/* Role & Permissions Banner */}
       <RoleBanner onSelectTab={setCurrentTab} />
 
       {/* Floating Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
-          <div
-            className={`px-4 py-3 rounded-lg shadow-xl border flex items-center gap-2.5 text-xs font-semibold ${
-              toastMessage.type === 'error'
-                ? 'bg-rose-900 text-white border-rose-800'
-                : toastMessage.type === 'info'
-                ? 'bg-slate-900 text-white border-slate-800'
-                : 'bg-emerald-800 text-white border-emerald-700'
-            }`}
-          >
-            {toastMessage.type === 'error' ? (
-              <IconAlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
-            ) : toastMessage.type === 'info' ? (
-              <IconInfoCircle className="w-4 h-4 text-sky-300 shrink-0" />
-            ) : (
-              <IconCircleCheck className="w-4 h-4 text-emerald-300 shrink-0" />
-            )}
-            <span>{toastMessage.text}</span>
-          </div>
-        </div>
-      )}
+      {toastMessage && <Toast {...toastMessage} onDismiss={() => showToast('')} />}
 
       {/* Main Content Viewport */}
       <main className="flex-1 pb-16">
@@ -97,11 +75,7 @@ const AppContent: React.FC = () => {
           <DashboardView
             onNavigateTab={setCurrentTab}
             onOpenQuickAction={(action) => {
-              if (action === 'customer') {
-                setCurrentTab('customers');
-              } else {
-                setQuickActionModal(action);
-              }
+              setQuickActionModal(action);
             }}
             onOpenWorkflowGuide={() => setWorkflowGuideOpen(true)}
             onSelectJob={(id) => setSelectedJobId(id)}

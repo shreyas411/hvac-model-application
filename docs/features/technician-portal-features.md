@@ -88,3 +88,7 @@ Modal with company name, address, Gas Safe and F-Gas numbers (from `settings`), 
 ## Updates: job photos
 
 The active job has a **Photos** panel (`frontend/src/components/technician/JobPhotos.tsx`): add a photo with optional caption, thumbnails, remove with ×. The browser shrinks images to WebP (longest edge 1600px, quality stepped down to fit the server's 600 KB cap, max 30 per job). Read-only once the job is completed. API: [jobs.md](../../backend/docs/api/jobs.md#photos). Photos are not yet on PDFs; PDF and video attachments are not supported.
+
+## Updates: job history
+
+A **Job history** card (`TechJobHistory.tsx`) lists every job of the active technician, completed ones included, paged from the server. Filters: search (job no. or notes), status, from/to date, **Clear**. A row opens the read-only job record (`JobDetailDrawer`). The service report PDF button label now reads "Download PDF".

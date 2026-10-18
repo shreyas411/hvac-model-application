@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { SignaturePad } from './SignaturePad';
 import { JobPhotos } from './JobPhotos';
+import { TechJobHistory } from './TechJobHistory';
 import { downloadSheet, printSheet } from '../../utils/pdf';
 import { useApp } from '../../context/AppContext';
 import { Job, JobStatus, JobChecklistItem, EquipmentReading, TechnicianProfile } from '../../types';
@@ -32,8 +33,9 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
     addEquipmentServiceRecord,
     settings,
     showToast,
+    confirmToast,
     customerById,
-  } = useApp(['currentUser', 'jobs', 'customers', 'equipment', 'technicians', 'updateJob', 'updateJobStatus', 'addJobPart', 'addRefrigerantLog', 'parts', 'addEquipmentServiceRecord', 'settings', 'showToast', 'customerById']);
+  } = useApp(['currentUser', 'jobs', 'customers', 'equipment', 'technicians', 'updateJob', 'updateJobStatus', 'addJobPart', 'addRefrigerantLog', 'parts', 'addEquipmentServiceRecord', 'settings', 'showToast', 'confirmToast', 'customerById']);
 
   // Active technician: the signed-in technician; office roles start on the first one in the roster
   const [activeTechId, setActiveTechId] = useState<string>(
@@ -340,7 +342,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                       key={item.status}
                       disabled={!allowed}
                       aria-pressed={isActive}
-                      onClick={() => { if (item.status === 'cancelled' && !window.confirm(`Cancel ${activeJob.jobNumber}?`)) return; void updateJobStatus(activeJob.id, item.status); }}
+                      onClick={() => { const go = () => void updateJobStatus(activeJob.id, item.status); if (item.status === 'cancelled') confirmToast(`Cancel ${activeJob.jobNumber}?`, go); else go(); }}
                       className={`py-3 px-3 text-xs font-semibold rounded-lg transition-all border disabled:opacity-40 disabled:cursor-not-allowed ${
                         isActive
                           ? `${item.color} shadow-xs border-transparent ring-2 ring-slate-900`
@@ -818,6 +820,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
       )}
 
       {/* Official Service Report Modal (Printable/Downloadable) */}
+      <TechJobHistory technicianId={activeTech.id} />
+
       {showServiceReportModal && activeJob && (
         <div role="dialog" aria-modal="true" aria-label="Service report" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -831,7 +835,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                   className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
                 >
                   <IconDownload className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>IconDownload PDF</span>
+                  <span>Download PDF</span>
                 </button>
                 <button
                   onClick={(e) => printSheet(e.currentTarget)}

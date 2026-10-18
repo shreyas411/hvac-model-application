@@ -1,10 +1,26 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Job, JobStatus, Priority, JobType } from '../../types';
 import { formatDateUK, getTodayISO, addDaysISO, canMoveJob } from '../../utils/formatters';
 import { useEscape } from '../../utils/useEscape';
 import { IconAlertTriangle, IconChevronLeft, IconChevronRight, IconLayoutGrid, IconList, IconMapPin, IconPlus } from '@tabler/icons-react';
 import { useServerPaged } from '../common/Pager';
+import { JobDetailDrawer } from './JobDetailDrawer';
+import { DispatchTimeline } from './DispatchTimeline';
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import type { TechnicianProfile as Technician } from '../../types';
+
+// Missing skills/licences for a tech on a job (empty = qualified)
+const qualificationGap = (tech: Technician | undefined, job: Job): string[] => {
+  const req = (job.requiredSkills || []).map((s) => s.toLowerCase());
+  if (!tech || !req.length) return [];
+  const have = tech.skills.map((s) => s.toLowerCase());
+  return [
+    ...req.filter((s) => !have.includes(s)),
+    ...(req.includes('gas_safe') && !tech.gasSafeLicense ? ['Gas Safe License'] : []),
+    ...(req.includes('f_gas') && !tech.fGasLicense ? ['F-Gas License'] : []),
+  ];
+};
 
 interface DispatchBoardViewProps {
   onOpenQuickAction: (action: 'job') => void;
@@ -25,14 +41,21 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
 
     updateJobStatus, 
     checkScheduleConflict,
+    showToast,
     currentUser,
     customerById,
-  } = useApp(['jobs', 'technicians', 'customers', 'updateJob', 'updateJobStatus', 'checkScheduleConflict', 'currentUser', 'customerById']);
-  const paged = useServerPaged<Job>('/jobs', {}, jobs);
+    settings,
+  } = useApp(['jobs', 'technicians', 'customers', 'updateJob', 'updateJobStatus', 'checkScheduleConflict', 'showToast', 'currentUser', 'customerById', 'settings']);
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const paged = useServerPaged<Job>('/jobs', { q: q.trim() || undefined, status: status || undefined, from: from || undefined, to: to || undefined }, jobs);
 
   const [viewMode, setViewMode] = useState<'board' | 'list' | 'calendar'>('board');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayISO()); // Today
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [viewingJob, setViewingJob] = useState<Job | null>(null);
   const [forceStatus, setForceStatus] = useState(false); // admin-only: send override=true to skip the workflow
 
   // Quick state for modal editing/rescheduling
@@ -58,6 +81,12 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
 
   useEscape(!!editingJob, () => setEditingJob(null));
 
+  // Deep link from the dashboard: open that job's details once, then clear the selection
+  useEffect(() => {
+    const j = selectedJobId ? jobs.find((x) => x.id === selectedJobId) : undefined;
+    if (j) { setViewingJob(j); onSelectJob?.(null); }
+  }, [selectedJobId, jobs]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleModalSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingJob) return;
@@ -65,24 +94,10 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     // Check certification first
     if (modalTechnicianId) {
       const tech = technicians.find(t => t.id === modalTechnicianId);
-      const required = editingJob.requiredSkills || [];
-
-      if (required.length > 0 && tech) {
-        const techSkillsLower = tech.skills.map(s => s.toLowerCase());
-        const missingSkills = required.filter(s => !techSkillsLower.includes(s.toLowerCase()));
-        const missingLicenses: string[] = [];
-        if (required.some(s => s.toLowerCase() === 'gas_safe') && !tech.gasSafeLicense) missingLicenses.push('Gas Safe License');
-        if (required.some(s => s.toLowerCase() === 'f_gas') && !tech.fGasLicense) missingLicenses.push('F-Gas License');
-
-        if (missingSkills.length > 0 || missingLicenses.length > 0) {
-          const details = [
-            ...(missingSkills.length ? [`Missing skills: ${missingSkills.join(', ')}`] : []),
-            ...(missingLicenses.length ? [`Missing licenses: ${missingLicenses.join(', ')}`] : [])
-          ].join('; ');
-
-                setCertWarning(`Certification Gap: Technician lacks required qualifications for this job. ${details}`);
-          return;
-        }
+      const gap = qualificationGap(tech, editingJob);
+      if (gap.length > 0) {
+        setCertWarning(`Certification Gap: Technician lacks required qualifications for this job. Missing: ${gap.join(', ')}`);
+        return;
       }
     }
 
@@ -130,6 +145,42 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   };
 
 
+  // Drag & drop: drop on a technician column assigns (to the viewed date); drop on Unassigned clears
+  const [dragging, setDragging] = useState<Job | null>(null);
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }), // so plain clicks still open the job
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }), // long-press to drag, scroll otherwise
+  );
+  // Why `job` can't go to `techId` (null = allowed)
+  const dropBlocker = (job: Job, techId: string | null): string | null => {
+    if (!techId) return null;
+    const tech = technicians.find((t) => t.id === techId);
+    const gap = qualificationGap(tech, job);
+    if (gap.length) return `${tech?.name} can't take ${job.jobNumber}: missing ${gap.join(', ')}`;
+    const c = checkScheduleConflict(techId, selectedDate, job.startTime, job.endTime, job.id);
+    if (c) return `${tech?.name} already has ${c.jobNumber} ${c.startTime}-${c.endTime} on ${selectedDate}`;
+    return null;
+  };
+  const eligibleFor = (techId: string | null) => (dragging ? !dropBlocker(dragging, techId) : undefined);
+  const onDragEnd = async ({ active, over }: DragEndEvent) => {
+    setDragging(null);
+    const job = jobs.find((j) => j.id === active.id);
+    if (!job || !over || busy) return;
+    const techId = over.id === 'none' ? null : String(over.id);
+    if ((job.technicianId || null) === techId && (!techId || job.appointmentDate === selectedDate)) return;
+    const blocked = dropBlocker(job, techId);
+    if (blocked) { showToast(`Not allowed: ${blocked}`, 'error'); return; }
+    setBusy(true);
+    await updateJob(
+      job.id,
+      techId
+        ? { technicianId: techId, appointmentDate: selectedDate, status: job.status === 'new' ? 'scheduled' : job.status }
+        : { technicianId: null },
+      techId ? `Assigned by drag & drop on ${selectedDate}` : 'Unassigned by drag & drop'
+    );
+    setBusy(false);
+  };
+
   const statusColors: Record<JobStatus, { bg: string; text: string; label: string }> = {
     new: { bg: 'bg-slate-100 border-slate-200', text: 'text-slate-800', label: 'New / Unassigned' },
     awaiting_approval: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-800', label: 'Awaiting Approval' },
@@ -140,6 +191,8 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     completed: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-800', label: 'Completed' },
     cancelled: { bg: 'bg-slate-50 border-slate-200', text: 'text-slate-400', label: 'Cancelled' },
   };
+
+  const STATUSES = Object.keys(statusColors) as JobStatus[];
 
   const priorityBadges: Record<Priority, string> = {
     emergency: 'bg-rose-100 text-rose-800 font-bold',
@@ -183,7 +236,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               }`}
             >
               <IconList className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>IconList View</span>
+              <span>List View</span>
             </button>
           </div>
 
@@ -239,145 +292,14 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
         </div>
       </div>
 
-      {/* Board Mode: Columns by Technician + Unassigned Drawer */}
+      {/* Board Mode: unassigned queue + technician timeline */}
       {viewMode === 'board' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          
-          {/* Unassigned / Floating column */}
-          <div className="bg-slate-100/70 border border-slate-200 rounded-lg p-3 flex flex-col">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200 mb-3">
-              <span className="font-bold text-xs text-slate-700">Unassigned / Pending</span>
-              <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                {jobs.filter((j) => !j.technicianId && j.status !== 'cancelled').length}
-              </span>
-            </div>
-
-            <div className="space-y-3 flex-1 overflow-y-auto">
-              {jobs
-                .filter((j) => !j.technicianId && j.status !== 'cancelled')
-                .map((job) => {
-                  const cust = customerById.get(job.customerId);
-                  return (
-                    <div
-                      key={job.id}
-                      onClick={() => openEditModal(job)}
-                      role="button" tabIndex={0} aria-label={`Open ${job.jobNumber}`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditModal(job); } }}
-                      className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:border-sky-300 cursor-pointer space-y-2 transition-all"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-xs text-slate-900">{job.jobNumber}</span>
-                        <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${priorityBadges[job.priority]}`}>
-                          {job.priority}
-                        </span>
-                        {job.slaBreached && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-600 text-white">SLA breached</span>}
-                      </div>
-                      <p className="text-xs font-semibold text-slate-800 line-clamp-1">{cust?.name}</p>
-                      <p className="text-[11px] text-slate-500 line-clamp-2">{job.description}</p>
-                      <div className="pt-1 flex items-center justify-between text-[11px] text-slate-400">
-                        <span>Target: {job.appointmentDate}</span>
-                        <span className="font-medium text-sky-700">Assign →</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              {jobs.filter((j) => !j.technicianId && j.status !== 'cancelled').length === 0 && (
-                <div className="text-center py-8 text-xs text-slate-400">
-                  No unassigned jobs pending.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Columns for each Technician */}
-          {technicians.map((tech) => {
-            const techJobs = jobs.filter(
-              (j) => j.technicianId === tech.id && j.appointmentDate === selectedDate && j.status !== 'cancelled'
-            );
-
-            return (
-              <div
-                key={tech.id}
-                className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col shadow-2xs"
-              >
-                {/* Tech Column Header */}
-                <div className="pb-2 border-b border-slate-100 mb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="w-3 h-3 rounded-full shrink-0" 
-                        style={{ backgroundColor: tech.color }} 
-                      />
-                      <span className="font-bold text-xs text-slate-900">{tech.name}</span>
-                    </div>
-                    <span className="text-[11px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">
-                      {techJobs.length} {techJobs.length === 1 ? 'job' : 'jobs'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-                    <span className="font-mono">{tech.vanRegistration || 'Van Rota'}</span>
-                    <span className="line-clamp-1">{tech.skills[0]}</span>
-                  </div>
-                </div>
-
-                {/* Assigned Job Cards */}
-                <div className="space-y-3 flex-1 overflow-y-auto">
-                  {techJobs.map((job) => {
-                    const cust = customerById.get(job.customerId);
-                    const loc = cust?.serviceLocations.find((l) => l.id === job.locationId);
-                    const statusInfo = statusColors[job.status] || statusColors.scheduled;
-
-                    return (
-                      <div
-                        key={job.id}
-                        onClick={() => openEditModal(job)}
-                        role="button" tabIndex={0} aria-label={`Open ${job.jobNumber}`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditModal(job); } }}
-                        className={`p-3 rounded-lg border shadow-2xs hover:shadow-sm cursor-pointer space-y-2 transition-all ${statusInfo.bg}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono font-bold text-xs text-slate-900">
-                            {job.startTime} - {job.endTime}
-                          </span>
-                          <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${priorityBadges[job.priority]}`}>
-                            {job.priority}
-                          </span>
-                          {job.slaBreached && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-600 text-white">SLA breached</span>}
-                        </div>
-
-                        <div>
-                          <span className="font-bold text-xs text-slate-900 block line-clamp-1">
-                            {cust?.name}
-                          </span>
-                          <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                            <IconMapPin className="w-3 h-3 text-slate-400 shrink-0" aria-hidden="true" />
-                            <span className="truncate">{loc?.addressLine1}, {loc?.postcode}</span>
-                          </span>
-                        </div>
-
-                        <p className="text-[11px] text-slate-600 line-clamp-2">
-                          {job.description}
-                        </p>
-
-                        <div className="pt-1.5 border-t border-slate-200/50 flex items-center justify-between text-[11px]">
-                          <span className={`font-semibold ${statusInfo.text}`}>
-                            {statusInfo.label}
-                          </span>
-                          <span className="font-mono text-slate-500">{job.jobNumber}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {techJobs.length === 0 && (
-                    <div className="text-center py-10 text-xs text-slate-400">
-                      No jobs scheduled on {formatDateUK(selectedDate)}.
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <DndContext sensors={sensors} onDragStart={(e) => setDragging(jobs.find((j) => j.id === e.active.id) || null)} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
+          <DispatchTimeline jobs={jobs} technicians={technicians} customerById={customerById} selectedDate={selectedDate} workingHoursStart={settings.workingHoursStart} workingHoursEnd={settings.workingHoursEnd} eligibleFor={eligibleFor} onOpen={setViewingJob} />
+          <DragOverlay>
+            {dragging && <div className="px-3 py-2 rounded-lg bg-sky-600 text-white text-xs font-mono font-bold shadow-lg">{dragging.jobNumber}</div>}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {/* IconList View Mode */}
@@ -387,6 +309,16 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
             <span className="text-xs font-bold text-slate-900">
               All Scheduled Jobs ({paged.total})
             </span>
+            <div className="flex flex-wrap gap-2">
+              <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" placeholder="Search job no. or notes" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs" />
+              <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs capitalize">
+                <option value="">All statuses</option>
+                {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+              </select>
+              <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs" />
+              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" className="px-2.5 py-1.5 border border-slate-300 rounded-md text-xs" />
+              {(q || status || from || to) && <button type="button" onClick={() => { setQ(''); setStatus(''); setFrom(''); setTo(''); }} className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900">Clear</button>}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -445,6 +377,12 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <button
+                          onClick={() => setViewingJob(job)}
+                          aria-label={`View details of ${job.jobNumber}`} className="px-2 py-1 text-xs text-slate-700 hover:text-slate-900 font-semibold hover:bg-slate-100 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                        >
+                          View
+                        </button>
+                        <button
                           onClick={() => openEditModal(job)}
                           aria-label={`Edit or reassign ${job.jobNumber}`} className="px-2 py-1 text-xs text-sky-700 hover:text-sky-900 font-semibold hover:bg-sky-50 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                         >
@@ -459,6 +397,14 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
           </div>
           {paged.pager}
         </div>
+      )}
+
+      {viewingJob && (
+        <JobDetailDrawer
+          job={viewingJob}
+          onClose={() => setViewingJob(null)}
+          onEdit={() => { openEditModal(viewingJob); setViewingJob(null); }}
+        />
       )}
 
       {/* Reschedule / Reassign Modal with Scheduling Conflict Warning */}

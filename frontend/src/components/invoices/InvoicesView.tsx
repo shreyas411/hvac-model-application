@@ -281,7 +281,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
                 >
                   <IconDownload className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>IconDownload PDF</span>
+                  <span>Download PDF</span>
                 </button>
                 <button
                   onClick={(e) => printSheet(e.currentTarget)}

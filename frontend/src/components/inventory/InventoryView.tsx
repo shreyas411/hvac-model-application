@@ -8,7 +8,7 @@ import { IconArrowsExchange, IconPackage, IconPlus, IconSearch } from '@tabler/i
 import { useServerPaged } from '../common/Pager';
 
 export const InventoryView: React.FC = () => {
-  const { parts, inventoryMovements, addPart, adjustStock, deletePart, settings } = useApp(['parts', 'inventoryMovements', 'addPart', 'adjustStock', 'deletePart', 'settings']);
+  const { parts, inventoryMovements, addPart, adjustStock, deletePart, settings, confirmToast } = useApp(['parts', 'inventoryMovements', 'addPart', 'adjustStock', 'deletePart', 'settings', 'confirmToast']);
   const paged = useServerPaged<InventoryMovement>('/movements', {}, inventoryMovements);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -215,7 +215,7 @@ export const InventoryView: React.FC = () => {
                         Adjust Stock
                       </button>
                       <button
-                        onClick={() => window.confirm(`Delete ${part.name}? Parts with stock history can't be deleted.`) && void deletePart(part.id)}
+                        onClick={() => confirmToast(`Delete ${part.name}? Parts with stock history can't be deleted.`, () => void deletePart(part.id))}
                         aria-label={`Delete ${part.name}`} className="ml-2 px-2.5 py-1 text-rose-700 hover:text-rose-900 bg-rose-50 border border-rose-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                       >
                         Delete

@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
-import { Customer, CustomerType, ServiceLocation } from '../../types';
+import { Customer, CustomerType, Job, ServiceLocation } from '../../types';
 import { formatDateUK, formatGBP } from '../../utils/formatters';
 import { useEscape } from '../../utils/useEscape';
-import { IconAirConditioning, IconArchive, IconCircleCheck, IconPencil, IconPlus, IconSearch, IconUsers, IconX } from '@tabler/icons-react';
+import { IconAirConditioning, IconArchive, IconCircleCheck, IconPencil, IconPlus, IconSearch, IconTrash, IconUsers, IconX } from '@tabler/icons-react';
 import { useServerPaged } from '../common/Pager';
+import { CustomerFormModal } from './CustomerFormModal';
+import { JobDetailDrawer } from '../scheduling/JobDetailDrawer';
 
 interface CustomersViewProps {
   onOpenQuickAction: (action: 'customer' | 'job' | 'quote' | 'invoice') => void;
@@ -30,7 +32,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     invoices,
     serviceRequests,
     customerById,
-  } = useApp(['customers', 'addCustomer', 'updateCustomer', 'addCustomerLocation', 'updateCustomerLocation', 'removeCustomerLocation', 'archiveCustomer', 'equipment', 'jobs', 'quotations', 'invoices', 'serviceRequests', 'customerById']);
+    confirmToast,
+  } = useApp(['customers', 'addCustomer', 'updateCustomer', 'addCustomerLocation', 'updateCustomerLocation', 'removeCustomerLocation', 'archiveCustomer', 'equipment', 'jobs', 'quotations', 'invoices', 'serviceRequests', 'customerById', 'confirmToast']);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'residential' | 'commercial'>('all');
@@ -39,6 +42,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
   // Selected customer for 360 view drawer/modal
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [viewingJob, setViewingJob] = useState<Job | null>(null);
   const selectedCustomer = (selectedCustomerId ? customerById.get(selectedCustomerId) : undefined);
 
   // Customer Add/Edit Modal
@@ -71,7 +75,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   // IconSearch, type and archived filters run on the server so paging covers the whole list
   const paged = useServerPaged<Customer>('/customers', { q: searchTerm.trim() || undefined, type: typeFilter === 'all' ? undefined : typeFilter, archived: String(showArchived) }, customers);
 
-  useEscape(showCustomerModal || !!selectedCustomer, () => (showCustomerModal ? setShowCustomerModal(false) : setSelectedCustomerId(null)));
+  useEscape(!!selectedCustomer && !showCustomerModal, () => setSelectedCustomerId(null)); // the dialog handles its own Escape
 
   const handleOpenAddModal = () => {
     setEditingCustomer(null);
@@ -107,63 +111,6 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     setShowCustomerModal(true);
   };
 
-  const handleSaveCustomer = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    setBusy(true);
-    let ok = true;
-    if (editingCustomer) {
-      ok = await updateCustomer(editingCustomer.id, {
-        type: formType,
-        name: formName,
-        companyName: formType === 'commercial' ? formCompanyName : undefined,
-        phone: formPhone,
-        email: formEmail,
-        billingAddress: {
-          line1: formBillingLine1,
-          line2: formBillingLine2 || undefined,
-          city: formBillingCity,
-          postcode: formBillingPostcode.toUpperCase(),
-        },
-        notes: formNotes,
-        communicationPreference: formPref,
-        gdprConsent: formGdpr,
-      });
-    } else {
-      // Create new customer with primary service location
-      const newCustomer = await addCustomer({
-        type: formType,
-        name: formName,
-        companyName: formType === 'commercial' ? formCompanyName : undefined,
-        phone: formPhone,
-        email: formEmail,
-        billingAddress: {
-          line1: formBillingLine1,
-          line2: formBillingLine2 || undefined,
-          city: formBillingCity,
-          postcode: formBillingPostcode.toUpperCase(),
-        },
-        serviceLocations: [
-          {
-            label: formType === 'commercial' ? 'Primary Site / HQ' : 'Main Residence',
-            addressLine1: formBillingLine1,
-            city: formBillingCity,
-            postcode: formBillingPostcode.toUpperCase(),
-            contactName: formName,
-            contactPhone: formPhone,
-          },
-        ],
-        notes: formNotes,
-        communicationPreference: formPref,
-        gdprConsent: formGdpr,
-      });
-      ok = !!newCustomer;
-      if (newCustomer) setSelectedCustomerId(newCustomer.id);
-    }
-
-    setBusy(false);
-    if (ok) setShowCustomerModal(false); // stay open on failure so the form isn't lost
-  };
 
   // Add extra service location to active customer
   const handleAddLocation = async (e: React.FormEvent) => {
@@ -510,15 +457,15 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                               setEditingSiteId(loc.id); setNewSiteLabel(loc.label); setNewSiteAddress1(loc.addressLine1); setNewSiteCity(loc.city);
                               setNewSitePostcode(loc.postcode); setNewSiteAccessNotes(loc.accessNotes || ''); setShowAddSiteForm(true);
                             }}
-                            aria-label={`Edit ${loc.label}`} className="text-sky-700 hover:underline"
+                            title="Edit" aria-label={`Edit ${loc.label}`} className="p-1 text-sky-700 hover:bg-sky-50 rounded"
                           >
-                            Edit
+                            <IconPencil className="w-3.5 h-3.5" aria-hidden="true" />
                           </button>
                           <button
-                            onClick={() => window.confirm(`Remove ${loc.label}? Sites used by jobs or equipment can't be removed.`) && void removeCustomerLocation(selectedCustomer.id, loc.id)}
-                            aria-label={`Remove ${loc.label}`} className="text-rose-700 hover:underline"
+                            onClick={() => confirmToast(`Remove ${loc.label}? Sites used by jobs or equipment can't be removed.`, () => void removeCustomerLocation(selectedCustomer.id, loc.id))}
+                            title="Remove" aria-label={`Remove ${loc.label}`} className="p-1 text-rose-700 hover:bg-rose-50 rounded"
                           >
-                            Remove
+                            <IconTrash className="w-3.5 h-3.5" aria-hidden="true" />
                           </button>
                         </span>
                       </div>
@@ -559,7 +506,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 <h3 className="font-bold text-sm text-slate-900">Job History & Visits</h3>
                 <div className="space-y-1.5">
                   {jobs.filter((j) => j.customerId === selectedCustomer.id).map((job) => (
-                    <div key={job.id} className="p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between">
+                    <button key={job.id} type="button" onClick={() => setViewingJob(job)} aria-label={`View details of ${job.jobNumber}`} className="w-full text-left p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
                       <div>
                         <span className="font-mono font-bold text-slate-900">{job.jobNumber}</span>
                         <span className="text-[11px] text-slate-500 block">{job.description}</span>
@@ -568,8 +515,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                         <span className="font-medium text-slate-800 block">{formatDateUK(job.appointmentDate)}</span>
                         <span className="text-[10px] uppercase font-bold text-sky-700">{job.status}</span>
                       </div>
-                    </div>
+                    </button>
                   ))}
+                  {viewingJob && <JobDetailDrawer job={viewingJob} onClose={() => setViewingJob(null)} />}
                 </div>
               </div>
 
@@ -616,196 +564,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         </div>
       )}
 
-      {/* Customer Add/Edit Modal */}
       {showCustomerModal && (
-        <div role="dialog" aria-modal="true" aria-label={editingCustomer ? 'Edit customer' : 'Add customer'} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-bold text-sm text-slate-900">
-                {editingCustomer ? `Edit Customer (${editingCustomer.name})` : 'Add New Customer'}
-              </h3>
-              <button
-                onClick={() => setShowCustomerModal(false)}
-                aria-label="Close" className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <span aria-hidden="true">✕</span>
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveCustomer} className="p-5 space-y-3 overflow-y-auto text-xs">
-              <div>
-                <span id="cu-type" className="block font-semibold text-slate-700 mb-1">Customer Type</span>
-                <div role="radiogroup" aria-labelledby="cu-type" className="flex gap-4">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="custType"
-                      checked={formType === 'residential'}
-                      onChange={() => setFormType('residential')}
-                    />
-                    <span>Residential</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="custType"
-                      checked={formType === 'commercial'}
-                      onChange={() => setFormType('commercial')}
-                    />
-                    <span>Commercial</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="cu-1" className="block font-semibold text-slate-700 mb-1">Primary Contact Name *</label>
-                <input id="cu-1"
-                  type="text"
-                  required
-                  name="name" autoComplete="off" value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. Dr. Alistair Finch or Nigel Edwards"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
-                />
-              </div>
-
-              {formType === 'commercial' && (
-                <div>
-                  <label htmlFor="cu-2" className="block font-semibold text-slate-700 mb-1">Company / Trading Name *</label>
-                  <input id="cu-2"
-                    type="text"
-                    required
-                    name="company" autoComplete="off" value={formCompanyName}
-                    onChange={(e) => setFormCompanyName(e.target.value)}
-                    placeholder="e.g. Crown Hospitality Group Ltd"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="cu-3" className="block font-semibold text-slate-700 mb-1">Phone Number *</label>
-                  <input id="cu-3"
-                    type="tel"
-                    required
-                    name="phone" autoComplete="off" value={formPhone}
-                    onChange={(e) => setFormPhone(e.target.value)}
-                    placeholder="e.g. 020 8940 3392"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="cu-4" className="block font-semibold text-slate-700 mb-1">Email Address *</label>
-                  <input id="cu-4"
-                    type="email"
-                    required
-                    name="email" autoComplete="off" spellCheck={false} value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value)}
-                    placeholder="e.g. client@example.co.uk"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="cu-5" className="block font-semibold text-slate-700 mb-1">Billing Street Address</label>
-                <input id="cu-5"
-                  type="text"
-                  required
-                  name="line1" autoComplete="off" value={formBillingLine1}
-                  onChange={(e) => setFormBillingLine1(e.target.value)}
-                  placeholder="e.g. 9 Heron Court, Richmond Green"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="cu-6" className="block font-semibold text-slate-700 mb-1">Address Line 2</label>
-                <input id="cu-6"
-                  type="text"
-                  name="line2" autoComplete="off" value={formBillingLine2}
-                  onChange={(e) => setFormBillingLine2(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="cu-7" className="block font-semibold text-slate-700 mb-1">City / Borough</label>
-                  <input id="cu-7"
-                    type="text"
-                    required
-                    name="city" autoComplete="off" value={formBillingCity}
-                    onChange={(e) => setFormBillingCity(e.target.value)}
-                    placeholder="e.g. London / Surrey"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="cu-8" className="block font-semibold text-slate-700 mb-1">UK Postcode *</label>
-                  <input id="cu-8"
-                    type="text"
-                    required
-                    name="postcode" autoComplete="off" spellCheck={false} value={formBillingPostcode}
-                    onChange={(e) => setFormBillingPostcode(e.target.value)}
-                    placeholder="e.g. TW9 1NW"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono uppercase"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="cu-9" className="block font-semibold text-slate-700 mb-1">Notes</label>
-                <textarea id="cu-9"
-                  value={formNotes}
-                  onChange={(e) => setFormNotes(e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="cu-10" className="block font-semibold text-slate-700 mb-1">Communication Preference</label>
-                <select id="cu-10"
-                  value={formPref}
-                  onChange={(e) => setFormPref(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs bg-white"
-                >
-                  <option value="both">Both Email & SMS</option>
-                  <option value="email">Email Only</option>
-                  <option value="sms">SMS Only</option>
-                </select>
-              </div>
-
-              <label className="flex items-center gap-2 pt-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formGdpr}
-                  onChange={(e) => setFormGdpr(e.target.checked)}
-                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                />
-                <span className="text-slate-700">Customer consented to service communication (UK GDPR)</span>
-              </label>
-
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCustomerModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy} className="px-4 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg disabled:opacity-60"
-                >
-                  {editingCustomer ? 'Update Customer' : 'Create Customer'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <CustomerFormModal customer={editingCustomer} onClose={() => setShowCustomerModal(false)} onSaved={setSelectedCustomerId} />
       )}
 
     </div>

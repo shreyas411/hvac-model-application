@@ -78,3 +78,7 @@ Adding a service site has a postcode lookup (`frontend/src/services/postcode.ts`
 
 - The Add/Edit form now has **Notes** and **Address Line 2** inputs; saving no longer drops line 2 or leaves notes uneditable (supersedes those limitations above).
 - Each service location in the drawer has **Edit** (reuses the add-site form) and **Remove**. The server refuses to remove a site still used by jobs, equipment or service requests (`409 LOCATION_IN_USE`, shown as a toast). Site contact name/phone are still not editable here.
+
+## Updates: job details from the 360 drawer
+
+Rows under **Job history & visits** are now buttons that open the read-only job record (`JobDetailDrawer`, see [dispatch-features.md](dispatch-features.md)) with PDF/Print.

@@ -314,6 +314,22 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
 
+          <div className="pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="st-wh-start" className="block font-semibold text-slate-700 mb-1">Work Day Starts</label>
+              <input id="st-wh-start" type="time" required value={form.workingHoursStart}
+                onChange={(e) => setForm({ ...form, workingHoursStart: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono" />
+            </div>
+            <div>
+              <label htmlFor="st-wh-end" className="block font-semibold text-slate-700 mb-1">Work Day Ends</label>
+              <input id="st-wh-end" type="time" required value={form.workingHoursEnd} min={form.workingHoursStart}
+                onChange={(e) => setForm({ ...form, workingHoursEnd: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono" />
+            </div>
+            <p className="text-xs text-slate-500 col-span-2 sm:col-span-1 self-end">Sets the time range shown on the dispatch board and each technician's daily capacity.</p>
+          </div>
+
           <div className="pt-2 border-t border-slate-100">
             <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800">
               <input

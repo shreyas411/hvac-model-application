@@ -47,7 +47,11 @@ export async function listJobs(only?: { technicianId?: string | null }) {
 /** One page of jobs, filtered in SQL. Same scoping rule as listJobs. */
 export async function pageJobs(query: unknown, only?: { technicianId?: string | null }) {
   if (only && !only.technicianId) return { data: [] as Job[], nextCursor: null };
-  return pageFrom(query, prisma.job, { where: only && { technicianId: only.technicianId }, include, searchFields: ['jobNumber', 'description', 'internalNotes', 'workPerformed'] }, toJob);
+  // ?from= / ?to= (YYYY-MM-DD, inclusive) bound the appointment date; anything malformed is ignored
+  const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)) ? new Date(v) : undefined);
+  const { from, to } = (query ?? {}) as Record<string, unknown>;
+  const range = day(from) || day(to) ? { appointmentDate: { gte: day(from), lte: day(to) } } : {};
+  return pageFrom(query, prisma.job, { where: { ...(only && { technicianId: only.technicianId }), ...range }, include, searchFields: ['jobNumber', 'description', 'internalNotes', 'workPerformed'] }, toJob);
 }
 
 // DECIDE (spec 6.2): default transition map, admins may override with `override: true`.

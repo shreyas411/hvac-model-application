@@ -11,7 +11,7 @@ const input = 'w-full sm:w-auto border border-slate-300 rounded-md px-2 py-2 bg-
 
 /** Recurring preventive-maintenance contracts; the daily sweep raises a job when one falls due. */
 export const MaintenanceView: React.FC = () => {
-  const { showToast, customers, equipment, currentUser, customerById } = useApp(['showToast', 'customers', 'equipment', 'currentUser', 'customerById']);
+  const { showToast, confirmToast, customers, equipment, currentUser, customerById } = useApp(['showToast', 'confirmToast', 'customers', 'equipment', 'currentUser', 'customerById']);
   const canWrite = currentUser.role === 'admin' || currentUser.role === 'dispatcher';
   const [rows, setRows] = useState<MaintenanceAgreement[]>([]);
   const [form, setForm] = useState(blank);
@@ -113,7 +113,7 @@ export const MaintenanceView: React.FC = () => {
               {canWrite && (
                 <div className="col-span-2 md:col-span-1 flex justify-end gap-3">
                   <button type="button" aria-label={`Edit agreement, ${name(r)}`} onClick={() => startEdit(r)} className="text-slate-400 hover:text-sky-700 p-1"><IconPencil className="w-4 h-4" aria-hidden="true" /></button>
-                  <button type="button" aria-label={`Delete agreement, ${name(r)}`} onClick={() => confirm('Delete this agreement?') && void run(services.maintenance.remove(r.id))} className="text-slate-400 hover:text-red-600 p-1"><IconTrash className="w-4 h-4" aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Delete agreement, ${name(r)}`} onClick={() => confirmToast('Delete this agreement?', () => void run(services.maintenance.remove(r.id)))} className="text-slate-400 hover:text-red-600 p-1"><IconTrash className="w-4 h-4" aria-hidden="true" /></button>
                 </div>
               )}
             </li>

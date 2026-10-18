@@ -85,3 +85,12 @@ When a job becomes scheduled (created with an engineer, converted from a request
 ## Updates: SLA breached badge
 
 Job cards on board, list and reschedule views show a red **SLA breached** badge when `slaBreached` is true: a call-out still `new` past its `slaDueAt` (from the site's maintenance agreement). It is computed by the API, not stored.
+
+## Updates: timeline board, drag and drop, job details
+
+- **Board mode is now a technician × time timeline** (`DispatchTimeline.tsx`) beside an **Unassigned queue** (sorted by priority, then date; searchable). Axis = company work hours (Settings), widened to cover any job booked outside them; off-hours are shaded and a red line marks the current time when viewing today. Inactive technicians are hidden.
+- Each technician row shows a capacity bar (booked hours vs work-day length: green, amber at 75%, red at 100%). Filters: find technician/skill, "Available technicians only".
+- **Drag and drop**: drag a job onto a technician row to assign it to the viewed date (`new` becomes `scheduled`), or onto the queue to unassign. Valid targets highlight green, blocked ones red. Drops are refused with a toast for missing skills/licences or schedule conflicts (same checks as the modal). Mouse needs a 5px drag; touch needs a long-press.
+- **Job detail drawer** (`JobDetailDrawer.tsx`): clicking a card or **View** in the list opens a read-only record (customer and site, technician, work performed, equipment, checklist, parts, refrigerant log, charges, photos, sign-off, linked invoices/quotes, history) with PDF/Print. **Edit / Reassign** opens the modal. The Dashboard "Manage" button now opens the job's drawer (`selectedJobId`).
+- **List view filters**: search, status, from/to date (server-side), plus **Clear**.
+- Work-day hours now drive the board axis and capacity; they are still not used by the conflict check.

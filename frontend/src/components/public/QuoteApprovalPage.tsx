@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { tierPrices } from '../../utils/formatters';
 import { IconCheck, IconX } from '@tabler/icons-react';
+import { Toast, ToastState } from '../common/Toast';
 import { SignaturePad } from '../technician/SignaturePad';
 
 const API = `${import.meta.env.VITE_API_URL ?? ''}/api/v1/public/quotes`;
@@ -21,6 +22,7 @@ export const QuoteApprovalPage: React.FC<{ token: string }> = ({ token }) => {
   const [signature, setSignature] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [option, setOption] = useState('');
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   useEffect(() => {
     let stale = false;
@@ -29,7 +31,6 @@ export const QuoteApprovalPage: React.FC<{ token: string }> = ({ token }) => {
   }, [token]);
 
   const decide = async (action: 'accept' | 'reject') => {
-    if (action === 'reject' && !confirm('Decline this quotation? This cannot be undone.')) return;
     setBusy(true);
     setError('');
     const res = await fetch(`${API}/${token}/${action}`, {
@@ -79,10 +80,11 @@ export const QuoteApprovalPage: React.FC<{ token: string }> = ({ token }) => {
           {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-3">
             <button disabled={busy || !name.trim() || (tiers.length > 0 && !option)} onClick={() => decide('accept')} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg p-3 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 inline-flex items-center justify-center gap-2"><IconCheck className="w-4 h-4" aria-hidden="true" />{busy ? 'Sending…' : 'Accept Quotation'}</button>
-            <button disabled={busy} onClick={() => decide('reject')} className="px-4 border border-slate-300 hover:bg-slate-50 rounded-lg font-semibold disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 inline-flex items-center gap-1.5"><IconX className="w-4 h-4" aria-hidden="true" /> Decline</button>
+            <button disabled={busy} onClick={() => setToast({ text: 'Decline this quotation? This cannot be undone.', type: 'info', onConfirm: () => decide('reject') })} className="px-4 border border-slate-300 hover:bg-slate-50 rounded-lg font-semibold disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 inline-flex items-center gap-1.5"><IconX className="w-4 h-4" aria-hidden="true" /> Decline</button>
           </div>
         </section>
       )}
+      {toast && <Toast {...toast} onDismiss={() => setToast(null)} />}
     </main>
   );
 };
