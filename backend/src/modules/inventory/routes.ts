@@ -38,6 +38,7 @@ inventoryRouter.post('/parts/:id/adjust', allow('admin', 'dispatcher'), h((req) 
 }));
 inventoryRouter.use('/parts', crud({
   repo: svc.partsRepo, label: 'Part', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin', 'dispatcher'],
+  del: true, // parts with ledger rows fail the FK (422): the ledger stays append-only
   create: part, update: part.omit({ stockQuantity: true }).partial(), // stock changes only via /parts/:id/adjust
   filter: (rows, q) => (q.lowStock === 'true' ? rows.filter(svc.isLowStock) : rows),
   page: (q) => (q.lowStock === 'true' ? undefined : svc.partsRepo.page(q, ['name', 'sku', 'category'])), // low stock compares two columns: in memory

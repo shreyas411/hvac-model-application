@@ -1,17 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { 
-  CheckCircle2, 
-  ArrowRight, 
-  X, 
-  Wrench, 
-  FileText, 
-  Calendar, 
-  Receipt, 
-  AlertTriangle,
-  Flame,
-  Clock
-} from 'lucide-react';
+import { useEscape } from '../../utils/useEscape';
+import { IconX } from '@tabler/icons-react';
 
 interface WorkflowGuideModalProps {
   isOpen: boolean;
@@ -26,34 +16,36 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
   onNavigateTab,
   onOpenQuickAction,
 }) => {
-  const { switchUserRole } = useApp();
+  const { switchUserRole } = useApp(['switchUserRole']);
   const [activeWorkflow, setActiveWorkflow] = useState<'A' | 'B' | 'C' | 'D' | 'E' | 'F'>('A');
+
+  useEscape(isOpen, onClose);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-labelledby="wf-title">
       <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">
+            <h2 id="wf-title" className="text-lg font-bold text-slate-900">
               HVAC End-to-End Operational Workflows
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Demonstrate complete UK HVAC business cycles required by Section 16
+              Walk through the complete UK HVAC business cycles, step by step
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-200"
+            aria-label="Close guide" className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
           >
-            <X className="w-5 h-5" />
+            <IconX className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Workflow Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-100/60 p-2 gap-1.5 overflow-x-auto">
+        <div role="tablist" aria-label="Workflows" className="flex border-b border-slate-200 bg-slate-100/60 p-2 gap-1.5 overflow-x-auto">
           {[
             { id: 'A', title: 'Workflow A: Callout to Paid Invoice' },
             { id: 'B', title: 'Workflow B: Quote to Job to Invoice' },
@@ -65,7 +57,11 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveWorkflow(tab.id as 'A' | 'B' | 'C' | 'D' | 'E' | 'F')}
-              className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+              role="tab"
+              id={`wf-tab-${tab.id}`}
+              aria-selected={activeWorkflow === tab.id}
+              aria-controls="wf-panel"
+              className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${
                 activeWorkflow === tab.id
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
@@ -77,7 +73,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto space-y-6 text-sm">
+        <div role="tabpanel" id="wf-panel" aria-labelledby={`wf-tab-${activeWorkflow}`} className="p-6 overflow-y-auto space-y-6 text-sm">
           {activeWorkflow === 'A' && (
             <div className="space-y-4">
               <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-900">

@@ -1,22 +1,15 @@
 import React, { useState } from 'react';
+import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
-import { PartItem } from '../../types';
+import { InventoryMovement, PartItem } from '../../types';
 import { formatGBP, formatDateUK } from '../../utils/formatters';
-import { 
-  Wrench, 
-  Plus, 
-  AlertTriangle, 
-  Package, 
-  TrendingDown, 
-  TrendingUp, 
-  History, 
-  Search,
-  CheckCircle2,
-  X
-} from 'lucide-react';
+import { useEscape } from '../../utils/useEscape';
+import { IconArrowsExchange, IconPackage, IconPlus, IconSearch } from '@tabler/icons-react';
+import { useServerPaged } from '../common/Pager';
 
 export const InventoryView: React.FC = () => {
-  const { parts, inventoryMovements, addPart, adjustStock, settings } = useApp();
+  const { parts, inventoryMovements, addPart, adjustStock, deletePart, settings } = useApp(['parts', 'inventoryMovements', 'addPart', 'adjustStock', 'deletePart', 'settings']);
+  const paged = useServerPaged<InventoryMovement>('/movements', {}, inventoryMovements);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddPartModal, setShowAddPartModal] = useState(false);
@@ -28,16 +21,17 @@ export const InventoryView: React.FC = () => {
   const [sku, setSku] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Valves & Controls');
-  const [unitCost, setUnitCost] = useState(50);
-  const [sellingPrice, setSellingPrice] = useState(95);
-  const [stockQuantity, setStockQuantity] = useState(10);
-  const [minStockLevel, setMinStockLevel] = useState(3);
-  const [location, setLocation] = useState('Warehouse Unit 4');
+  const [unitCost, setUnitCost] = useState('');
+  const [sellingPrice, setSellingPrice] = useState('');
+  const [stockQuantity, setStockQuantity] = useState('');
+  const [minStockLevel, setMinStockLevel] = useState('');
+  const [location, setLocation] = useState('');
 
   // Adjust stock form
-  const [adjustDelta, setAdjustDelta] = useState(5);
+  const [adjustDelta, setAdjustDelta] = useState('');
   const [adjustType, setAdjustType] = useState<'restock_purchase' | 'stock_adjustment'>('restock_purchase');
-  const [adjustNotes, setAdjustNotes] = useState('Wolseley Trade Counter restock');
+  const [adjustNotes, setAdjustNotes] = useState('');
+  const [busy, setBusy] = useState(false); // guards double-submit
 
   const filteredParts = parts.filter((p) => {
     if (searchTerm.trim()) {
@@ -51,8 +45,11 @@ export const InventoryView: React.FC = () => {
     return true;
   });
 
+  useEscape(showAddPartModal || showAdjustModal, () => { setShowAddPartModal(false); setShowAdjustModal(false); });
+
   const handleSavePart = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     const created = await addPart({
       name,
       sku,
@@ -64,7 +61,9 @@ export const InventoryView: React.FC = () => {
       minStockLevel: Number(minStockLevel),
       location,
     });
+    setBusy(false);
     if (!created) return;
+    setName(''); setSku(''); setDescription(''); setUnitCost(''); setSellingPrice(''); setStockQuantity(''); setMinStockLevel(''); setLocation('');
     setShowAddPartModal(false);
   };
 
@@ -72,19 +71,23 @@ export const InventoryView: React.FC = () => {
     e.preventDefault();
     if (!adjustingPart) return;
 
-    await adjustStock(
+    setBusy(true);
+    const ok = await adjustStock(
       adjustingPart.id,
       adjustType === 'restock_purchase' ? Number(adjustDelta) : -Number(adjustDelta),
       adjustType,
       adjustNotes
     );
+    setBusy(false);
+    if (!ok) return; // keep the modal open so the input isn't lost
+    setAdjustNotes('');
     setShowAdjustModal(false);
   };
 
   if (!settings.enableInventory) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-12 text-center text-slate-500 text-xs">
-        <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+        <IconPackage className="w-8 h-8 text-slate-300 mx-auto mb-2" aria-hidden="true" />
         <h2 className="text-base font-bold text-slate-800">Inventory Tracking Disabled</h2>
         <p className="mt-1">Inventory management is currently disabled in Company Settings.</p>
       </div>
@@ -111,7 +114,7 @@ export const InventoryView: React.FC = () => {
           onClick={() => setShowAddPartModal(true)}
           className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5 shrink-0"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Add Catalogue Item</span>
         </button>
       </div>
@@ -139,15 +142,15 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
 
-      {/* Search Toolbar */}
+      {/* IconSearch Toolbar */}
       <div className="bg-white border border-slate-200 rounded-lg p-3 flex items-center justify-between gap-3 text-xs">
         <div className="relative w-full sm:w-80">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+          <IconSearch className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search parts by name, SKU, or category..."
+            aria-label="Search parts" name="search" autoComplete="off" placeholder="Search parts by name, SKU, or category…"
             className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
           />
         </div>
@@ -159,16 +162,17 @@ export const InventoryView: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-medium">
               <tr>
-                <th className="py-2.5 px-3">Item Name & SKU</th>
-                <th className="py-2.5 px-3">Category</th>
-                <th className="py-2.5 px-3">Location / Bin</th>
-                <th className="py-2.5 px-3 text-right">Unit Cost</th>
-                <th className="py-2.5 px-3 text-right">Selling Price</th>
-                <th className="py-2.5 px-3 text-right">Stock Level</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th scope="col" className="py-2.5 px-3">Item Name & SKU</th>
+                <th scope="col" className="py-2.5 px-3">Category</th>
+                <th scope="col" className="py-2.5 px-3">Location / Bin</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Unit Cost</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Selling Price</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Stock Level</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+              {filteredParts.length === 0 && <tr><td colSpan={7} className="py-6"><EmptyState icon={IconPackage}>No parts found.</EmptyState></td></tr>}
               {filteredParts.map((part) => {
                 const isLow = part.stockQuantity <= part.minStockLevel;
 
@@ -202,13 +206,19 @@ export const InventoryView: React.FC = () => {
                       <button
                         onClick={() => {
                           setAdjustingPart(part);
-                          setAdjustDelta(5);
+                          setAdjustDelta('');
                           setAdjustType('restock_purchase');
                           setShowAdjustModal(true);
                         }}
-                        className="px-2.5 py-1 text-sky-700 hover:text-sky-900 bg-sky-50 border border-sky-200 rounded font-semibold text-xs"
+                        aria-label={`Adjust stock for ${part.name}`} className="px-2.5 py-1 text-sky-700 hover:text-sky-900 bg-sky-50 border border-sky-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                       >
                         Adjust Stock
+                      </button>
+                      <button
+                        onClick={() => window.confirm(`Delete ${part.name}? Parts with stock history can't be deleted.`) && void deletePart(part.id)}
+                        aria-label={`Delete ${part.name}`} className="ml-2 px-2.5 py-1 text-rose-700 hover:text-rose-900 bg-rose-50 border border-rose-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -223,7 +233,8 @@ export const InventoryView: React.FC = () => {
       <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
         <h3 className="font-bold text-sm text-slate-900">Recent Inventory Movement Log</h3>
         <div className="divide-y divide-slate-100 overflow-x-auto text-xs">
-          {inventoryMovements.map((mov) => {
+          {inventoryMovements.length === 0 && <EmptyState icon={IconArrowsExchange} compact>No stock movements yet.</EmptyState>}
+          {paged.rows.map((mov) => {
             const part = parts.find((p) => p.id === mov.partId);
             return (
               <div key={mov.id} className="py-2.5 flex items-center justify-between gap-4">
@@ -243,11 +254,12 @@ export const InventoryView: React.FC = () => {
             );
           })}
         </div>
+        {paged.pager}
       </div>
 
       {/* Stock Adjustment Modal */}
       {showAdjustModal && adjustingPart && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Adjust stock">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full border border-slate-200 p-5 space-y-4 text-xs">
             <div>
               <h3 className="font-bold text-sm text-slate-900">
@@ -260,9 +272,9 @@ export const InventoryView: React.FC = () => {
 
             <form onSubmit={handleSaveAdjustment} className="space-y-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Adjustment Type</label>
+                <label htmlFor="adj-type" className="block font-semibold text-slate-700 mb-1">Adjustment Type</label>
                 <select
-                  value={adjustType}
+                  id="adj-type" value={adjustType}
                   onChange={(e) => setAdjustType(e.target.value as any)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
                 >
@@ -272,23 +284,23 @@ export const InventoryView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Quantity</label>
+                <label htmlFor="adj-qty" className="block font-semibold text-slate-700 mb-1">Quantity</label>
                 <input
                   type="number"
                   min="1"
                   required
-                  value={adjustDelta}
-                  onChange={(e) => setAdjustDelta(parseInt(e.target.value) || 1)}
+                  id="adj-qty" name="quantity" inputMode="numeric" max={adjustType === 'stock_adjustment' ? adjustingPart.stockQuantity : undefined} value={adjustDelta}
+                  onChange={(e) => setAdjustDelta(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Reason / Supplier Note</label>
+                <label htmlFor="adj-notes" className="block font-semibold text-slate-700 mb-1">Reason / Supplier Note</label>
                 <input
                   type="text"
                   required
-                  value={adjustNotes}
+                  id="adj-notes" name="notes" autoComplete="off" placeholder="e.g. supplier or reason for write-off…" value={adjustNotes}
                   onChange={(e) => setAdjustNotes(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                 />
@@ -304,9 +316,10 @@ export const InventoryView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg"
+                  disabled={busy}
+                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60"
                 >
-                  Confirm Adjustment
+                  {busy ? 'Saving…' : 'Confirm Adjustment'}
                 </button>
               </div>
             </form>
@@ -316,25 +329,25 @@ export const InventoryView: React.FC = () => {
 
       {/* Add New Part Modal */}
       {showAddPartModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Add catalogue item">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900">Add Catalogue Item</h3>
               <button
                 onClick={() => setShowAddPartModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600"
+                aria-label="Close" className="p-1 text-slate-400 hover:text-slate-600"
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
 
             <form onSubmit={handleSavePart} className="p-5 space-y-3 overflow-y-auto text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Part / Item Name *</label>
+                <label htmlFor="p-name" className="block font-semibold text-slate-700 mb-1">Part / Item Name *</label>
                 <input
                   type="text"
                   required
-                  value={name}
+                  id="p-name" name="name" autoComplete="off" value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Condensate Drain Neutraliser Kit"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
@@ -343,21 +356,21 @@ export const InventoryView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">SKU Code *</label>
+                  <label htmlFor="p-sku" className="block font-semibold text-slate-700 mb-1">SKU Code *</label>
                   <input
                     type="text"
                     required
-                    value={sku}
+                    id="p-sku" name="sku" autoComplete="off" spellCheck={false} value={sku}
                     onChange={(e) => setSku(e.target.value)}
                     placeholder="e.g. CDN-022"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Category</label>
+                  <label htmlFor="p-cat" className="block font-semibold text-slate-700 mb-1">Category</label>
                   <input
                     type="text"
-                    value={category}
+                    id="p-cat" name="category" value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                   />
@@ -366,24 +379,24 @@ export const InventoryView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Unit Cost (£) *</label>
+                  <label htmlFor="p-cost" className="block font-semibold text-slate-700 mb-1">Unit Cost (£) *</label>
                   <input
                     type="number"
                     step="0.01"
                     required
-                    value={unitCost}
-                    onChange={(e) => setUnitCost(parseFloat(e.target.value) || 0)}
+                    id="p-cost" name="unitCost" min="0" inputMode="decimal" value={unitCost}
+                    onChange={(e) => setUnitCost(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Selling Price (£) *</label>
+                  <label htmlFor="p-price" className="block font-semibold text-slate-700 mb-1">Selling Price (£) *</label>
                   <input
                     type="number"
                     step="0.01"
                     required
-                    value={sellingPrice}
-                    onChange={(e) => setSellingPrice(parseFloat(e.target.value) || 0)}
+                    id="p-price" name="sellingPrice" min="0" inputMode="decimal" value={sellingPrice}
+                    onChange={(e) => setSellingPrice(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                   />
                 </div>
@@ -391,34 +404,34 @@ export const InventoryView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Initial Stock Qty</label>
+                  <label htmlFor="p-stock" className="block font-semibold text-slate-700 mb-1">Initial Stock Qty</label>
                   <input
                     type="number"
                     required
-                    value={stockQuantity}
-                    onChange={(e) => setStockQuantity(parseInt(e.target.value) || 0)}
+                    id="p-stock" name="stock" min="0" inputMode="numeric" value={stockQuantity}
+                    onChange={(e) => setStockQuantity(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Min Reorder Level</label>
+                  <label htmlFor="p-min" className="block font-semibold text-slate-700 mb-1">Min Reorder Level</label>
                   <input
                     type="number"
                     required
-                    value={minStockLevel}
-                    onChange={(e) => setMinStockLevel(parseInt(e.target.value) || 0)}
+                    id="p-min" name="minStock" min="0" inputMode="numeric" value={minStockLevel}
+                    onChange={(e) => setMinStockLevel(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Storage Location</label>
+                <label htmlFor="p-loc" className="block font-semibold text-slate-700 mb-1">Storage Location</label>
                 <input
                   type="text"
-                  value={location}
+                  id="p-loc" name="location" autoComplete="off" value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  placeholder="e.g. Warehouse Bin C4 / Van 1"
+                  placeholder="e.g. Warehouse Bin C4 / Van 1…"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                 />
               </div>
@@ -433,9 +446,10 @@ export const InventoryView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg text-xs"
+                  disabled={busy}
+                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg text-xs disabled:opacity-60"
                 >
-                  Add Part
+                  {busy ? 'Adding…' : 'Add Part'}
                 </button>
               </div>
             </form>

@@ -37,3 +37,7 @@ Completed and cancelled jobs are read-only (`JOB_CLOSED`) except for admin; ever
 - Technicians cannot adjust stock directly or add service records to jobs that are not theirs.
 - Company bank details are only returned to admin and accountant.
 - Status changes are limited per role; admins can tick "Force status (skip workflow rules)" in the dispatch modal, which requires a reason.
+
+## Updates: Gas Certificates screen
+
+Tab **Gas Certificates** (`/certificates`, roles admin, dispatcher, technician; `frontend/src/components/certificates/CertificatesView.tsx`). Create CP12 Landlord Gas Safety Record (per-appliance flue, ventilation, safety device, gas tightness, safe-to-use, defects, warning notice), Gas Appliance Service Record or Commissioning Record. The issuing engineer needs a current Gas Safe registration. Each row has **PDF** download (`/certificates/:id/pdf`). Expiring CP12s per site come from `GET /certificates/expiring` (no UI list or notification yet); see [certificates.md](../../backend/docs/api/certificates.md). Landlord/agent accounts and a CP12 expiry tracker are not built.

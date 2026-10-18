@@ -1,8 +1,8 @@
 import { prisma, type Tx } from './prisma.js';
 import { getSettings } from '../modules/settings/service.js';
 
-export type NumberKey = 'job' | 'quote' | 'invoice' | 'request' | 'credit';
-const KEYS: NumberKey[] = ['job', 'quote', 'invoice', 'request', 'credit'];
+export type NumberKey = 'job' | 'quote' | 'invoice' | 'request' | 'credit' | 'certificate';
+const KEYS: NumberKey[] = ['job', 'quote', 'invoice', 'request', 'credit', 'certificate'];
 // Service requests are numbered across years (SR-12), the rest per year.
 const yearOf = (key: NumberKey, year: number) => (key === 'request' ? 0 : year);
 
@@ -14,7 +14,7 @@ export async function nextNumber(key: NumberKey, now = new Date(), c: Tx = prism
     ON CONFLICT (key, year) DO UPDATE SET next_value = counters.next_value + 1
     RETURNING next_value - 1 AS n`;
   const s = await getSettings(c);
-  const prefix = ({ job: s.prefixJob, quote: s.prefixQuote, invoice: s.prefixInvoice, request: 'SR-', credit: 'CN-' })[key].replace(/-+$/, '');
+  const prefix = ({ job: s.prefixJob, quote: s.prefixQuote, invoice: s.prefixInvoice, request: 'SR-', credit: 'CN-', certificate: 'CERT-' })[key].replace(/-+$/, '');
   return key === 'request' ? `${prefix}-${n}` : `${prefix}-${year}-${String(n).padStart(4, '0')}`;
 }
 

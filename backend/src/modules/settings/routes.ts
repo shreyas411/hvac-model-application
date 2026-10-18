@@ -11,7 +11,7 @@ export const settingsSchema = z.object({
   currencySymbol: z.string(), defaultVatRate: z.number().min(0).max(100),
   defaultHourlyRate: z.number().nonnegative(), defaultTravelCharge: z.number().nonnegative(),
   availableVatRates: z.array(z.number().min(0).max(100)),
-  workingHoursStart: z.string(), workingHoursEnd: z.string(), enableInventory: z.boolean(),
+  workingHoursStart: z.string(), workingHoursEnd: z.string(), enableInventory: z.boolean(), autoSendEmails: z.boolean(),
   prefixJob: z.string(), prefixQuote: z.string(), prefixInvoice: z.string(),
   bankDetails: z.object({
     bankName: z.string(), accountName: z.string(), sortCode: z.string(), accountNumber: z.string(), iban: z.string().optional(),

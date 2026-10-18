@@ -14,3 +14,9 @@ Mounted at the API root. Returns 403 `FEATURE_DISABLED` when `enableInventory` i
 | GET | `/movements` | A D T C | `?partId` filter; append-only ledger |
 
 Technicians can no longer adjust stock; parts used on a job go through `POST /jobs/:id/parts`, and `type: used_on_job` is rejected on `adjust` (`403`). Movements carry a `vatAmount` that feeds the VAT return (`/reports/vat`).
+
+## Updates: delete
+
+| Method | Path | Notes |
+|---|---|---|
+| DELETE | `/parts/:id` | A D. `204`. A part that has stock-movement rows is refused with `422 INVALID_REFERENCE`, so the ledger stays append-only |

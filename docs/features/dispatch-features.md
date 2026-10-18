@@ -77,3 +77,11 @@ Status buttons (`:552-571`) call `updateJobStatus` immediately (independent of S
 - Schedule conflicts now include a 30 minute travel buffer; the banner says whether it is an overlap or a buffer clash.
 - Status buttons cover all eight statuses and are disabled when the move is not allowed by the workflow (`canMoveJob`). Admins get a "Force status (skip workflow rules)" checkbox that sends `override=true` (a reason is required by the API).
 - Maintenance agreements create unassigned jobs here; see [maintenance-features.md](maintenance-features.md).
+
+## Updates: customer emails
+
+When a job becomes scheduled (created with an engineer, converted from a request or quotation, or moved to scheduled) a `booking_confirmation` email is queued; moving scheduled to dispatched queues a `technician_arriving` email. Both are drafts for approval unless Settings > auto-send is on. Jobs raised by maintenance plans send nothing yet. See [notifications-features.md](notifications-features.md).
+
+## Updates: SLA breached badge
+
+Job cards on board, list and reschedule views show a red **SLA breached** badge when `slaBreached` is true: a call-out still `new` past its `slaDueAt` (from the site's maintenance agreement). It is computed by the API, not stored.

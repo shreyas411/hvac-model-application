@@ -73,3 +73,14 @@ The payment date is today (`new Date().toISOString()` date part). Confirm calls 
 - New status **`credited`** (violet badge) when credit notes cover the whole invoice; credit notes (`CN-…`), payment refunds, void-with-reason, per-line VAT and the default rate card are described in [billing-corrections-features.md](billing-corrections-features.md).
 - The invoice sheet modal now has a **Download PDF** button (A4 PDF of the on-screen sheet) next to Print.
 - List, search and paging are served by the backend (`GET /invoices?q&status&cursor`).
+
+## Updates: PDF and email
+
+Issuing an invoice drafts (or, with auto-send on, sends) an email with a server-generated PDF attached (`GET /invoices/:id/pdf`). The Download PDF button in the modal still renders the on-screen sheet in the browser. See [notifications-features.md](notifications-features.md).
+
+## Updates: reverse charge, CIS, retention, stage invoices
+
+- **Create Invoice** modal has *Domestic reverse charge* (VAT forced to 0, "no VAT charged" line), a **CIS rate** (deducted from the labour portion only) and a **Retention %** field. Sent as `reverseCharge`, `cisRatePercent`, `retentionPercent`; see [invoices.md](../../backend/docs/api/invoices.md).
+- Invoice detail shows "VAT (domestic reverse charge)", "Less CIS deduction (x% of labour)" and "Retention held (x%)" with a **Release** button (`POST /invoices/:id/release-retention`). The same lines print on the PDF.
+- Stage invoices (made from an accepted quote, see [quotations-features.md](quotations-features.md)) show a grey badge on the list and detail: label and percent of quotation.
+- Limitations: credit notes do not scale CIS or retention.

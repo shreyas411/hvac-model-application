@@ -18,11 +18,14 @@ import { inventoryRouter } from './modules/inventory/routes.js';
 import { invoicesRouter } from './modules/invoices/routes.js';
 import { jobsRouter } from './modules/jobs/routes.js';
 import { notificationsRouter } from './modules/notifications/routes.js';
+import { publicQuotesRouter } from './modules/quotations/public.js';
 import { quotationsRouter } from './modules/quotations/routes.js';
 import { reportsRouter } from './modules/reports/routes.js';
 import { requestsRouter } from './modules/requests/routes.js';
+import { certificatesRouter } from './modules/certificates/routes.js';
 import { checklistsRouter } from './modules/checklists/routes.js';
 import { maintenanceRouter } from './modules/maintenance/routes.js';
+import { auditRouter } from './modules/audit/routes.js';
 import { settingsRouter } from './modules/settings/routes.js';
 import { techniciansRouter } from './modules/technicians/routes.js';
 import { usersRouter } from './modules/users/routes.js';
@@ -46,12 +49,16 @@ export function createApp() {
   const api = express.Router();
   // login/refresh/logout are public (small bodies, rate limited); /me authenticates itself
   api.use('/auth', rateLimit({ windowMs: 15 * 60_000, limit: config.appEnv === 'local' ? 300 : 30, standardHeaders: 'draft-8', legacyHeaders: false }), express.json({ limit: '100kb' }), authRouter);
+  // customer quote approval: the emailed token is the credential; strict rate limit, small body (PNG signature)
+  api.use('/public/quotes', rateLimit({ windowMs: 15 * 60_000, limit: config.appEnv === 'local' ? 300 : 60, standardHeaders: 'draft-8', legacyHeaders: false }), express.json({ limit: '600kb' }), publicQuotesRouter);
   api.use(authenticate);
   api.use(rateLimit({ windowMs: 60_000, limit: 600, keyGenerator: (req) => req.user.id, standardHeaders: 'draft-8', legacyHeaders: false, validate: { keyGeneratorIpFallback: false } }));
   api.use(express.json({ limit: '5mb' })); // signatures arrive as data URLs; only parsed for signed-in users
   api.use(idempotency);
   api.use('/users', usersRouter);
   api.use('/settings', settingsRouter);
+  api.use('/audit', auditRouter);
+  api.use('/certificates', certificatesRouter);
   api.use('/checklist-templates', checklistsRouter);
   api.use('/technicians', techniciansRouter);
   api.use('/customers', customersRouter);

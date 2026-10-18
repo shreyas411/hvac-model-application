@@ -222,6 +222,7 @@ export interface LineItem {
   quantity: number;
   unitPrice: number;
   vatRatePercent?: number;
+  option?: string; // quotation tier (Good/Better/Best); unset lines apply to every tier
   amount: number;
 }
 
@@ -264,6 +265,8 @@ export interface PaymentRecord {
 export interface Invoice {
   id: string;
   invoiceNumber: string;
+  stageLabel?: string | null;
+  stagePercent?: number | null;
   quoteId?: string;
   jobId?: string;
   customerId: string;
@@ -281,6 +284,11 @@ export interface Invoice {
   balanceDue: number;
   paymentTermsDays: number;
   notes?: string;
+  reverseCharge: boolean;
+  cisRatePercent: number;
+  cisDeduction: number;
+  retentionPercent: number;
+  retentionHeld: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -313,11 +321,13 @@ export interface InventoryMovement {
 export interface CustomerNotification {
   id: string;
   customerId: string;
-  type: 'booking_confirmation' | 'appointment_reminder' | 'technician_arriving' | 'quotation_ready' | 'invoice_issued';
+  type: 'booking_confirmation' | 'appointment_reminder' | 'technician_arriving' | 'quotation_ready' | 'invoice_issued' | 'payment_reminder';
   recipient: string;
   channel: 'email' | 'sms';
   subject: string;
   messageBody: string;
+  invoiceId?: string;
+  quotationId?: string;
   status: 'draft' | 'ready_to_send' | 'sending' | 'sent' | 'failed';
   sentAt?: string;
   approvedBy?: string;
@@ -343,6 +353,7 @@ export interface CompanySettings {
   workingHoursStart: string;
   workingHoursEnd: string;
   enableInventory: boolean;
+  autoSendEmails: boolean;
   prefixJob: string;
   prefixQuote: string;
   prefixInvoice: string;

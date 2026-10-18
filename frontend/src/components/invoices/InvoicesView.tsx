@@ -1,22 +1,12 @@
 import React, { useState } from 'react';
+import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { Invoice, InvoiceStatus, PaymentRecord } from '../../types';
-import { formatGBP, formatDateUK } from '../../utils/formatters';
-import { downloadSheet } from '../../utils/pdf';
-import { 
-  Receipt, 
-  Plus, 
-  CheckCircle2, 
-  Clock, 
-  AlertTriangle, 
-  Printer, 
-  Download,
-  CreditCard, 
-  Building2, 
-  X,
-  Search,
-  FileText
-} from 'lucide-react';
+import { formatGBP, formatDateUK, getTodayISO } from '../../utils/formatters';
+import { useEscape } from '../../utils/useEscape';
+import { downloadSheet, printSheet } from '../../utils/pdf';
+import { IconDownload, IconPlus, IconPrinter, IconReceipt, IconSearch } from '@tabler/icons-react';
+import { useServerPaged } from '../common/Pager';
 
 interface InvoicesViewProps {
   onOpenQuickAction: (action: 'invoice') => void;
@@ -31,17 +21,20 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     invoices, 
     customers, 
     settings, 
-    recordPayment, 
-    currentUser 
-  } = useApp();
+    recordPayment,
+    releaseRetention,
+    currentUser,
+    customerById,
+  } = useApp(['invoices', 'customers', 'settings', 'recordPayment', 'releaseRetention', 'currentUser', 'customerById']);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [busy, setBusy] = useState(false); // guards double-submit (would record a payment twice)
 
   // Record payment modal
   const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
-  const [paymentAmount, setPaymentAmount] = useState<number>(0);
+  const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'bacs' | 'card' | 'cheque' | 'cash'>('bacs');
   const [paymentReference, setPaymentReference] = useState<string>('');
   const [paymentNotes, setPaymentNotes] = useState<string>('');
@@ -50,40 +43,34 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
   const handleOpenPayment = (inv: Invoice) => {
     setPayingInvoiceId(inv.id);
-    setPaymentAmount(inv.balanceDue);
+    setPaymentAmount(inv.balanceDue.toFixed(2));
     setPaymentMethod('bacs');
-    setPaymentReference(`BACS-${Date.now().toString().slice(-5)}`);
+    setPaymentReference(''); // a real bank reference, not an invented one
     setPaymentNotes('');
   };
+
+  useEscape(!!(selectedInvoice || payingInvoiceId), () => { setSelectedInvoice(null); setPayingInvoiceId(null); });
 
   const handleConfirmPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payingInvoiceId) return;
 
+    setBusy(true);
     const ok = await recordPayment(payingInvoiceId, {
-      date: new Date().toISOString().split('T')[0],
+      date: getTodayISO(),
       amount: Number(paymentAmount),
       method: paymentMethod,
       reference: paymentReference,
       notes: paymentNotes,
     });
+    setBusy(false);
     if (!ok) return;
 
     setPayingInvoiceId(null);
   };
 
-  const filteredInvoices = invoices.filter((inv) => {
-    if (statusFilter !== 'all' && inv.status !== statusFilter) return false;
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      const cust = customers.find((c) => c.id === inv.customerId);
-      return (
-        inv.invoiceNumber.toLowerCase().includes(q) ||
-        cust?.name.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  // Status and search (invoice number, notes, customer name) run on the server so paging covers the whole list
+  const paged = useServerPaged<Invoice>('/invoices', { q: searchTerm.trim() || undefined, status: statusFilter === 'all' ? undefined : statusFilter }, invoices);
 
   const totalOutstanding = invoices.reduce((sum, inv) => sum + inv.balanceDue, 0);
   const totalPaid = invoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
@@ -116,7 +103,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           onClick={() => onOpenQuickAction('invoice')}
           className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5 shrink-0"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
           <span>New Invoice</span>
         </button>
       </div>
@@ -142,7 +129,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <span className="text-xs font-medium text-slate-500">UK Standard VAT (20%) Output</span>
+          <span className="text-xs font-medium text-slate-500">VAT Output</span>
           <p className="text-2xl font-bold font-mono text-slate-900 mt-1">
             {formatGBP(invoices.reduce((sum, i) => sum + i.vatAmount, 0))}
           </p>
@@ -150,24 +137,25 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
+      {/* Filter and IconSearch Bar */}
       <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         <div className="relative w-full sm:w-80">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+          <IconSearch className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search invoice number or customer..."
+            aria-label="Search invoices" name="search" autoComplete="off" placeholder="Search invoice number or customer…"
             className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
           />
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
-          {['all', 'issued', 'partially_paid', 'overdue', 'paid'].map((st) => (
+          {['all', 'draft', 'issued', 'partially_paid', 'overdue', 'paid', 'credited', 'void'].map((st) => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}
+              aria-pressed={statusFilter === st}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors capitalize whitespace-nowrap ${
                 statusFilter === st ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
@@ -184,25 +172,26 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3">Invoice Number</th>
-                <th className="py-2.5 px-3">Customer Client</th>
-                <th className="py-2.5 px-3">Issue Date</th>
-                <th className="py-2.5 px-3">Due Date</th>
-                <th className="py-2.5 px-3 text-right">Total (GBP)</th>
-                <th className="py-2.5 px-3 text-right">Balance Due</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th scope="col" className="py-2.5 px-3">Invoice Number</th>
+                <th scope="col" className="py-2.5 px-3">Customer Client</th>
+                <th scope="col" className="py-2.5 px-3">Issue Date</th>
+                <th scope="col" className="py-2.5 px-3">Due Date</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Total (GBP)</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Balance Due</th>
+                <th scope="col" className="py-2.5 px-3">Status</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredInvoices.map((inv) => {
-                const cust = customers.find((c) => c.id === inv.customerId);
+              {paged.rows.map((inv) => {
+                const cust = customerById.get(inv.customerId);
                 const st = statusBadgeMap[inv.status];
 
                 return (
                   <tr key={inv.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3 px-3 font-mono font-bold text-slate-900">
                       {inv.invoiceNumber}
+                      {inv.stageLabel && <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">{inv.stageLabel} {inv.stagePercent}%</span>}
                     </td>
 
                     <td className="py-3 px-3 max-w-[200px]">
@@ -248,7 +237,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => setSelectedInvoice(inv)}
-                          className="px-2 py-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded font-semibold text-xs"
+                          aria-label={`View ${inv.invoiceNumber}`} className="px-2 py-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                         >
                           View Sheet
                         </button>
@@ -256,7 +245,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         {inv.balanceDue > 0 && (
                           <button
                             onClick={() => handleOpenPayment(inv)}
-                            className="px-2.5 py-1 text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 rounded font-semibold text-xs"
+                            aria-label={`Record payment for ${inv.invoiceNumber}`} className="px-2.5 py-1 text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                           >
                             Record Payment
                           </button>
@@ -267,21 +256,20 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 );
               })}
 
-              {filteredInvoices.length === 0 && (
+              {paged.rows.length === 0 && !paged.loading && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 text-xs">
-                    No invoices found matching criteria.
-                  </td>
+                  <td colSpan={8} className="py-6"><EmptyState icon={IconReceipt}>No invoices found matching criteria.</EmptyState></td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {paged.pager}
       </div>
 
       {/* Invoice Detail / Printable Modal */}
       {selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Invoice sheet">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <span className="font-bold text-slate-900 text-sm">
@@ -292,21 +280,21 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   onClick={(e) => downloadSheet(e.currentTarget, `${selectedInvoice.invoiceNumber}.pdf`)}
                   className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download PDF</span>
+                  <IconDownload className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>IconDownload PDF</span>
                 </button>
                 <button
-                  onClick={() => window.print()}
+                  onClick={(e) => printSheet(e.currentTarget)}
                   className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1"
                 >
-                  <Printer className="w-3.5 h-3.5" />
+                  <IconPrinter className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Print Invoice</span>
                 </button>
                 <button
                   onClick={() => setSelectedInvoice(null)}
-                  className="p-1 text-slate-400 hover:text-slate-600"
+                  aria-label="Close" className="p-1 text-slate-400 hover:text-slate-600"
                 >
-                  ✕
+                  <span aria-hidden="true">✕</span>
                 </button>
               </div>
             </div>
@@ -328,6 +316,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   <span className="text-lg font-bold font-mono text-slate-900 block">
                     {selectedInvoice.invoiceNumber}
                   </span>
+                  {selectedInvoice.stageLabel && <span className="text-slate-500 block">{selectedInvoice.stageLabel} - {selectedInvoice.stagePercent}% of quotation</span>}
                   <span className="text-slate-500 block">Date: {formatDateUK(selectedInvoice.issueDate)}</span>
                   <span className="text-slate-500 block">Due Date: {formatDateUK(selectedInvoice.dueDate)}</span>
                   <span className={`mt-2 inline-block px-2.5 py-0.5 rounded text-[11px] font-bold capitalize ${statusBadgeMap[selectedInvoice.status].bg} ${statusBadgeMap[selectedInvoice.status].text}`}>
@@ -342,14 +331,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   Billed To:
                 </span>
                 <p className="text-sm font-bold text-slate-900">
-                  {customers.find((c) => c.id === selectedInvoice.customerId)?.name}
+                  {customerById.get(selectedInvoice.customerId)?.name}
                 </p>
                 <p className="text-slate-600">
-                  {customers.find((c) => c.id === selectedInvoice.customerId)?.billingAddress.line1}
+                  {customerById.get(selectedInvoice.customerId)?.billingAddress.line1}
                 </p>
                 <p className="text-slate-600">
-                  {customers.find((c) => c.id === selectedInvoice.customerId)?.billingAddress.city},{' '}
-                  {customers.find((c) => c.id === selectedInvoice.customerId)?.billingAddress.postcode}
+                  {customerById.get(selectedInvoice.customerId)?.billingAddress.city},{' '}
+                  {customerById.get(selectedInvoice.customerId)?.billingAddress.postcode}
                 </p>
               </div>
 
@@ -358,10 +347,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-semibold">
                     <tr>
-                      <th className="py-2.5 px-3">Description</th>
-                      <th className="py-2.5 px-3 text-right">Quantity</th>
-                      <th className="py-2.5 px-3 text-right">Unit Price</th>
-                      <th className="py-2.5 px-3 text-right">Amount (GBP)</th>
+                      <th scope="col" className="py-2.5 px-3">Description</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Quantity</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Unit Price</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Amount (GBP)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -397,13 +386,28 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     <span className="font-mono">{formatGBP(selectedInvoice.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
-                    <span>UK VAT ({selectedInvoice.vatRatePercent}%):</span>
+                    <span>{selectedInvoice.reverseCharge ? 'VAT (domestic reverse charge)' : `UK VAT (${selectedInvoice.vatRatePercent}%)`}:</span>
                     <span className="font-mono">{formatGBP(selectedInvoice.vatAmount)}</span>
                   </div>
                   <div className="border-t border-slate-200 pt-1.5 flex justify-between font-bold text-sm text-slate-900">
                     <span>Invoice Total:</span>
                     <span className="font-mono">{formatGBP(selectedInvoice.total)}</span>
                   </div>
+                  {!!selectedInvoice.cisDeduction && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Less CIS deduction ({selectedInvoice.cisRatePercent}% of labour):</span>
+                      <span className="font-mono">-{formatGBP(selectedInvoice.cisDeduction)}</span>
+                    </div>
+                  )}
+                  {!!selectedInvoice.retentionHeld && (
+                    <div className="flex justify-between text-slate-600 items-center">
+                      <span>
+                        Retention held ({selectedInvoice.retentionPercent}%):{' '}
+                        <button disabled={busy} aria-label={`Release retention on ${selectedInvoice.invoiceNumber}`} onClick={async () => { setBusy(true); const ok = await releaseRetention(selectedInvoice.id); setBusy(false); if (ok) setSelectedInvoice(null); }} className="ml-1 px-1.5 py-0.5 disabled:opacity-60 text-sky-700 bg-sky-50 border border-sky-200 rounded text-[10px] font-semibold">Release</button>
+                      </span>
+                      <span className="font-mono">-{formatGBP(selectedInvoice.retentionHeld)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-emerald-700 font-medium">
                     <span>Total Amount Paid:</span>
                     <span className="font-mono">-{formatGBP(selectedInvoice.amountPaid)}</span>
@@ -452,7 +456,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
       {/* Record Payment Modal */}
       {payingInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Record payment">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4 text-xs">
             <div>
               <h3 className="font-bold text-sm text-slate-900">
@@ -465,8 +469,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
             <form onSubmit={handleConfirmPayment} className="space-y-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Payment Amount (£) *
+                <label htmlFor="pay-amt" className="block font-semibold text-slate-700 mb-1">
+                  Payment Amount \(£\) \*
                 </label>
                 <input
                   type="number"
@@ -474,8 +478,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   min="0.01"
                   max={payingInvoice.balanceDue}
                   required
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
+                  id="pay-amt" name="amount" inputMode="decimal" value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md font-mono text-xs focus:ring-1 focus:ring-sky-500"
                 />
                 <span className="text-[11px] text-slate-400 mt-0.5 block">
@@ -484,11 +488,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Payment Method *
+                <label htmlFor="pay-method" className="block font-semibold text-slate-700 mb-1">
+                  Payment Method \*
                 </label>
                 <select
-                  value={paymentMethod}
+                  id="pay-method" value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value as any)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
                 >
@@ -500,13 +504,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Payment Reference / Bank Transaction ID *
+                <label htmlFor="pay-ref" className="block font-semibold text-slate-700 mb-1">
+                  Payment Reference / Bank Transaction ID \*
                 </label>
                 <input
                   type="text"
                   required
-                  value={paymentReference}
+                  id="pay-ref" name="reference" autoComplete="off" spellCheck={false} value={paymentReference}
                   onChange={(e) => setPaymentReference(e.target.value)}
                   placeholder="e.g. BACS-849102"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
@@ -514,10 +518,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Internal Notes</label>
+                <label htmlFor="pay-notes" className="block font-semibold text-slate-700 mb-1">Internal Notes</label>
                 <input
                   type="text"
-                  value={paymentNotes}
+                  id="pay-notes" name="notes" autoComplete="off" value={paymentNotes}
                   onChange={(e) => setPaymentNotes(e.target.value)}
                   placeholder="e.g. Cleared in Barclays account statement"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
@@ -534,9 +538,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg"
+                  disabled={busy} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg disabled:opacity-60"
                 >
-                  Confirm & Reconcile
+                  {busy ? 'Recording…' : 'Confirm & Reconcile'}
                 </button>
               </div>
             </form>

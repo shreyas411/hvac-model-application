@@ -66,3 +66,14 @@ No schedule-conflict check is performed here (unlike service request conversion)
 - Preview address uses the customer's first service location, and the footer validity text is hard-coded.
 - No automatic expiry handling.
 - Print uses `window.print()` for the whole page; there is no PDF export or email send.
+
+## Updates: PDF and email
+
+Sending a quotation drafts (or, with auto-send on, sends) an email with a server-generated PDF attached (`GET /quotations/:id/pdf`), superseding "no PDF export or email send" above for the API; the web app's Print button is unchanged. See [notifications-features.md](notifications-features.md).
+
+## Updates: stage payments, Good/Better/Best, customer approval page
+
+- **Stage** button on accepted quotes opens a modal: percent (capped at what is left to bill) and optional label, or **Final** (deducts earlier stages). Each stage is its own invoice (`POST /invoices/stage`) and the app jumps to Invoices. The plain **Convert to invoice** button is hidden once a quote has stages. Stage lines use the quote's document VAT rate. Not yet clicked through in a browser.
+- Quote lines can carry an `option` label (Good, Better, Best). Unlabelled lines are shared. Detail view tags labelled lines and shows "Price per option (inc. VAT)"; stored totals are shared lines plus the cheapest option. Accepting a quote with options asks for the **Option chosen**; the other tiers are dropped. Pricebook is Parts `sellingPrice`.
+- **Customer approval page** `/quote/<token>` (`frontend/src/components/public/QuoteApprovalPage.tsx`, no login): shows the quote, an option radio if tiers exist, typed name and drawn signature, **Accept** or **Decline**. Link is created when the quote is sent and emailed. Token is stored hashed and expires. Backend: [quotations.md](../../backend/docs/api/quotations.md).
+- Limitation: the drawn signature is stored but not yet on the PDF.

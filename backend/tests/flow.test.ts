@@ -8,6 +8,7 @@ let base = '';
 beforeAll(async () => {
   // tests wipe everything: only ever a local *_test database, never the dev data
   if (!/@(localhost|127\.0\.0\.1)[:/][^?]*_test(\?|$)/.test(process.env.DATABASE_URL ?? '')) throw new Error('Tests wipe their database: only a local *_test database is allowed, use `npm test`');
+  await prisma.certificate.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.maintenanceAgreement.deleteMany();
   await prisma.creditNote.deleteMany();
@@ -86,6 +87,18 @@ test('rbac and technician scoping', async () => {
   expect((await call('GET', '/users', undefined, 'dispatcher')).status).toBe(403);
   expect((await call('GET', '/jobs', undefined, 'technician')).body.data).toEqual([]); // no technicianId linked
   expect((await fetch(base + '/jobs')).status).toBe(401);
+});
+
+test('quote options: cheapest priced, customer must pick one, others dropped', async () => {
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'O', phone: '1', email: 'o@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
+  const line = (option: string | undefined, unitPrice: number) => ({ type: 'equipment', description: 'boiler', quantity: 1, unitPrice, vatRatePercent: 0, option });
+  const q = (await call('POST', '/quotations', { customerId: cust.id, locationId: loc.id, issueDate: '2026-10-01', expiryDate: '2026-12-01', vatRatePercent: 0, items: [line(undefined, 100), line('Good', 1000), line('Best', 2000)] })).body;
+  expect(q.subtotal).toBe(1100);
+  await call('POST', `/quotations/${q.id}/send`);
+  expect((await call('POST', `/quotations/${q.id}/accept`, { acceptedBy: 'C' })).body.code).toBe('OPTION_REQUIRED');
+  const done = (await call('POST', `/quotations/${q.id}/accept`, { acceptedBy: 'C', option: 'Best' })).body;
+  expect([done.status, done.subtotal, done.items.length]).toEqual(['accepted', 2100, 2]);
 });
 
 test('quotation must be accepted before conversion; sweeps', async () => {
@@ -385,6 +398,21 @@ test('lists page in the database: limit, cursor, search, status', async () => {
   expect(new Set([...p1.data, ...p2.data].map((j: any) => j.id)).size).toBe(3);
   expect((await call('GET', '/jobs?q=PG-BETA')).body.data).toHaveLength(1);
   expect((await call('GET', '/jobs?q=pg-&status=completed')).body.data).toHaveLength(0);
+
+  // page + limit: offset paging with the filtered total, same rows as the cursor walk
+  const pg1 = (await call('GET', '/jobs?limit=2&page=1&q=pg-')).body;
+  const pg2 = (await call('GET', '/jobs?limit=2&page=2&q=pg-')).body;
+  expect([pg1.data.length, pg2.data.length, pg1.total, pg2.total]).toEqual([2, 1, 3, 3]);
+  expect([...pg1.data, ...pg2.data].map((j: any) => j.id)).toEqual([...p1.data, ...p2.data].map((j: any) => j.id));
+  expect((await call('GET', '/jobs?limit=2&page=9&q=pg-')).body).toMatchObject({ data: [], total: 3 });
+  expect((await call('GET', '/jobs?limit=2&q=pg-')).body.total).toBeUndefined(); // cursor mode skips the count
+
+  // equality filters and related-field search
+  expect((await call('GET', '/customers?page=1&q=PG&type=residential&archived=false')).body.data.some((c: any) => c.id === cust.id)).toBe(true);
+  expect((await call('GET', '/customers?page=1&q=PG&archived=true')).body.data.some((c: any) => c.id === cust.id)).toBe(false);
+  const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: loc, items: [{ type: 'labour', description: 'x', quantity: 1, unitPrice: 10 }] }, 'accountant')).body;
+  expect((await call('GET', '/invoices?page=1&q=pg', undefined, 'accountant')).body.data.map((i: any) => i.id)).toContain(inv.id);
+  expect((await call('GET', '/certificates?page=1&limit=10')).body).toMatchObject({ data: expect.any(Array), total: expect.any(Number) });
 });
 
 test('database refuses overlapping jobs for one technician even if the app check is bypassed', async () => {
@@ -429,6 +457,36 @@ test('maintenance agreement raises one preventive job per due date and advances'
   expect((await call('GET', `/maintenance-agreements/${ag.body.id}`)).body.nextDueDate).toMatch(/^2027-09-01/);
 });
 
+test('service contract: auto-invoices each visit, rejects bad terms, deactivates past the end date', async () => {
+  const { raiseMaintenanceJobs } = await import('../src/modules/maintenance/service.js');
+  await prisma.maintenanceAgreement.deleteMany(); // earlier tests' agreements would also fall due
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'SC', phone: '1', email: 'sc@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const base = { customerId: cust.id, locationId: loc, frequency: 'quarterly', nextDueDate: '2028-06-01' };
+  expect((await call('POST', '/maintenance-agreements', { ...base, autoInvoice: true })).status).toBe(422); // no price
+  expect((await call('POST', '/maintenance-agreements', { ...base, endDate: '2028-01-01' })).status).toBe(422); // ends before first visit
+  const ag = (await call('POST', '/maintenance-agreements', { ...base, annualPrice: 400, autoInvoice: true, slaResponseHours: 24, endDate: '2028-07-01' })).body;
+  expect(await raiseMaintenanceJobs('2028-05-25')).toBe(1);
+  const inv = await prisma.invoice.findMany({ where: { customerId: cust.id } });
+  expect(inv).toHaveLength(1);
+  expect(inv[0]).toMatchObject({ status: 'issued' });
+  expect(Number(inv[0].subtotal)).toBe(100);
+  const mkJob = () => call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', priority: 'high', appointmentDate: '2028-06-02', startTime: '09:00', endTime: '10:00', estimatedDurationMinutes: 60, description: 'callout', requiredSkills: [], labourHours: 0, hourlyRate: 50, travelTimeMinutes: 0, travelCharge: 0 });
+  const co = await mkJob();
+  expect(co.status).toBe(201);
+  expect(Date.parse(co.body.slaDueAt) - Date.now()).toBeGreaterThan(23 * 3_600_000); // 24h SLA from the contract
+  expect(co.body.slaBreached).toBe(false);
+  await prisma.job.update({ where: { id: co.body.id }, data: { slaDueAt: new Date(Date.now() - 1000) } });
+  expect((await call('GET', `/jobs/${co.body.id}`)).body.slaBreached).toBe(true);
+  expect(await raiseMaintenanceJobs('2028-08-25')).toBe(0); // next due 2028-09-01 is past the term
+  expect((await call('GET', `/maintenance-agreements/${ag.id}`)).body.active).toBe(false);
+  const rn = (await call('POST', '/maintenance-agreements', { ...base, nextDueDate: '2029-06-01', endDate: '2029-07-01', autoRenew: true })).body;
+  expect(await raiseMaintenanceJobs('2029-05-25')).toBe(1); // last in-term visit
+  expect(await raiseMaintenanceJobs('2029-08-25')).toBe(1); // 2029-09-01 is past the term, so it renews
+  expect((await call('GET', `/maintenance-agreements/${rn.id}`)).body).toMatchObject({ active: true });
+  expect((await call('GET', `/maintenance-agreements/${rn.id}`)).body.endDate).toMatch(/^2030-07-01/);
+});
+
 test('sessions are httpOnly cookies: no tokens in bodies, CSRF header required, refresh from cookie, logout clears', async () => {
   const { hashPassword } = await import('../src/common/auth.js');
   await prisma.user.update({ where: { email: 'admin@dev.local' }, data: { password: hashPassword('Secret1$') } });
@@ -455,4 +513,165 @@ test('sessions are httpOnly cookies: no tokens in bodies, CSRF header required, 
   const out = await post('/auth/logout', undefined, { cookie: jar, ...csrf });
   expect(out.status).toBe(204);
   expect(out.headers.getSetCookie().join(';')).toMatch(/hvac_at=;/);
+});
+
+test('overdue sweep drafts a payment reminder; invoice PDF route; part delete', async () => {
+  const { markOverdue } = await import('../src/modules/invoices/service.js');
+  const [cust] = (await call('GET', '/customers')).body.data;
+  await prisma.customer.update({ where: { id: cust.id }, data: { gdprConsent: true, communicationPreference: 'email' } });
+  const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: cust.serviceLocations[0].id, issueDate: '2020-02-01', paymentTermsDays: 14, items: [{ type: 'fee', description: 'late fee', quantity: 1, unitPrice: 10 }] }, 'accountant')).body;
+  await markOverdue();
+  const reminder = await prisma.notification.findFirst({ where: { type: 'payment_reminder', customerId: cust.id, subject: { contains: inv.invoiceNumber } } });
+  expect(reminder?.status).toBe('draft');
+
+  const pdf = await fetch(`${base}/invoices/${inv.id}/pdf`, { headers: { 'x-dev-user': 'dev-accountant' } });
+  expect(pdf.headers.get('content-type')).toContain('application/pdf');
+  expect(Buffer.from(await pdf.arrayBuffer()).subarray(0, 4).toString()).toBe('%PDF');
+
+  const fresh = (await call('POST', '/parts', { name: 'Gone', sku: 'DEL-1', category: 'c', unitCost: 1, sellingPrice: 2 })).body;
+  expect((await call('DELETE', `/parts/${fresh.id}`)).status).toBe(204);
+});
+
+test('issuing an invoice drafts an email linked to it; audit log is admin-only', async () => {
+  const [cust] = (await call('GET', '/customers')).body.data;
+  await prisma.customer.update({ where: { id: cust.id }, data: { gdprConsent: true, communicationPreference: 'email' } });
+  const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: cust.serviceLocations[0].id, status: 'draft', items: [{ type: 'fee', description: 'f', quantity: 1, unitPrice: 10 }] }, 'accountant')).body;
+  await call('POST', `/invoices/${inv.id}/issue`, undefined, 'accountant');
+  expect((await prisma.notification.findFirst({ where: { invoiceId: inv.id, type: 'invoice_issued' } }))?.status).toBe('draft');
+  expect((await call('GET', '/audit?q=issued')).body.data.length).toBeGreaterThan(0);
+  expect((await call('GET', '/audit', undefined, 'accountant')).status).toBe(403);
+});
+
+test('autoSendEmails toggle: draft by default, sent at once when on; quote PDF', async () => {
+  const { setProvider, logProvider } = await import('../src/modules/notifications/service.js');
+  const sent: { type: string; invoiceId?: string }[] = [];
+  setProvider({ async send(n) { sent.push(n); } }); // never hit Resend from tests
+  try {
+    const [cust] = (await call('GET', '/customers')).body.data;
+    await prisma.customer.update({ where: { id: cust.id }, data: { gdprConsent: true, communicationPreference: 'email' } });
+    const mk = async () => (await call('POST', '/invoices', { customerId: cust.id, locationId: cust.serviceLocations[0].id, status: 'draft', items: [{ type: 'fee', description: 'f', quantity: 1, unitPrice: 10 }] }, 'accountant')).body;
+    const a = await mk(); await call('POST', `/invoices/${a.id}/issue`, undefined, 'accountant');
+    expect(sent).toHaveLength(0);
+    expect((await prisma.notification.findFirst({ where: { invoiceId: a.id } }))?.status).toBe('draft');
+
+    expect((await call('PATCH', '/settings', { autoSendEmails: true })).status).toBe(200);
+    const b = await mk(); await call('POST', `/invoices/${b.id}/issue`, undefined, 'accountant');
+    expect(sent).toEqual([expect.objectContaining({ type: 'invoice_issued', invoiceId: b.id })]);
+    expect((await prisma.notification.findFirst({ where: { invoiceId: b.id } }))?.status).toBe('sent');
+
+    const q = (await call('POST', '/quotations', { customerId: cust.id, locationId: cust.serviceLocations[0].id, issueDate: '2026-11-01', expiryDate: '2026-12-01', items: [{ type: 'fee', description: 'survey', quantity: 1, unitPrice: 50 }] })).body;
+    const pdf = await fetch(`${base}/quotations/${q.id}/pdf`, { headers: { 'x-dev-user': 'dev-admin' } });
+    expect(Buffer.from(await pdf.arrayBuffer()).subarray(0, 4).toString()).toBe('%PDF');
+  } finally {
+    await call('PATCH', '/settings', { autoSendEmails: false });
+    setProvider(logProvider);
+  }
+});
+
+test('gas safe certificates: engineer must be registered; CP12 expires in a year; PDF renders', async () => {
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Cert', phone: '1', email: 'c@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
+  const loc = cust.serviceLocations?.[0] ?? (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
+  const mk = async (extra: object) => (await call('POST', '/technicians', { name: 'Eng', phone: '1', email: 'e@x.co', ...extra })).body;
+  const [none, expired, ok] = [await mk({}), await mk({ gasSafeLicense: '111', gasSafeExpiry: '2020-01-01' }), await mk({ gasSafeLicense: '222', gasSafeExpiry: '2099-01-01' })];
+  const today = new Date().toISOString().slice(0, 10), nextYear = `${Number(today.slice(0, 4)) + 1}${today.slice(4)}`;
+  const body = (technicianId: string) => ({
+    type: 'cp12', customerId: cust.id, locationId: loc.id, technicianId, issueDate: today,
+    data: { appliances: [{ description: 'Boiler', flueOperation: 'pass', ventilation: 'pass', safetyDevice: 'pass', gasTightness: 'pass', safeToUse: true }] },
+  });
+  expect((await call('POST', '/certificates', body(none.id))).body.code).toBe('NO_GAS_SAFE');
+  expect((await call('POST', '/certificates', body(expired.id))).body.code).toBe('GAS_SAFE_EXPIRED');
+  expect((await call('POST', '/certificates', { ...body(ok.id), data: { appliances: [] } })).status).toBe(400);
+  const c = (await call('POST', '/certificates', body(ok.id))).body;
+  expect(c).toMatchObject({ certNumber: expect.stringMatching(/^CERT-\d{4}-\d{4}$/), gasSafeNumber: '222', issueDate: today, expiryDate: nextYear });
+  expect((await call('GET', '/certificates/expiring?days=365')).body.map((x: any) => x.id)).toContain(c.id);
+  const pdf = await fetch(`${base}/certificates/${c.id}/pdf`, { headers: { 'x-dev-user': 'dev-admin' } });
+  expect(Buffer.from(await pdf.arrayBuffer()).subarray(0, 4).toString()).toBe('%PDF');
+});
+
+test('job photos: webp only, validated by content, technician limited to own job, bytes round-trip', async () => {
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Ph', phone: '1', email: 'p@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
+  const job = (await call('POST', '/jobs', { customerId: cust.id, locationId: loc.id, type: 'repair', description: 'x', appointmentDate: '2026-12-01', startTime: '09:00', endTime: '10:00' })).body;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==', 'base64');
+  const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBPVP8L'), Buffer.alloc(30)]);
+  const url = (b: Buffer, t = 'webp') => `data:image/${t};base64,${b.toString('base64')}`;
+  expect((await call('POST', `/jobs/${job.id}/photos`, { dataUrl: url(png, 'png') })).status).toBe(400); // only webp data URLs
+  expect((await call('POST', `/jobs/${job.id}/photos`, { dataUrl: url(png) })).body.code).toBe('BAD_IMAGE'); // png bytes labelled webp
+  expect((await call('POST', `/jobs/${job.id}/photos`, { dataUrl: url(Buffer.concat([webp, Buffer.alloc(610_000)])) })).body.code).toBe('IMAGE_TOO_LARGE');
+  const p = (await call('POST', `/jobs/${job.id}/photos`, { dataUrl: url(webp), caption: 'flue' })).body;
+  expect(p).toMatchObject({ mime: 'image/webp', caption: 'flue' });
+  expect((await call('GET', `/jobs/${job.id}/photos`)).body).toHaveLength(1);
+  const raw = await fetch(`${base}/jobs/${job.id}/photos/${p.id}`, { headers: { 'x-dev-user': 'dev-admin' } });
+  expect(raw.headers.get('content-type')).toContain('image/webp');
+  expect(Buffer.from(await raw.arrayBuffer()).equals(webp)).toBe(true);
+  expect((await call('GET', `/jobs/${job.id}/photos`, undefined, 'technician')).status).toBe(403); // not the technician's job
+  expect((await call('DELETE', `/jobs/${job.id}/photos/${p.id}`)).status).toBe(204);
+  expect((await call('GET', `/jobs/${job.id}/photos`)).body).toHaveLength(0);
+});
+
+test('customer approves a quote through the emailed link without logging in', async () => {
+  const cust = (await call('GET', '/customers')).body.data[0];
+  const loc = cust.serviceLocations[0].id;
+  await prisma.customer.update({ where: { id: cust.id }, data: { gdprConsent: true } });
+  const mk = async () => (await call('POST', '/quotations', { customerId: cust.id, locationId: loc, issueDate: '2026-10-01', expiryDate: '2099-01-01', items: [{ type: 'fee', description: 'f', quantity: 1, unitPrice: 50 }] })).body;
+  const sendAndLink = async (q: { id: string }) => {
+    await call('POST', `/quotations/${q.id}/send`);
+    const n = (await call('GET', '/notifications')).body.data.find((x: any) => x.quotationId === q.id);
+    return `/public/quotes/${n.messageBody.match(/\/quote\/([\w-]+)/)[1]}`;
+  };
+  const anon = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+
+  const q = await mk();
+  const link = await sendAndLink(q);
+  expect((await anon('GET', '/public/quotes/nope')).status).toBe(404);
+  const view = await (await anon('GET', link)).json();
+  expect(view).toMatchObject({ quoteNumber: q.quoteNumber, status: 'viewed' });
+  expect(view.id).toBeUndefined();
+  expect((await call('GET', `/quotations/${q.id}`)).body.status).toBe('viewed');
+  expect((await anon('POST', `${link}/accept`, { name: '' })).status).toBe(400);
+  expect((await anon('POST', `${link}/accept`, { name: 'Cust', signature: 'javascript:x' })).status).toBe(400);
+  expect((await anon('POST', `${link}/accept`, { name: 'Cust', signature: png })).status).toBe(200);
+  expect((await anon('POST', `${link}/accept`, { name: 'Cust' })).status).toBe(409); // already decided
+  const done = (await call('GET', `/quotations/${q.id}`)).body;
+  expect(done).toMatchObject({ status: 'accepted', acceptedBy: 'Cust' });
+  expect(done.acceptedSignature).toBeUndefined(); // staff payload carries neither signature nor token hash
+  expect((await prisma.quotation.findUnique({ where: { id: q.id } }))!.acceptedSignature).toBe(png);
+
+  const r = await mk();
+  expect((await anon('POST', `${await sendAndLink(r)}/reject`)).status).toBe(200);
+  expect((await call('GET', `/quotations/${r.id}`)).body.status).toBe('rejected');
+
+  const e = await mk();
+  const elink = await sendAndLink(e);
+  await prisma.quotation.update({ where: { id: e.id }, data: { expiryDate: new Date('2026-01-01') } });
+  expect((await (await anon('POST', `${elink}/accept`, { name: 'Cust' })).json()).code).toBe('EXPIRED');
+});
+
+test('reverse charge, CIS on labour only, retention held until released', async () => {
+  const cust = (await call('POST', '/customers', { type: 'commercial', name: 'CIS', phone: '1', email: 'cis@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Site', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const items = [{ type: 'labour', description: 'l', quantity: 1, unitPrice: 1000 }, { type: 'part', description: 'p', quantity: 1, unitPrice: 500 }];
+  const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: loc, items, reverseCharge: true, cisRatePercent: 20, retentionPercent: 5 }, 'accountant')).body;
+  // no VAT; CIS = 20% of 1000 labour; retention = 5% of 1500
+  expect(inv).toMatchObject({ vatAmount: 0, total: 1500, cisDeduction: 200, retentionHeld: 75, balanceDue: 1225 });
+  expect((await call('POST', `/invoices/${inv.id}/payments`, { date: '2026-11-03', amount: 1225, method: 'bacs' }, 'accountant')).body).toMatchObject({ status: 'paid', balanceDue: 0 });
+  expect((await call('POST', `/invoices/${inv.id}/release-retention`, undefined, 'accountant')).body).toMatchObject({ status: 'partially_paid', balanceDue: 75, retentionHeld: 0 });
+  expect((await call('POST', `/invoices/${inv.id}/release-retention`, undefined, 'accountant')).body.code).toBe('NO_RETENTION');
+});
+
+test('deposit and stage invoices are their own rows; the final invoice deducts them', async () => {
+  const cust = (await call('POST', '/customers', { type: 'commercial', name: 'Stage', phone: '1', email: 'stage@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Site', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const q = (await call('POST', '/quotations', { customerId: cust.id, locationId: loc, issueDate: '2026-10-01', expiryDate: '2026-12-01', vatRatePercent: 20, items: [{ type: 'part', description: 'unit', quantity: 1, unitPrice: 1000 }] })).body;
+  expect((await call('POST', '/invoices/stage', { quoteId: q.id, percent: 25 }, 'accountant')).body.code).toBe('NOT_ACCEPTED');
+  await call('POST', `/quotations/${q.id}/send`);
+  await call('POST', `/quotations/${q.id}/accept`, { acceptedBy: 'Cust' });
+  const dep = (await call('POST', '/invoices/stage', { quoteId: q.id, percent: 25, label: 'Deposit' }, 'accountant')).body;
+  expect(dep).toMatchObject({ stageLabel: 'Deposit', stagePercent: 25, subtotal: 250, total: 300 });
+  expect((await call('POST', `/quotations/${q.id}/convert-to-invoice`, undefined, 'admin')).body.code).toBe('HAS_STAGES');
+  expect((await call('POST', '/invoices/stage', { quoteId: q.id, percent: 80 }, 'accountant')).body.code).toBe('BAD_STAGE_PERCENT');
+  const fin = (await call('POST', '/invoices/stage', { quoteId: q.id, final: true }, 'accountant')).body;
+  expect(fin).toMatchObject({ stageLabel: 'Final', stagePercent: 75, subtotal: 750, total: 900 });
+  expect((await call('POST', '/invoices/stage', { quoteId: q.id, final: true }, 'accountant')).body.code).toBe('ALREADY_CONVERTED');
 });
