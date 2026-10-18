@@ -57,3 +57,23 @@ On "Save to Queue", `createNotification` is called with `recipient` = customer e
 ## Updates: safe sending
 
 Notifications have a new `sending` status. Sending claims the row with a conditional update (`ready_to_send` to `sending`) so two workers can never send the same message; the provider call runs outside any DB transaction, and rows stuck in `sending` for 5 minutes are put back in the queue (at-least-once for those rare rows). See [security-and-auth-features.md](security-and-auth-features.md).
+
+## Updates: real email, templates and auto-send
+
+Supersedes "Sending is simulated" and the "no provider" limitation above.
+
+- **Email is delivered through Resend** (`backend/src/modules/notifications/service.ts`). Set `RESEND_API_KEY` and `MAIL_FROM` in `backend/.env`; `MAIL_FROM` must be on a domain verified in Resend (or `onboarding@resend.dev`, which only delivers to the Resend account owner). Without a key the provider is log-only. SMS is still log-only.
+- A failed send sets `status: failed` (the reason is only in the backend log).
+- **Status-triggered emails** (`notifications/templates.ts`), created automatically and skipped for customers without GDPR consent or who prefer SMS:
+
+| Trigger | Type | Attachment |
+|---|---|---|
+| Invoice issued | `invoice_issued` | invoice PDF |
+| Quotation sent | `quotation_ready` | quotation PDF |
+| Job becomes scheduled (created with an engineer, converted from a request or quote, or moved to scheduled) | `booking_confirmation` | none |
+| Job moves scheduled to dispatched | `technician_arriving` | none |
+| Daily sweep marks an invoice overdue | `payment_reminder` | none |
+
+- **Auto-send setting:** Settings > "Send customer emails automatically" (`autoSendEmails`, default off). Off: the emails above wait as drafts for staff to approve here. On: they are approved by "System (auto-send)" and sent at once. Payment reminders always stay drafts.
+- The type list in the Draft form gains "Payment Reminder".
+- Not built: service-due email for jobs raised by maintenance plans; SMS/WhatsApp delivery; showing the failure reason in the UI.

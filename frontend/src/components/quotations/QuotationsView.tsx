@@ -1,21 +1,12 @@
 import React, { useState } from 'react';
-import { downloadSheet } from '../../utils/pdf';
+import { EmptyState } from '../common/EmptyState';
+import { downloadSheet, printSheet } from '../../utils/pdf';
 import { useApp } from '../../context/AppContext';
 import { Quotation, LineItem, QuotationStatus } from '../../types';
-import { formatGBP, formatDateUK } from '../../utils/formatters';
-import { 
-  FileText, 
-  Plus, 
-  CheckCircle2, 
-  Calendar, 
-  Printer, Download, 
-  Trash2, 
-  ArrowRight,
-  Send,
-  Building,
-  Wrench,
-  X
-} from 'lucide-react';
+import { formatGBP, formatDateUK, tierPrices, getTodayISO } from '../../utils/formatters';
+import { useEscape } from '../../utils/useEscape';
+import { IconDownload, IconFileText, IconPlus, IconPrinter, IconReceipt, IconX } from '@tabler/icons-react';
+import { useServerPaged } from '../common/Pager';
 
 interface QuotationsViewProps {
   onOpenQuickAction: (action: 'quote') => void;
@@ -28,53 +19,79 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 }) => {
   const { 
     quotations, 
+    invoices,
     customers, 
     settings, 
     technicians,
     acceptQuotation, 
     convertQuotationToJob, 
     convertQuotationToInvoice,
+    addStageInvoice,
     addQuotation,
-    updateQuotation
-  } = useApp();
+    updateQuotation,
+    customerById,
+  } = useApp(['quotations', 'invoices', 'customers', 'settings', 'technicians', 'acceptQuotation', 'convertQuotationToJob', 'convertQuotationToInvoice', 'addStageInvoice', 'addQuotation', 'updateQuotation', 'customerById']);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
+  const [busy, setBusy] = useState(false); // guards double-submit (would create duplicate jobs/invoices)
+
+  // Deposit / stage invoice modal
+  const [stageQuote, setStageQuote] = useState<Quotation | null>(null);
+  const [stagePercent, setStagePercent] = useState('');
+  const [stageLabel, setStageLabel] = useState('');
+  const stagesOf = (quoteId: string) => invoices.filter((i) => i.quoteId === quoteId && i.stageLabel && i.status !== 'void');
+  const billedPercent = (quoteId: string) => stagesOf(quoteId).reduce((a, i) => a + (i.stagePercent ?? 0), 0);
+  const openStage = (q: Quotation) => { setStageQuote(q); setStagePercent(''); setStageLabel(''); };
+  const submitStage = async (final: boolean) => {
+    if (!stageQuote) return;
+    setBusy(true);
+    const ok = await addStageInvoice(stageQuote.id, final ? 'final' : Number(stagePercent), stageLabel.trim() || undefined);
+    setBusy(false);
+    if (ok) { setStageQuote(null); onNavigateTab('invoices'); }
+  };
 
   // Convert to Job Modal State
   const [convertingQuoteId, setConvertingQuoteId] = useState<string | null>(null);
-  const [jobDate, setJobDate] = useState('2026-10-15');
+  const [jobDate, setJobDate] = useState(getTodayISO());
   const [jobStartTime, setJobStartTime] = useState('08:30');
   const [jobEndTime, setJobEndTime] = useState('16:30');
   const [jobTechId, setJobTechId] = useState(technicians[0]?.id || '');
 
   // Record acceptance modal
   const [acceptingQuoteId, setAcceptingQuoteId] = useState<string | null>(null);
-  const [acceptedByName, setAcceptedByName] = useState('Nigel Edwards');
+  const [acceptedByName, setAcceptedByName] = useState('');
+  const [acceptOption, setAcceptOption] = useState('');
+  const acceptTiers = [...new Set((quotations.find((q) => q.id === acceptingQuoteId)?.items ?? []).flatMap((i) => (i.option ? [i.option] : [])))];
 
-  const filteredQuotes = quotations.filter((q) => {
-    if (statusFilter !== 'all' && q.status !== statusFilter) return false;
-    return true;
-  });
+  const paged = useServerPaged<Quotation>('/quotations', { status: statusFilter === 'all' ? undefined : statusFilter }, quotations);
 
-  const handleRecordAcceptance = (e: React.FormEvent) => {
+  useEscape(!!(selectedQuote || acceptingQuoteId || stageQuote || convertingQuoteId), () => { setSelectedQuote(null); setAcceptingQuoteId(null); setStageQuote(null); setConvertingQuoteId(null); });
+
+  const handleRecordAcceptance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!acceptingQuoteId) return;
-    acceptQuotation(acceptingQuoteId, acceptedByName);
-    setAcceptingQuoteId(null);
+    setBusy(true);
+    const ok = await acceptQuotation(acceptingQuoteId, acceptedByName, acceptOption || undefined);
+    setBusy(false);
+    if (ok) setAcceptingQuoteId(null);
   };
 
   const handleExecuteConvertToJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!convertingQuoteId) return;
+    setBusy(true);
     const job = await convertQuotationToJob(convertingQuoteId, jobDate, jobStartTime, jobEndTime, jobTechId);
+    setBusy(false);
     if (!job) return;
     setConvertingQuoteId(null);
     onNavigateTab('dispatch');
   };
 
   const handleExecuteConvertToInvoice = async (quoteId: string) => {
+    setBusy(true);
     const inv = await convertQuotationToInvoice(quoteId);
+    setBusy(false);
     if (inv) onNavigateTab('invoices');
   };
 
@@ -105,17 +122,18 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
           onClick={() => onOpenQuickAction('quote')}
           className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5 shrink-0"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
           <span>New Quotation</span>
         </button>
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs">
-        {['all', 'draft', 'sent', 'accepted', 'rejected'].map((st) => (
+      <div role="group" aria-label="Filter by status" className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2 text-xs">
+        {['all', 'draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired'].map((st) => (
           <button
             key={st}
             onClick={() => setStatusFilter(st)}
+            aria-pressed={statusFilter === st}
             className={`px-3 py-1.5 rounded-md font-medium transition-colors capitalize ${
               statusFilter === st
                 ? 'bg-slate-900 text-white font-semibold'
@@ -133,18 +151,18 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3">Quote Number</th>
-                <th className="py-2.5 px-3">Customer / Site</th>
-                <th className="py-2.5 px-3">Issued Date</th>
-                <th className="py-2.5 px-3">Expiry Date</th>
-                <th className="py-2.5 px-3">Total Amount</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th scope="col" className="py-2.5 px-3">Quote Number</th>
+                <th scope="col" className="py-2.5 px-3">Customer / Site</th>
+                <th scope="col" className="py-2.5 px-3">Issued Date</th>
+                <th scope="col" className="py-2.5 px-3">Expiry Date</th>
+                <th scope="col" className="py-2.5 px-3">Total Amount</th>
+                <th scope="col" className="py-2.5 px-3">Status</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredQuotes.map((quote) => {
-                const cust = customers.find((c) => c.id === quote.customerId);
+              {paged.rows.map((quote) => {
+                const cust = customerById.get(quote.customerId);
                 const loc = cust?.serviceLocations.find((l) => l.id === quote.locationId);
                 const st = statusBadgeMap[quote.status];
 
@@ -184,7 +202,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                       <div className="flex items-center justify-end gap-1.5 flex-wrap">
                         <button
                           onClick={() => setSelectedQuote(quote)}
-                          className="px-2 py-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded font-semibold text-xs"
+                          aria-label={`Preview ${quote.quoteNumber}`} className="px-2 py-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                         >
                           Preview
                         </button>
@@ -195,7 +213,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                               setAcceptingQuoteId(quote.id);
                               setAcceptedByName(cust?.name || '');
                             }}
-                            className="px-2 py-1 text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 rounded font-semibold text-xs"
+                            aria-label={`Record acceptance of ${quote.quoteNumber}`} className="px-2 py-1 text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                           >
                             Accept
                           </button>
@@ -204,7 +222,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                         {quote.status === 'accepted' && !quote.convertedToJobId && (
                           <button
                             onClick={() => setConvertingQuoteId(quote.id)}
-                            className="px-2 py-1 text-sky-700 hover:text-sky-800 bg-sky-50 border border-sky-200 rounded font-semibold text-xs"
+                            aria-label={`Convert ${quote.quoteNumber} to job`} className="px-2 py-1 text-sky-700 hover:text-sky-800 bg-sky-50 border border-sky-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                             title="Workflow B: Convert to Scheduled Job"
                           >
                             Convert to Job
@@ -213,8 +231,18 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
                         {quote.status === 'accepted' && !quote.convertedToInvoiceId && (
                           <button
+                            onClick={() => openStage(quote)}
+                            aria-label={`Create stage invoice for ${quote.quoteNumber}`} className="px-2 py-1 text-slate-700 hover:text-slate-800 bg-slate-50 border border-slate-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                            title="Deposit / stage payment: its own invoice"
+                          >
+                            Stage
+                          </button>
+                        )}
+
+                        {quote.status === 'accepted' && !quote.convertedToInvoiceId && !stagesOf(quote.id).length && (
+                          <button
                             onClick={() => handleExecuteConvertToInvoice(quote.id)}
-                            className="px-2 py-1 text-amber-700 hover:text-amber-800 bg-amber-50 border border-amber-200 rounded font-semibold text-xs"
+                            disabled={busy} aria-label={`Invoice ${quote.quoteNumber}`} className="px-2 py-1 text-amber-700 hover:text-amber-800 bg-amber-50 border border-amber-200 rounded font-semibold text-xs disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                           >
                             Invoice
                           </button>
@@ -225,21 +253,20 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                 );
               })}
 
-              {filteredQuotes.length === 0 && (
+              {paged.rows.length === 0 && !paged.loading && (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400 text-xs">
-                    No quotations found for this filter.
-                  </td>
+                  <td colSpan={7} className="py-6"><EmptyState icon={IconFileText}>No quotations found for this filter.</EmptyState></td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {paged.pager}
       </div>
 
       {/* Quotation Detail / Printable Document Modal */}
       {selectedQuote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Quotation preview">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <span className="font-bold text-slate-900 text-sm">
@@ -250,21 +277,21 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                   onClick={(e) => downloadSheet(e.currentTarget, `${selectedQuote.quoteNumber}.pdf`)}
                   className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download PDF</span>
+                  <IconDownload className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>IconDownload PDF</span>
                 </button>
                 <button
-                  onClick={() => window.print()}
+                  onClick={(e) => printSheet(e.currentTarget)}
                   className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1"
                 >
-                  <Printer className="w-3.5 h-3.5" />
+                  <IconPrinter className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Print Quote</span>
                 </button>
                 <button
                   onClick={() => setSelectedQuote(null)}
-                  className="p-1 text-slate-400 hover:text-slate-600"
+                  aria-label="Close preview" className="p-1 text-slate-400 hover:text-slate-600"
                 >
-                  ✕
+                  <span aria-hidden="true">✕</span>
                 </button>
               </div>
             </div>
@@ -300,14 +327,14 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                   Quotation Prepared For:
                 </span>
                 <p className="text-sm font-bold text-slate-900">
-                  {customers.find((c) => c.id === selectedQuote.customerId)?.name}
+                  {customerById.get(selectedQuote.customerId)?.name}
                 </p>
                 <p className="text-slate-600">
-                  {customers.find((c) => c.id === selectedQuote.customerId)?.serviceLocations[0]?.addressLine1}
+                  {customerById.get(selectedQuote.customerId)?.serviceLocations.find((l) => l.id === selectedQuote.locationId)?.addressLine1}
                 </p>
                 <p className="text-slate-600">
-                  {customers.find((c) => c.id === selectedQuote.customerId)?.serviceLocations[0]?.city},{' '}
-                  {customers.find((c) => c.id === selectedQuote.customerId)?.serviceLocations[0]?.postcode}
+                  {customerById.get(selectedQuote.customerId)?.serviceLocations.find((l) => l.id === selectedQuote.locationId)?.city},{' '}
+                  {customerById.get(selectedQuote.customerId)?.serviceLocations.find((l) => l.id === selectedQuote.locationId)?.postcode}
                 </p>
               </div>
 
@@ -316,17 +343,17 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-semibold">
                     <tr>
-                      <th className="py-2.5 px-3">Description</th>
-                      <th className="py-2.5 px-3 text-center">Type</th>
-                      <th className="py-2.5 px-3 text-right">Qty</th>
-                      <th className="py-2.5 px-3 text-right">Unit Price</th>
-                      <th className="py-2.5 px-3 text-right">Amount (GBP)</th>
+                      <th scope="col" className="py-2.5 px-3">Description</th>
+                      <th scope="col" className="py-2.5 px-3 text-center">Type</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Qty</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Unit Price</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Amount (GBP)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {selectedQuote.items.map((item) => (
                       <tr key={item.id}>
-                        <td className="py-2.5 px-3 font-medium text-slate-900">{item.description}</td>
+                        <td className="py-2.5 px-3 font-medium text-slate-900">{item.option && <span className="mr-1.5 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold">{item.option}</span>}{item.description}</td>
                         <td className="py-2.5 px-3 text-center capitalize text-slate-500 text-[11px]">{item.type}</td>
                         <td className="py-2.5 px-3 text-right font-mono">{item.quantity}</td>
                         <td className="py-2.5 px-3 text-right font-mono">{formatGBP(item.unitPrice)}</td>
@@ -340,6 +367,14 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               {/* Totals & VAT Breakdown */}
               <div className="flex justify-end">
                 <div className="w-64 space-y-2 text-xs">
+                  {tierPrices(selectedQuote.items, selectedQuote.vatRatePercent).length > 0 && selectedQuote.status !== 'accepted' && (
+                    <div className="mb-2 p-2 bg-sky-50 border border-sky-200 rounded text-xs">
+                      <div className="font-semibold text-sky-900 mb-1">Price per option (inc. VAT)</div>
+                      {tierPrices(selectedQuote.items, selectedQuote.vatRatePercent).map((t) => (
+                        <div key={t.name} className="flex justify-between"><span>{t.name}</span><span className="font-mono font-bold">{formatGBP(t.total)}</span></div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex justify-between text-slate-600">
                     <span>Subtotal (Net):</span>
                     <span className="font-mono font-medium">{formatGBP(selectedQuote.subtotal)}</span>
@@ -369,7 +404,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
               <span className="text-[11px] text-slate-500 font-mono">
-                Valid for 30 days from date of issue
+                Valid until {formatDateUK(selectedQuote.expiryDate)}
               </span>
               <button
                 onClick={() => setSelectedQuote(null)}
@@ -384,7 +419,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
       {/* Record Acceptance Modal */}
       {acceptingQuoteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Record customer acceptance">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full border border-slate-200 p-5 space-y-4 text-xs">
             <h3 className="font-bold text-sm text-slate-900">Record Customer Acceptance</h3>
             <p className="text-slate-600">
@@ -392,17 +427,26 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
             </p>
             <form onSubmit={handleRecordAcceptance} className="space-y-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Authorized Signatory Name *
+                <label htmlFor="q-acc-name" className="block font-semibold text-slate-700 mb-1">
+                  Authorized Signatory Name \*
                 </label>
                 <input
                   type="text"
                   required
-                  value={acceptedByName}
+                  id="q-acc-name" autoComplete="name" value={acceptedByName}
                   onChange={(e) => setAcceptedByName(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                 />
               </div>
+              {acceptTiers.length > 0 && (
+                <div>
+                  <label htmlFor="q-acc-opt" className="block font-semibold text-slate-700 mb-1">Option chosen *</label>
+                  <select id="q-acc-opt" required value={acceptOption} onChange={(e) => setAcceptOption(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs">
+                    <option value="">Select…</option>
+                    {acceptTiers.map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -413,9 +457,9 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg"
+                  disabled={busy} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg disabled:opacity-60"
                 >
-                  Confirm Acceptance
+                  {busy ? 'Saving…' : 'Confirm Acceptance'}
                 </button>
               </div>
             </form>
@@ -423,9 +467,35 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
         </div>
       )}
 
+      {stageQuote && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Deposit or stage invoice">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4 text-xs">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900">Deposit / stage invoice - {stageQuote.quoteNumber}</h3>
+              <p className="text-slate-500 mt-0.5">{billedPercent(stageQuote.id)}% already invoiced, {100 - billedPercent(stageQuote.id)}% left</p>
+            </div>
+            <div>
+              <label htmlFor="q-st-pct" className="block font-semibold text-slate-700 mb-1">Percent of quote</label>
+              <input id="q-st-pct" inputMode="numeric" type="number" min="1" max={100 - billedPercent(stageQuote.id)} value={stagePercent} onChange={(e) => setStagePercent(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs" />
+            </div>
+            <div>
+              <label htmlFor="q-st-lbl" className="block font-semibold text-slate-700 mb-1">Label (optional)</label>
+              <input id="q-st-lbl" name="label" autoComplete="off" value={stageLabel} onChange={(e) => setStageLabel(e.target.value)} placeholder="Deposit" className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs" />
+            </div>
+            <div className="flex justify-between gap-2 pt-1">
+              <button onClick={() => setStageQuote(null)} className="px-3 py-2 border border-slate-300 rounded-md font-semibold inline-flex items-center gap-1.5"><IconX className="w-4 h-4" aria-hidden="true" /> Cancel</button>
+              <div className="flex gap-2">
+                <button disabled={busy || billedPercent(stageQuote.id) >= 100} onClick={() => submitStage(true)} className="px-3 py-2 border border-slate-300 rounded-md font-semibold disabled:opacity-40 inline-flex items-center gap-1.5" title="Remaining percent, with earlier stages deducted"><IconReceipt className="w-4 h-4" aria-hidden="true" /> Final invoice</button>
+                <button disabled={busy || !(Number(stagePercent) > 0)} onClick={() => submitStage(false)} className="px-3 py-2 bg-sky-600 text-white rounded-md font-semibold disabled:opacity-40 inline-flex items-center gap-1.5"><IconPlus className="w-4 h-4" aria-hidden="true" /> Create stage invoice</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Convert to Job Modal (Workflow B) */}
       {convertingQuoteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Convert quote to job">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4 text-xs">
             <div>
               <h3 className="font-bold text-sm text-slate-900">
@@ -438,9 +508,9 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
             <form onSubmit={handleExecuteConvertToJob} className="space-y-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Lead Technician *</label>
+                <label htmlFor="q-j-tech" className="block font-semibold text-slate-700 mb-1">Lead Technician *</label>
                 <select
-                  value={jobTechId}
+                  id="q-j-tech" value={jobTechId}
                   onChange={(e) => setJobTechId(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
                 >
@@ -451,11 +521,11 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Installation Date *</label>
+                <label htmlFor="q-j-date" className="block font-semibold text-slate-700 mb-1">Installation Date *</label>
                 <input
                   type="date"
                   required
-                  value={jobDate}
+                  id="q-j-date" min={getTodayISO()} value={jobDate}
                   onChange={(e) => setJobDate(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                 />
@@ -463,21 +533,21 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Start Time</label>
+                  <label htmlFor="q-j-start" className="block font-semibold text-slate-700 mb-1">Start Time</label>
                   <input
                     type="time"
                     required
-                    value={jobStartTime}
+                    id="q-j-start" value={jobStartTime}
                     onChange={(e) => setJobStartTime(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">End Time</label>
+                  <label htmlFor="q-j-end" className="block font-semibold text-slate-700 mb-1">End Time</label>
                   <input
                     type="time"
                     required
-                    value={jobEndTime}
+                    id="q-j-end" value={jobEndTime}
                     onChange={(e) => setJobEndTime(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                   />
@@ -494,9 +564,9 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg"
+                  disabled={busy} className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60"
                 >
-                  Book Installation Job
+                  {busy ? 'Booking…' : 'Book Installation Job'}
                 </button>
               </div>
             </form>

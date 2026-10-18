@@ -11,6 +11,8 @@ export const config = {
   port: Number(process.env.PORT ?? 3001),
   appUrl: process.env.APP_URL ?? 'http://localhost:3000',
   corsOrigins: (process.env.APP_URL ?? 'http://localhost:3000').split(',').map((o) => o.trim()).filter(Boolean),
+  resendApiKey: process.env.RESEND_API_KEY ?? '', // email delivery; unset = log-only
+  mailFrom: process.env.MAIL_FROM ?? 'ApexHVAC <onboarding@resend.dev>',
   supabaseUrl: process.env.SUPABASE_URL ?? '',
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? '',
   jwtSecret: process.env.SUPABASE_JWT_SECRET ?? '',

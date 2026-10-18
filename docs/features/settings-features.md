@@ -1,5 +1,7 @@
 # Settings Features
 
+> **Outdated:** settings now persist on the server (`GET/PATCH /settings`, see [settings.md](../../backend/docs/api/settings.md)), not browser localStorage. The "Limitations" line about localStorage below is superseded; see also the later Updates sections.
+
 The Settings view ("Business Settings & Company Profile") is the admin screen for company profile and UK regulatory details, VAT default, document-number prefixes, the inventory toggle, bank details for invoices, the technician roster, and backup/restore/reset of all app data. Source: `frontend/src/components/settings/SettingsView.tsx`.
 
 ## Roles
@@ -59,3 +61,7 @@ Submit calls `addTechnician` with `skills` split on commas and trimmed, `color: 
 - **Technician edit form** (Edit Field Technician) adds Gas Safe / F-Gas licence numbers and **Gas Safe Expiry / F-Gas Expiry** dates; an expired licence blocks assignment to jobs that require it ([compliance-features.md](compliance-features.md)).
 - Bank details are only returned by the API to admin and accountant.
 - Admin-only **Checklists** tab manages job checklist templates ([checklists-features.md](checklists-features.md)).
+
+## Updates: auto-send emails
+
+New checkbox **Send customer emails automatically** (`autoSendEmails`, default off) under the inventory toggle. Off: quote, invoice, booking and engineer-dispatched emails wait as drafts in Notifications. On: they send as soon as they are triggered. See [notifications-features.md](notifications-features.md).

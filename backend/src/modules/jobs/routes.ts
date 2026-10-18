@@ -6,6 +6,7 @@ import { hhmm, isoDate, money, priority } from '../../common/zod.js';
 import { getSettings } from '../settings/service.js';
 import { generateFromJob } from '../invoices/service.js';
 import * as svc from './service.js';
+import * as photos from './photos.js';
 
 const jobType = z.enum(['installation', 'repair', 'inspection', 'emergency_callout', 'preventive_maintenance']);
 const jobStatus = z.enum(['new', 'awaiting_approval', 'scheduled', 'dispatched', 'in_progress', 'on_hold', 'completed', 'cancelled']);
@@ -101,5 +102,24 @@ jobsRouter.delete('/:id/parts/:usedId', field, h(async (req) => {
   if (req.user.role === 'technician') svc.assertOwnJob(j, req.user);
   return svc.removePartUsed(j.id, req.params.usedId, actor(req));
 }));
+
+// Photos: JSON upload ({ dataUrl, caption }); bytes come back from GET /:photoId with the right content type.
+const ownJob = async (req: import('express').Request) => {
+  const j = await svc.getJob(req.params.id);
+  if (req.user.role === 'technician') svc.assertOwnJob(j, req.user);
+  return j;
+};
+jobsRouter.get('/:id/photos', field, h(async (req) => photos.listPhotos((await ownJob(req)).id)));
+jobsRouter.post('/:id/photos', field, h(async (req) => {
+  const b = z.object({ dataUrl: z.string().max(850_000).regex(/^data:image\/webp;base64,/), caption: z.string().trim().max(200).default('') }).parse(req.body);
+  return photos.addPhoto((await ownJob(req)).id, b.dataUrl, b.caption, actor(req));
+}, 201));
+jobsRouter.get('/:id/photos/:photoId', field, async (req, res, next) => {
+  try {
+    const p = await photos.getPhoto((await ownJob(req)).id, req.params.photoId);
+    res.type(p.mime).send(Buffer.from(p.data));
+  } catch (e) { next(e); }
+});
+jobsRouter.delete('/:id/photos/:photoId', field, h(async (req) => photos.removePhoto((await ownJob(req)).id, req.params.photoId)));
 
 jobsRouter.post('/:id/invoice', allow('admin', 'accountant'), h(async (req) => generateFromJob(req.params.id, actor(req)), 201));

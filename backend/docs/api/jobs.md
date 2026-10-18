@@ -30,3 +30,16 @@ Allowed transitions:
 | `completed`, `cancelled` | none |
 
 Completed and cancelled jobs are read-only (`JOB_CLOSED`) except for admin. `GET /jobs` is paged in the database (`?q`, `?status`, `?cursor`). Cancelling a job whose parts were never invoiced returns the stock. A customer signature must be a `png`/`jpeg`/`svg` data URL under 1 MB.
+
+## Photos
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/jobs/:id/photos` | A D T (own job). Metadata only: `{ id, jobId, caption, takenBy, createdAt, mime }` |
+| POST | `/jobs/:id/photos` | A D T (own job). `{ dataUrl, caption? }`, a `data:image/webp;base64,` URL; the UI compresses to WebP before upload. The header is checked (`RIFF....WEBP`). Max 600 KB decoded, 30 per job (`BAD_IMAGE`, `IMAGE_TOO_LARGE`, `TOO_MANY_PHOTOS`, 422) |
+| GET | `/jobs/:id/photos/:photoId` | A D T (own job). Raw image bytes |
+| DELETE | `/jobs/:id/photos/:photoId` | A D T (own job). 204 |
+
+## SLA
+
+Jobs carry `slaDueAt` when the site has an active maintenance agreement with `slaResponseHours` (not set on preventive-maintenance jobs). `slaBreached` is computed: `slaDueAt` has passed and the job is still `new`. The dispatch board flags it.

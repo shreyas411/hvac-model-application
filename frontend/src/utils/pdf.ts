@@ -20,3 +20,19 @@ export async function downloadSheet(from: HTMLElement, filename: string) {
   }
   pdf.save(filename);
 }
+
+/**
+ * Prints only a modal's `[data-pdf-sheet]`. An unclipped copy is shown alone while the rest of the
+ * page is hidden (`body.printing-sheet` in index.css), so it isn't cut off by the modal's max-height.
+ */
+export function printSheet(from: HTMLElement) {
+  const sheet = from.closest('.fixed')?.querySelector<HTMLElement>('[data-pdf-sheet]');
+  if (!sheet) return;
+  const copy = sheet.cloneNode(true) as HTMLElement;
+  copy.id = 'print-root';
+  Object.assign(copy.style, { height: 'auto', maxHeight: 'none', overflow: 'visible' });
+  document.body.append(copy);
+  document.body.classList.add('printing-sheet');
+  window.addEventListener('afterprint', () => { copy.remove(); document.body.classList.remove('printing-sheet'); }, { once: true });
+  window.print();
+}

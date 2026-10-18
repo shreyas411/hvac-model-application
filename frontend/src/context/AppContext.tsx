@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { services } from '../services';
 import { REAL_AUTH, setDevUser } from '../services/api';
 import { useAuth } from '../components/auth/AuthGate';
@@ -24,17 +24,7 @@ import {
   CustomerNotification,
 } from '../types';
 import {
-  INITIAL_CUSTOMERS,
-  INITIAL_EQUIPMENT,
-  INITIAL_INVENTORY_MOVEMENTS,
-  INITIAL_INVOICES,
-  INITIAL_JOBS,
-  INITIAL_NOTIFICATIONS,
-  INITIAL_PARTS,
-  INITIAL_QUOTATIONS,
-  INITIAL_SERVICE_REQUESTS,
   INITIAL_SETTINGS,
-  INITIAL_TECHNICIANS,
   INITIAL_USERS,
 } from '../data/initialData';
 
@@ -51,20 +41,21 @@ interface AppContextType {
   // Settings
   settings: CompanySettings;
   updateSettings: (newSettings: Partial<CompanySettings>) => Promise<void>;
-  resetAllData: () => Promise<void>;
   exportDataJson: () => Promise<string>;
-  importDataJson: (jsonStr: string) => Promise<boolean>;
 
   // Technicians
   technicians: TechnicianProfile[];
   addTechnician: (tech: Omit<TechnicianProfile, 'id'>) => Promise<TechnicianProfile | undefined>;
-  updateTechnician: (id: string, updates: Partial<TechnicianProfile>) => Promise<void>;
+  updateTechnician: (id: string, updates: Partial<TechnicianProfile>) => Promise<boolean>;
 
   // Customers
   customers: Customer[];
+  customerById: Map<string, Customer>;
   addCustomer: (cust: Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'archived' | 'serviceLocations'> & { serviceLocations: Omit<ServiceLocation, 'id'>[] }) => Promise<Customer | undefined>;
-  updateCustomer: (id: string, updates: Partial<Omit<Customer, 'serviceLocations'>>) => Promise<void>;
-  addCustomerLocation: (id: string, loc: Omit<ServiceLocation, 'id'>) => Promise<void>;
+  updateCustomer: (id: string, updates: Partial<Omit<Customer, 'serviceLocations'>>) => Promise<boolean>;
+  addCustomerLocation: (id: string, loc: Omit<ServiceLocation, 'id'>) => Promise<boolean>;
+  updateCustomerLocation: (id: string, locId: string, loc: Partial<Omit<ServiceLocation, 'id'>>) => Promise<boolean>;
+  removeCustomerLocation: (id: string, locId: string) => Promise<void>;
   archiveCustomer: (id: string) => Promise<void>;
 
   // Equipment
@@ -82,16 +73,17 @@ interface AppContextType {
   // Jobs
   jobs: Job[];
   addJob: (jobData: Omit<Job, 'id' | 'jobNumber' | 'createdAt' | 'updatedAt' | 'auditTrail'>) => Promise<Job | undefined>;
-  updateJob: (id: string, updates: Partial<Job>, auditAction?: string) => Promise<void>;
+  updateJob: (id: string, updates: Partial<Job>, auditAction?: string) => Promise<boolean>;
   updateJobStatus: (id: string, newStatus: JobStatus, note?: string, override?: boolean) => Promise<void>;
-  addJobPart: (jobId: string, partId: string, quantity: number) => Promise<void>;
+  addJobPart: (jobId: string, partId: string, quantity: number) => Promise<boolean>;
+  addRefrigerantLog: (jobId: string, body: object) => Promise<boolean>;
   checkScheduleConflict: (technicianId: string, date: string, startTime: string, endTime: string, excludeJobId?: string) => Job | null;
 
   // Quotations
   quotations: Quotation[];
   addQuotation: (q: Omit<Quotation, 'id' | 'quoteNumber' | 'createdAt' | 'updatedAt'>) => Promise<Quotation | undefined>;
   updateQuotation: (id: string, updates: Partial<Quotation>) => Promise<void>;
-  acceptQuotation: (id: string, acceptedBy: string) => Promise<void>;
+  acceptQuotation: (id: string, acceptedBy: string, option?: string) => Promise<boolean>;
   convertQuotationToJob: (quoteId: string, appointmentDate: string, startTime: string, endTime: string, technicianId: string) => Promise<Job | undefined>;
   convertQuotationToInvoice: (quoteId: string) => Promise<Invoice | undefined>;
 
@@ -100,13 +92,16 @@ interface AppContextType {
   addInvoice: (inv: Omit<Invoice, 'id' | 'invoiceNumber' | 'createdAt' | 'updatedAt'>) => Promise<Invoice | undefined>;
   updateInvoice: (id: string, updates: Partial<Invoice>) => Promise<void>;
   recordPayment: (invoiceId: string, payment: Omit<PaymentRecord, 'id' | 'recordedBy'>) => Promise<boolean>;
+  releaseRetention: (invoiceId: string) => Promise<boolean>;
+  addStageInvoice: (quoteId: string, percent: number | 'final', label?: string) => Promise<boolean>;
   generateInvoiceFromJob: (jobId: string) => Promise<Invoice | undefined>;
 
   // Parts & Inventory
   parts: PartItem[];
   addPart: (part: Omit<PartItem, 'id' | 'createdAt'>) => Promise<PartItem | undefined>;
   updatePart: (id: string, updates: Partial<PartItem>) => Promise<void>;
-  adjustStock: (partId: string, delta: number, type: 'used_on_job' | 'stock_adjustment' | 'restock_purchase', notes: string, jobId?: string) => Promise<void>;
+  deletePart: (id: string) => Promise<void>;
+  adjustStock: (partId: string, delta: number, type: 'used_on_job' | 'stock_adjustment' | 'restock_purchase', notes: string, jobId?: string) => Promise<boolean>;
   inventoryMovements: InventoryMovement[];
 
   // Notifications
@@ -121,7 +116,10 @@ interface AppContextType {
 
 const STORAGE_KEY = 'apexhvac_app_data_v1';
 
-const AppContext = createContext<AppContextType | undefined>(undefined);
+// The context carries a store, not the value itself: consumers subscribe via useApp() and re-render only when
+// the fields they read change, instead of on every provider render.
+interface AppStore { value: AppContextType; listeners: Set<() => void> }
+const AppContext = createContext<AppStore | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Load initial state from LocalStorage or defaults
@@ -147,6 +145,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const technicians = useDataStore((st) => st.data.technicians);
   useEffect(() => { useDataStore.getState().load('technicians'); }, []);
   const customers = useDataStore((st) => st.data.customers);
+  const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   useEffect(() => { useDataStore.getState().load('customers'); }, []);
   const equipment = useDataStore((st) => st.data.equipment);
   useEffect(() => { useDataStore.getState().load('equipment'); }, []);
@@ -201,39 +200,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Reset = re-seed the server with the bundled demo data through the import endpoint.
-  const resetAllData = async () => {
-    try {
-      await services.data.import({
-        settings: INITIAL_SETTINGS, technicians: INITIAL_TECHNICIANS, customers: INITIAL_CUSTOMERS, equipment: INITIAL_EQUIPMENT,
-        serviceRequests: INITIAL_SERVICE_REQUESTS, jobs: INITIAL_JOBS, quotations: INITIAL_QUOTATIONS, invoices: INITIAL_INVOICES,
-        parts: INITIAL_PARTS, inventoryMovements: INITIAL_INVENTORY_MOVEMENTS, notifications: INITIAL_NOTIFICATIONS,
-      });
-      await refreshAfterImport();
-      showToast('Application reset to initial UK HVAC demonstration data', 'info');
-    } catch (e) {
-      showToast((e as Error).message, 'error');
-    }
-  };
-
-  const refreshAfterImport = async () => {
-    await useDataStore.getState().loadAll();
-    setSettings(await services.settings.get());
-  };
-
   const exportDataJson = async () => JSON.stringify(await services.data.export(), null, 2);
-
-  const importDataJson = async (jsonStr: string): Promise<boolean> => {
-    try {
-      await services.data.import(JSON.parse(jsonStr));
-      await refreshAfterImport();
-      showToast('Successfully imported database backup');
-      return true;
-    } catch (e) {
-      showToast(e instanceof SyntaxError ? 'Failed to parse JSON file' : (e as Error).message, 'error');
-      return false;
-    }
-  };
 
   // Server is the source of truth; the store keeps the returned rows.
   const apiCall = async <R,>(key: Parameters<ReturnType<typeof useDataStore.getState>['run']>[0], call: () => Promise<R>, ok: string): Promise<R | undefined> => {
@@ -251,7 +218,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     apiCall('technicians', () => services.technicians.create(tech), `Added technician ${tech.name}`);
 
   const updateTechnician: AppContextType['updateTechnician'] = async (id, updates) => {
-    await apiCall('technicians', () => services.technicians.update(id, updates), 'Technician profile updated');
+    return !!(await apiCall('technicians', () => services.technicians.update(id, updates), 'Technician profile updated'));
   };
 
   // Customers
@@ -259,11 +226,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     apiCall('customers', () => services.customers.create(cust as Partial<Customer>), `Customer "${cust.name}" added successfully`);
 
   const updateCustomer: AppContextType['updateCustomer'] = async (id, updates) => {
-    await apiCall('customers', () => services.customers.update(id, updates), 'Customer record updated');
+    return !!(await apiCall('customers', () => services.customers.update(id, updates), 'Customer record updated'));
   };
 
   const addCustomerLocation: AppContextType['addCustomerLocation'] = async (id, loc) => {
-    await apiCall('customers', () => services.customers.addLocation(id, loc), `Added service site "${loc.label}"`);
+    return !!(await apiCall('customers', () => services.customers.addLocation(id, loc), `Added service site "${loc.label}"`));
+  };
+
+  const updateCustomerLocation: AppContextType['updateCustomerLocation'] = async (id, locId, loc) => {
+    return !!(await apiCall('customers', () => services.customers.updateLocation(id, locId, loc), 'Service site updated'));
+  };
+
+  // Server refuses (409) a site that jobs, equipment or requests still point at.
+  const removeCustomerLocation: AppContextType['removeCustomerLocation'] = async (id, locId) => {
+    await apiCall('customers', () => services.customers.removeLocation(id, locId), 'Service site removed');
   };
 
   const archiveCustomer = async (id: string) => {
@@ -350,11 +326,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateJob: AppContextType['updateJob'] = async (id, updates, auditAction) => {
     const { status, ...rest } = updates;
     const patch = jobBody(rest);
-    await apiCall('jobs', async () => {
+    return !!(await apiCall('jobs', async () => {
       let job = Object.keys(patch).length ? await services.jobs.update(id, patch) : jobs.find((j) => j.id === id)!;
       if (status && status !== job.status) job = await services.jobs.setStatus(id, status, auditAction);
       return job;
-    }, 'Job updated');
+    }, 'Job updated'));
   };
 
   const updateJobStatus: AppContextType['updateJobStatus'] = async (id, newStatus, note, override) => {
@@ -365,6 +341,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addJobPart: AppContextType['addJobPart'] = async (jobId, partId, quantity) => {
     const job = await apiCall('jobs', () => services.jobs.addPart(jobId, partId, quantity), 'Part added to job');
     if (job) await reloadStock(); // server decremented stock and wrote a movement
+    return !!job;
+  };
+
+  const addRefrigerantLog: AppContextType['addRefrigerantLog'] = async (jobId, body) => {
+    return !!(await apiCall('jobs', () => services.jobs.addRefrigerant(jobId, body), 'Refrigerant log added'));
   };
 
   // Quotations
@@ -381,8 +362,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await apiCall('quotations', () => services.quotations.update(id, updates), 'Quotation updated');
   };
 
-  const acceptQuotation: AppContextType['acceptQuotation'] = async (id, acceptedBy) => {
-    await apiCall('quotations', () => services.quotations.accept(id, acceptedBy), 'Customer acceptance recorded for quotation');
+  const acceptQuotation: AppContextType['acceptQuotation'] = async (id, acceptedBy, option) => {
+    return !!(await apiCall('quotations', () => services.quotations.accept(id, acceptedBy, option), 'Customer acceptance recorded for quotation'));
   };
 
   // The server creates the job / invoice and links it back on the quotation.
@@ -425,6 +406,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return !!inv;
   };
 
+  const addStageInvoice: AppContextType['addStageInvoice'] = async (quoteId, percent, label) => {
+    const inv = await apiCall('invoices', () => services.invoices.stage(percent === 'final' ? { quoteId, final: true, label } : { quoteId, percent, label }), 'Stage invoice created');
+    if (inv) await useDataStore.getState().run('quotations', () => services.quotations.get(quoteId));
+    return !!inv;
+  };
+
+  const releaseRetention: AppContextType['releaseRetention'] = async (invoiceId) =>
+    !!(await apiCall('invoices', () => services.invoices.releaseRetention(invoiceId), 'Retention released'));
+
   const generateInvoiceFromJob: AppContextType['generateInvoiceFromJob'] = (jobId) =>
     apiCall('invoices', () => services.jobs.invoice(jobId), 'Invoice generated from job');
 
@@ -441,6 +431,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await apiCall('parts', () => services.parts.update(id, updates), 'Part updated');
   };
 
+  const deletePart: AppContextType['deletePart'] = async (id) => {
+    // Parts with stock history are refused by the server (422).
+    await apiCall('parts', () => services.parts.remove(id), 'Part deleted');
+    await useDataStore.getState().load('parts');
+  };
+
   // Server applies the delta, rejects negative stock, and appends the ledger entry.
   const adjustStock = async (
     partId: string,
@@ -454,8 +450,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await useDataStore.getState().run('parts', async () => part);
       await useDataStore.getState().run('movements', async () => movement);
       showToast(`Stock updated for ${part.name}: new qty ${part.stockQuantity}`);
+      return true;
     } catch (e) {
       showToast((e as Error).message, 'error');
+      return false;
     }
   };
 
@@ -472,74 +470,102 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return n;
   };
 
-  return (
-    <AppContext.Provider
-      value={{
-        currentUser,
-        setCurrentUser,
-        switchUserRole,
-        users,
-        realAuth: REAL_AUTH,
-        logout,
-        settings,
-        updateSettings,
-        resetAllData,
-        exportDataJson,
-        importDataJson,
-        technicians,
-        addTechnician,
-        updateTechnician,
-        customers,
-        addCustomer,
-        updateCustomer,
-        addCustomerLocation,
-        archiveCustomer,
-        equipment,
-        addEquipment,
-        updateEquipment,
-        addEquipmentServiceRecord,
-        serviceRequests,
-        addServiceRequest,
-        updateServiceRequest,
-        convertRequestToJob,
-        jobs,
-        addJob,
-        updateJob,
-        updateJobStatus,
-        addJobPart,
-        checkScheduleConflict,
-        quotations,
-        addQuotation,
-        updateQuotation,
-        acceptQuotation,
-        convertQuotationToJob,
-        convertQuotationToInvoice,
-        invoices,
-        addInvoice,
-        updateInvoice,
-        recordPayment,
-        generateInvoiceFromJob,
-        parts,
-        addPart,
-        updatePart,
-        adjustStock,
-        inventoryMovements,
-        notifications,
-        createNotification,
-        sendNotification,
-        toastMessage,
-        showToast,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
-  );
+  const value: AppContextType = {
+    currentUser,
+    setCurrentUser,
+    switchUserRole,
+    users,
+    realAuth: REAL_AUTH,
+    logout,
+    settings,
+    updateSettings,
+    exportDataJson,
+    technicians,
+    addTechnician,
+    updateTechnician,
+    customers,
+    customerById,
+    addCustomer,
+    updateCustomer,
+    addCustomerLocation,
+    updateCustomerLocation,
+    removeCustomerLocation,
+    archiveCustomer,
+    equipment,
+    addEquipment,
+    updateEquipment,
+    addEquipmentServiceRecord,
+    serviceRequests,
+    addServiceRequest,
+    updateServiceRequest,
+    convertRequestToJob,
+    jobs,
+    addJob,
+    updateJob,
+    updateJobStatus,
+    addJobPart,
+    addRefrigerantLog,
+    checkScheduleConflict,
+    quotations,
+    addQuotation,
+    updateQuotation,
+    acceptQuotation,
+    convertQuotationToJob,
+    convertQuotationToInvoice,
+    invoices,
+    addInvoice,
+    updateInvoice,
+    recordPayment,
+    releaseRetention,
+    addStageInvoice,
+    generateInvoiceFromJob,
+    parts,
+    addPart,
+    updatePart,
+    deletePart,
+    adjustStock,
+    inventoryMovements,
+    notifications,
+    createNotification,
+    sendNotification,
+    toastMessage,
+    showToast,
+  };
+
+  // Wrap every handler once so its identity never changes (it always calls the latest closure); only data/state fields change identity.
+  const latest = useRef(value);
+  latest.current = value;
+  const stableFns = useRef<Record<string, (...args: unknown[]) => unknown>>({});
+  const stable: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v !== 'function') { stable[k] = v; continue; }
+    stableFns.current[k] ??= (...args) => (latest.current as unknown as Record<string, (...a: unknown[]) => unknown>)[k](...args);
+    stable[k] = stableFns.current[k];
+  }
+  const [store] = useState<AppStore>(() => ({ value: stable as unknown as AppContextType, listeners: new Set() }));
+  store.value = stable as unknown as AppContextType;
+  useEffect(() => { store.listeners.forEach((l) => l()); });
+
+  return <AppContext.Provider value={store}>{children}</AppContext.Provider>;
 };
 
-export const useApp = () => {
-  const context = useContext(AppContext);
-  if (!context) {
+const shallowEqual = (a: object, b: object) => {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+};
+
+/** `useApp()` returns everything; `useApp(['jobs', 'customers'])` re-renders only when those fields change. */
+export function useApp(): AppContextType;
+export function useApp<K extends keyof AppContextType>(keys: K[]): Pick<AppContextType, K>;
+export function useApp(keys?: (keyof AppContextType)[]) {
+  const store = useContext(AppContext);
+  if (!store) {
     throw new Error('useApp must be used within an AppProvider');
   }
-  return context;
-};
+  const subscribe = useCallback((l: () => void) => { store.listeners.add(l); return () => { store.listeners.delete(l); }; }, [store]);
+  const last = useRef<object | null>(null);
+  return useSyncExternalStore(subscribe, () => {
+    const next: object = keys ? Object.fromEntries(keys.map((k) => [k, store.value[k]])) : store.value;
+    return last.current && shallowEqual(last.current, next) ? last.current : (last.current = next);
+  });
+}

@@ -1,4 +1,5 @@
 import type { ServiceRequest } from '../../types.js';
+import { emailBookingConfirmed } from '../notifications/templates.js';
 import type { Actor } from '../../common/auth.js';
 import { conflict, notFound } from '../../common/errors.js';
 import { toMinutes } from '../../common/dates.js';
@@ -34,8 +35,8 @@ export async function updateRequest(id: string, patch: Partial<Input>) {
 }
 
 /** Marks the request converted and creates the job in one transaction; the status flip is a conditional UPDATE, so a double submit can't make two jobs. */
-export function convertToJob(id: string, slot: { appointmentDate: string; startTime: string; endTime: string; technicianId?: string | null }, who: Actor) {
-  return prisma.$transaction(async (tx) => {
+export async function convertToJob(id: string, slot: { appointmentDate: string; startTime: string; endTime: string; technicianId?: string | null }, who: Actor) {
+  const job = await prisma.$transaction(async (tx) => {
     const r = await getRequest(id, tx);
     if (r.status === 'converted') throw conflict('ALREADY_CONVERTED', `${r.requestNumber} is already converted`);
     if (r.status === 'cancelled') throw conflict('REQUEST_CANCELLED', `${r.requestNumber} is cancelled`);
@@ -57,6 +58,8 @@ export function convertToJob(id: string, slot: { appointmentDate: string; startT
     await tx.serviceRequest.update({ where: { id }, data: { convertedJobId: job.id } });
     return job;
   });
+  if (job.status === 'scheduled') await emailBookingConfirmed(job);
+  return job;
 }
 
 /** Import ops (see importPartOps). `convertedJobId` is set after the jobs exist (jobs point back at requests). */

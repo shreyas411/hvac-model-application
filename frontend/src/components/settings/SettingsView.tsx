@@ -1,21 +1,9 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { getTodayISO } from '../../utils/formatters';
+import { useEscape } from '../../utils/useEscape';
 import { CompanySettings, TechnicianProfile } from '../../types';
-import {
-  Building,
-  Settings as SettingsIcon,
-  ShieldCheck,
-  CreditCard,
-  Clock,
-  RotateCcw,
-  Download,
-  Upload,
-  Users,
-  Plus,
-  Flame,
-  Check,
-  Edit2
-} from 'lucide-react';
+import { IconBuilding, IconCreditCard, IconDownload, IconPencil, IconPlus, IconShieldCheck } from '@tabler/icons-react';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -24,23 +12,24 @@ export const SettingsView: React.FC = () => {
     technicians,
     addTechnician,
     updateTechnician,
-    resetAllData,
     exportDataJson,
-    importDataJson,
-    showToast
-  } = useApp();
+    showToast,
+    realAuth
+  } = useApp(['settings', 'updateSettings', 'technicians', 'addTechnician', 'updateTechnician', 'exportDataJson', 'showToast', 'realAuth']);
 
   const [form, setForm] = useState<CompanySettings>(settings);
+  React.useEffect(() => setForm(settings), [settings]); // settings load async: never edit (or save) a stale copy
+  const [busy, setBusy] = useState(false); // guards double-submit
 
   // New Tech modal
   const [showTechModal, setShowTechModal] = useState(false);
   const [techName, setTechName] = useState('');
   const [techEmail, setTechEmail] = useState('');
   const [techPhone, setTechPhone] = useState('');
-  const [techSkills, setTechSkills] = useState('Domestic Gas, Heat Pumps');
-  const [techGasLicense, setTechGasLicense] = useState('GSR-992140');
-  const [techFGasLicense, setTechFGasLicense] = useState('FGAS-2079');
-  const [techVan, setTechVan] = useState('LO24 KMP');
+  const [techSkills, setTechSkills] = useState('');
+  const [techGasLicense, setTechGasLicense] = useState('');
+  const [techFGasLicense, setTechFGasLicense] = useState('');
+  const [techVan, setTechVan] = useState('');
 
   // Edit Tech modal
   const [showEditTechModal, setShowEditTechModal] = useState(false);
@@ -56,16 +45,20 @@ export const SettingsView: React.FC = () => {
   const [editTechVan, setEditTechVan] = useState('');
 
   // Import JSON input ref
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  useEscape(showTechModal || showEditTechModal, () => { setShowTechModal(false); setShowEditTechModal(false); });
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings(form);
+    setBusy(true);
+    await updateSettings(form);
+    setBusy(false);
   };
 
   const handleAddTechSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     const created = await addTechnician({
       name: techName,
       email: techEmail,
@@ -77,7 +70,9 @@ export const SettingsView: React.FC = () => {
       color: '#0284c7',
       active: true,
     });
+    setBusy(false);
     if (!created) return;
+    setTechName(''); setTechEmail(''); setTechPhone(''); setTechSkills(''); setTechGasLicense(''); setTechFGasLicense(''); setTechVan('');
     setShowTechModal(false);
   };
 
@@ -98,7 +93,8 @@ export const SettingsView: React.FC = () => {
   const handleEditTechSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTech) return;
-    await updateTechnician(editingTech.id, {
+    setBusy(true);
+    const ok = await updateTechnician(editingTech.id, {
       name: editTechName,
       email: editTechEmail,
       phone: editTechPhone,
@@ -109,8 +105,8 @@ export const SettingsView: React.FC = () => {
       fGasExpiry: editTechFGasExpiry || undefined,
       vanRegistration: editTechVan,
     });
-    setShowEditTechModal(false);
-    showToast(`Updated technician ${editTechName}`);
+    setBusy(false);
+    if (ok) setShowEditTechModal(false);
   };
 
   const handleDownloadBackup = async () => {
@@ -121,23 +117,10 @@ export const SettingsView: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ApexHVAC_Backup_${Date.now()}.json`;
+    link.download = `ApexHVAC_Backup_${getTodayISO()}.json`;
     link.click();
     URL.revokeObjectURL(url);
     showToast('Database backup downloaded');
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      if (content) {
-        importDataJson(content);
-      }
-    };
-    reader.readAsText(file);
   };
 
   return (
@@ -159,21 +142,9 @@ export const SettingsView: React.FC = () => {
             onClick={handleDownloadBackup}
             className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs flex items-center gap-1.5"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <IconDownload className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
             <span>Export Backup</span>
           </button>
-
-          <label className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs flex items-center gap-1.5 cursor-pointer">
-            <Upload className="w-3.5 h-3.5 text-slate-500" />
-            <span>Restore JSON</span>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept=".json"
-              className="hidden"
-            />
-          </label>
         </div>
       </div>
 
@@ -182,14 +153,14 @@ export const SettingsView: React.FC = () => {
         {/* Company Details & UK Certifications */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-2xs">
           <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-            <Building className="w-4 h-4 text-sky-700" />
+            <IconBuilding className="w-4 h-4 text-sky-700" aria-hidden="true" />
             <span>UK Company Details & Regulatory Registrations</span>
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Registered Company Name</label>
-              <input
+              <label htmlFor="st-1" className="block font-semibold text-slate-700 mb-1">Registered Company Name</label>
+              <input id="st-1"
                 type="text"
                 required
                 value={form.companyName}
@@ -199,8 +170,8 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Trading / Brand Name</label>
-              <input
+              <label htmlFor="st-2" className="block font-semibold text-slate-700 mb-1">Trading / Brand Name</label>
+              <input id="st-2"
                 type="text"
                 value={form.tradingName}
                 onChange={(e) => setForm({ ...form, tradingName: e.target.value })}
@@ -209,48 +180,48 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Gas Safe Register Number</label>
-              <input
+              <label htmlFor="st-3" className="block font-semibold text-slate-700 mb-1">Gas Safe Register Number</label>
+              <input id="st-3"
                 type="text"
-                value={form.gasSafeRegisterNo}
+                spellCheck={false} value={form.gasSafeRegisterNo}
                 onChange={(e) => setForm({ ...form, gasSafeRegisterNo: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Refcom F-Gas Certificate Number</label>
-              <input
+              <label htmlFor="st-4" className="block font-semibold text-slate-700 mb-1">Refcom F-Gas Certificate Number</label>
+              <input id="st-4"
                 type="text"
-                value={form.fGasCertNo}
+                spellCheck={false} value={form.fGasCertNo}
                 onChange={(e) => setForm({ ...form, fGasCertNo: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">UK VAT Registration Number</label>
-              <input
+              <label htmlFor="st-5" className="block font-semibold text-slate-700 mb-1">UK VAT Registration Number</label>
+              <input id="st-5"
                 type="text"
-                value={form.vatNumber}
+                spellCheck={false} value={form.vatNumber}
                 onChange={(e) => setForm({ ...form, vatNumber: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Companies House Number</label>
-              <input
+              <label htmlFor="st-6" className="block font-semibold text-slate-700 mb-1">Companies House Number</label>
+              <input id="st-6"
                 type="text"
-                value={form.companyNumber}
+                spellCheck={false} value={form.companyNumber}
                 onChange={(e) => setForm({ ...form, companyNumber: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Headquarters Address</label>
-              <input
+              <label htmlFor="st-7" className="block font-semibold text-slate-700 mb-1">Headquarters Address</label>
+              <input id="st-7"
                 type="text"
                 value={form.addressLine1}
                 onChange={(e) => setForm({ ...form, addressLine1: e.target.value })}
@@ -260,8 +231,8 @@ export const SettingsView: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">City / County</label>
-                <input
+                <label htmlFor="st-8" className="block font-semibold text-slate-700 mb-1">City / County</label>
+                <input id="st-8"
                   type="text"
                   value={form.city}
                   onChange={(e) => setForm({ ...form, city: e.target.value })}
@@ -269,10 +240,10 @@ export const SettingsView: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Postcode</label>
-                <input
+                <label htmlFor="st-9" className="block font-semibold text-slate-700 mb-1">Postcode</label>
+                <input id="st-9"
                   type="text"
-                  value={form.postcode}
+                  autoComplete="postal-code" value={form.postcode}
                   onChange={(e) => setForm({ ...form, postcode: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
                 />
@@ -284,14 +255,14 @@ export const SettingsView: React.FC = () => {
         {/* VAT Rates & Numbering Prefixes */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-2xs">
           <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-emerald-700" />
+            <IconCreditCard className="w-4 h-4 text-emerald-700" aria-hidden="true" />
             <span>Configurable UK VAT & Document Numbering</span>
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Default VAT Rate (%)</label>
-              <select
+              <label htmlFor="st-10" className="block font-semibold text-slate-700 mb-1">Default VAT Rate (%)</label>
+              <select id="st-10"
                 value={form.defaultVatRate}
                 onChange={(e) => setForm({ ...form, defaultVatRate: Number(e.target.value) })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs font-mono"
@@ -303,8 +274,8 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Default Hourly Rate</label>
-              <input
+              <label htmlFor="st-11" className="block font-semibold text-slate-700 mb-1">Default Hourly Rate</label>
+              <input id="st-11"
                 type="number" min={0} step="0.01"
                 value={form.defaultHourlyRate}
                 onChange={(e) => setForm({ ...form, defaultHourlyRate: Number(e.target.value) })}
@@ -313,8 +284,8 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Default Travel Charge</label>
-              <input
+              <label htmlFor="st-12" className="block font-semibold text-slate-700 mb-1">Default Travel Charge</label>
+              <input id="st-12"
                 type="number" min={0} step="0.01"
                 value={form.defaultTravelCharge}
                 onChange={(e) => setForm({ ...form, defaultTravelCharge: Number(e.target.value) })}
@@ -323,8 +294,8 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Job Number Prefix</label>
-              <input
+              <label htmlFor="st-13" className="block font-semibold text-slate-700 mb-1">Job Number Prefix</label>
+              <input id="st-13"
                 type="text"
                 value={form.prefixJob}
                 onChange={(e) => setForm({ ...form, prefixJob: e.target.value })}
@@ -333,8 +304,8 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Invoice Prefix</label>
-              <input
+              <label htmlFor="st-14" className="block font-semibold text-slate-700 mb-1">Invoice Prefix</label>
+              <input id="st-14"
                 type="text"
                 value={form.prefixInvoice}
                 onChange={(e) => setForm({ ...form, prefixInvoice: e.target.value })}
@@ -354,6 +325,21 @@ export const SettingsView: React.FC = () => {
               <span>Enable Warehouse & Van Stock Inventory Tracking</span>
             </label>
           </div>
+
+          <div className="pt-2 border-t border-slate-100">
+            <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800">
+              <input
+                type="checkbox"
+                checked={form.autoSendEmails}
+                onChange={(e) => setForm({ ...form, autoSendEmails: e.target.checked })}
+                className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+              />
+              <span>Send customer emails automatically</span>
+            </label>
+            <p className="text-xs text-slate-500 mt-1 ml-6">
+              On: quote, invoice, booking and engineer-dispatched emails send as soon as they are triggered. Off: they wait as drafts for staff approval in Notifications.
+            </p>
+          </div>
         </div>
 
         {/* Bank Account Details for Invoices */}
@@ -362,8 +348,8 @@ export const SettingsView: React.FC = () => {
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Bank Name</label>
-              <input
+              <label htmlFor="st-15" className="block font-semibold text-slate-700 mb-1">Bank Name</label>
+              <input id="st-15"
                 type="text"
                 value={form.bankDetails.bankName}
                 onChange={(e) =>
@@ -377,8 +363,8 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Account Name</label>
-              <input
+              <label htmlFor="st-16" className="block font-semibold text-slate-700 mb-1">Account Name</label>
+              <input id="st-16"
                 type="text"
                 value={form.bankDetails.accountName}
                 onChange={(e) =>
@@ -392,10 +378,10 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Sort Code</label>
-              <input
+              <label htmlFor="st-17" className="block font-semibold text-slate-700 mb-1">Sort Code</label>
+              <input id="st-17"
                 type="text"
-                value={form.bankDetails.sortCode}
+                inputMode="numeric" autoComplete="off" spellCheck={false} value={form.bankDetails.sortCode}
                 onChange={(e) =>
                   setForm({
                     ...form,
@@ -407,10 +393,10 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Account Number</label>
-              <input
+              <label htmlFor="st-18" className="block font-semibold text-slate-700 mb-1">Account Number</label>
+              <input id="st-18"
                 type="text"
-                value={form.bankDetails.accountNumber}
+                inputMode="numeric" autoComplete="off" spellCheck={false} value={form.bankDetails.accountNumber}
                 onChange={(e) =>
                   setForm({
                     ...form,
@@ -424,25 +410,12 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Action Button */}
-        <div className="flex items-center justify-between pt-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm('Reset the server to the original UK HVAC sample data? This replaces all current data.')) {
-                resetAllData();
-              }
-            }}
-            className="px-3 py-2 text-rose-700 hover:text-rose-900 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-1.5"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset Demo Data</span>
-          </button>
-
+        <div className="flex items-center justify-end pt-2">
           <button
             type="submit"
-            className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-lg shadow-sm"
+            disabled={busy} className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-lg shadow-sm disabled:opacity-60"
           >
-            Save All Settings
+            {busy ? 'Saving…' : 'Save All Settings'}
           </button>
         </div>
 
@@ -459,7 +432,7 @@ export const SettingsView: React.FC = () => {
             onClick={() => setShowTechModal(true)}
             className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Add Technician</span>
           </button>
         </div>
@@ -478,9 +451,9 @@ export const SettingsView: React.FC = () => {
                 <button
                   onClick={() => handleEditTechOpen(t)}
                   className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors"
-                  title="Edit Technician"
+                  title="Edit Technician" aria-label={`Edit ${t.name}`}
                 >
-                  <Edit2 className="w-3.5 h-3.5" />
+                  <IconPencil className="w-3.5 h-3.5" aria-hidden="true" />
                 </button>
               </div>
               <div className="mt-1">
@@ -498,16 +471,16 @@ export const SettingsView: React.FC = () => {
 
       {/* Add Technician Modal */}
       {showTechModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Add field technician">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-3 text-xs">
             <h3 className="font-bold text-sm text-slate-900">Add Field Technician</h3>
             <form onSubmit={handleAddTechSubmit} className="space-y-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Full Name *</label>
-                <input
+                <label htmlFor="st-19" className="block font-semibold text-slate-700 mb-1">Full Name *</label>
+                <input id="st-19"
                   type="text"
                   required
-                  value={techName}
+                  name="name" autoComplete="off" value={techName}
                   onChange={(e) => setTechName(e.target.value)}
                   placeholder="e.g. Samuel Green"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
@@ -516,8 +489,8 @@ export const SettingsView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Email</label>
-                  <input
+                  <label htmlFor="st-20" className="block font-semibold text-slate-700 mb-1">Email</label>
+                  <input id="st-20"
                     type="email"
                     required
                     value={techEmail}
@@ -526,8 +499,8 @@ export const SettingsView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Phone</label>
-                  <input
+                  <label htmlFor="st-21" className="block font-semibold text-slate-700 mb-1">Phone</label>
+                  <input id="st-21"
                     type="tel"
                     required
                     value={techPhone}
@@ -538,20 +511,20 @@ export const SettingsView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Skills (comma separated)</label>
-                <input
+                <label htmlFor="st-22" className="block font-semibold text-slate-700 mb-1">Skills (comma separated)</label>
+                <input id="st-22"
                   type="text"
                   value={techSkills}
                   onChange={(e) => setTechSkills(e.target.value)}
-                  placeholder="e.g. Domestic Gas, Commercial Gas, VRF AC"
+                  placeholder="e.g. GAS_SAFE, F_GAS, AC_INSTALL"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                 />
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Gas Safe #</label>
-                  <input
+                  <label htmlFor="st-23" className="block font-semibold text-slate-700 mb-1">Gas Safe #</label>
+                  <input id="st-23"
                     type="text"
                     value={techGasLicense}
                     onChange={(e) => setTechGasLicense(e.target.value)}
@@ -559,8 +532,8 @@ export const SettingsView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">F-Gas #</label>
-                  <input
+                  <label htmlFor="st-24" className="block font-semibold text-slate-700 mb-1">F-Gas #</label>
+                  <input id="st-24"
                     type="text"
                     value={techFGasLicense}
                     onChange={(e) => setTechFGasLicense(e.target.value)}
@@ -568,8 +541,8 @@ export const SettingsView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Van Reg</label>
-                  <input
+                  <label htmlFor="st-25" className="block font-semibold text-slate-700 mb-1">Van Reg</label>
+                  <input id="st-25"
                     type="text"
                     value={techVan}
                     onChange={(e) => setTechVan(e.target.value)}
@@ -588,9 +561,9 @@ export const SettingsView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg"
+                  disabled={busy} className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60"
                 >
-                  Add Technician
+                  {busy ? 'Adding…' : 'Add Technician'}
                 </button>
               </div>
             </form>
@@ -600,16 +573,16 @@ export const SettingsView: React.FC = () => {
 
       {/* Edit Technician Modal */}
       {showEditTechModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Edit field technician">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-3 text-xs">
             <h3 className="font-bold text-sm text-slate-900">Edit Field Technician</h3>
             <form onSubmit={handleEditTechSubmit} className="space-y-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Full Name *</label>
-                <input
+                <label htmlFor="st-26" className="block font-semibold text-slate-700 mb-1">Full Name *</label>
+                <input id="st-26"
                   type="text"
                   required
-                  value={editTechName}
+                  name="name" autoComplete="off" value={editTechName}
                   onChange={(e) => setEditTechName(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                 />
@@ -617,8 +590,8 @@ export const SettingsView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Email</label>
-                  <input
+                  <label htmlFor="st-27" className="block font-semibold text-slate-700 mb-1">Email</label>
+                  <input id="st-27"
                     type="email"
                     required
                     value={editTechEmail}
@@ -627,8 +600,8 @@ export const SettingsView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Phone</label>
-                  <input
+                  <label htmlFor="st-28" className="block font-semibold text-slate-700 mb-1">Phone</label>
+                  <input id="st-28"
                     type="tel"
                     required
                     value={editTechPhone}
@@ -640,12 +613,12 @@ export const SettingsView: React.FC = () => {
 
               <div className="bg-sky-50 p-3 rounded-lg border border-sky-100 space-y-3">
                 <div className="flex items-center gap-2 text-sky-800 font-bold mb-1">
-                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <IconShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Regulatory Certifications & Skills</span>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-sky-700 mb-1">Qualified Skills (comma separated)</label>
-                  <input
+                  <label htmlFor="st-29" className="block text-[10px] font-semibold text-sky-700 mb-1">Qualified Skills (comma separated)</label>
+                  <input id="st-29"
                     type="text"
                     value={editTechSkills}
                     onChange={(e) => setEditTechSkills(e.target.value)}
@@ -656,8 +629,8 @@ export const SettingsView: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">Gas Safe License #</label>
-                    <input
+                    <label htmlFor="st-30" className="block text-[10px] font-semibold text-sky-700 mb-1">Gas Safe License #</label>
+                    <input id="st-30"
                       type="text"
                       value={editTechGasLicense}
                       onChange={(e) => setEditTechGasLicense(e.target.value)}
@@ -665,8 +638,8 @@ export const SettingsView: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">F-Gas License #</label>
-                    <input
+                    <label htmlFor="st-31" className="block text-[10px] font-semibold text-sky-700 mb-1">F-Gas License #</label>
+                    <input id="st-31"
                       type="text"
                       value={editTechFGasLicense}
                       onChange={(e) => setEditTechFGasLicense(e.target.value)}
@@ -674,8 +647,8 @@ export const SettingsView: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">Gas Safe Expiry</label>
-                    <input
+                    <label htmlFor="st-32" className="block text-[10px] font-semibold text-sky-700 mb-1">Gas Safe Expiry</label>
+                    <input id="st-32"
                       type="date"
                       value={editTechGasExpiry}
                       onChange={(e) => setEditTechGasExpiry(e.target.value)}
@@ -683,8 +656,8 @@ export const SettingsView: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-sky-700 mb-1">F-Gas Expiry</label>
-                    <input
+                    <label htmlFor="st-33" className="block text-[10px] font-semibold text-sky-700 mb-1">F-Gas Expiry</label>
+                    <input id="st-33"
                       type="date"
                       value={editTechFGasExpiry}
                       onChange={(e) => setEditTechFGasExpiry(e.target.value)}
@@ -695,8 +668,8 @@ export const SettingsView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Van Registration</label>
-                <input
+                <label htmlFor="st-34" className="block font-semibold text-slate-700 mb-1">Van Registration</label>
+                <input id="st-34"
                   type="text"
                   value={editTechVan}
                   onChange={(e) => setEditTechVan(e.target.value)}
@@ -714,9 +687,9 @@ export const SettingsView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg"
+                  disabled={busy} className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60"
                 >
-                  Update Profile
+                  {busy ? 'Saving…' : 'Update Profile'}
                 </button>
               </div>
             </form>

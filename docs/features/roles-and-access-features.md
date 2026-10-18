@@ -1,5 +1,7 @@
 # Roles and Access
 
+> **Outdated:** this describes the original simulated-role prototype. Roles are now enforced server-side and the user comes from a real login (httpOnly cookie session, `/auth/me`); see [security-and-auth-features.md](security-and-auth-features.md) and [users.md](../../backend/docs/api/users.md). Treat the localStorage/`INITIAL_USERS` details below as history.
+
 The app simulates four user roles (admin, dispatcher, technician, accountant) with no real authentication. The active user is held in context state and persisted to localStorage; switching role changes which navigation links are shown, whether the "+ New" menu appears, what the role banner says, and which tab technicians land on. Permissions are enforced only by hiding navigation; there is no route guard. Sources: `frontend/src/components/layout/Navbar.tsx`, `frontend/src/components/layout/RoleBanner.tsx`, `frontend/src/context/AppContext.tsx`, `frontend/src/App.tsx`, `frontend/src/data/initialData.ts`.
 
 ## Users and roles

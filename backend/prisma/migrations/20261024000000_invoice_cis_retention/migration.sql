@@ -1,0 +1,6 @@
+ALTER TABLE "invoices"
+  ADD COLUMN "reverse_charge" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN "cis_rate_percent" DECIMAL(5,2) NOT NULL DEFAULT 0,
+  ADD COLUMN "cis_deduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN "retention_percent" DECIMAL(5,2) NOT NULL DEFAULT 0,
+  ADD COLUMN "retention_held" DECIMAL(12,2) NOT NULL DEFAULT 0;

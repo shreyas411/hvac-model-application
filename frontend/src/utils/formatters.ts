@@ -10,7 +10,13 @@ export const formatGBP = (amount: number): string => {
 };
 
 export const getTodayISO = (): string => {
-  return new Date().toISOString().split('T')[0];
+  return new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD (toISOString is UTC: wrong day after midnight in BST)
+};
+
+/** Adds whole days to a YYYY-MM-DD date using local time (no UTC drift). */
+export const addDaysISO = (iso: string, days: number): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d + days).toLocaleDateString('en-CA');
 };
 
 export const formatDateUK = (dateString: string): string => {
@@ -61,3 +67,11 @@ const JOB_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   cancelled: [],
 };
 export const canMoveJob = (from: JobStatus, to: JobStatus) => JOB_TRANSITIONS[from].includes(to);
+
+/** Total (inc. VAT) of the shared lines plus each tier's lines, mirroring the server's pricing; empty when the quote has no tiers. */
+export const tierPrices = (items: { amount: number; option?: string; vatRatePercent?: number }[], vatRate: number) => {
+  const gross = (ls: typeof items) => ls.reduce((a, l) => a + l.amount * (1 + (l.vatRatePercent ?? vatRate) / 100), 0);
+  const shared = items.filter((i) => !i.option);
+  return [...new Set(items.flatMap((i) => (i.option ? [i.option] : [])))]
+    .map((name) => ({ name, total: gross([...shared, ...items.filter((i) => i.option === name)]) }));
+};

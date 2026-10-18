@@ -84,3 +84,7 @@ Modal with company name, address, Gas Safe and F-Gas numbers (from `settings`), 
 - **Refrigerant log:** entries are recorded with `POST /jobs/:id/refrigerant`.
 - **Service report:** a Download (PDF) button sits beside Print.
 - **Offline:** actions made without signal are queued and replayed ([offline-and-pwa-features.md](offline-and-pwa-features.md)).
+
+## Updates: job photos
+
+The active job has a **Photos** panel (`frontend/src/components/technician/JobPhotos.tsx`): add a photo with optional caption, thumbnails, remove with ×. The browser shrinks images to WebP (longest edge 1600px, quality stepped down to fit the server's 600 KB cap, max 30 per job). Read-only once the job is completed. API: [jobs.md](../../backend/docs/api/jobs.md#photos). Photos are not yet on PDFs; PDF and video attachments are not supported.

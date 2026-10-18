@@ -8,6 +8,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import { AuthGate } from './components/auth/AuthGate';
 import { Navbar } from './components/layout/Navbar';
 import { useTabRoute } from './routes';
+import { useDialogFocus } from './utils/useDialogFocus';
 import { RoleBanner } from './components/layout/RoleBanner';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { DispatchBoardView } from './components/scheduling/DispatchBoardView';
@@ -22,19 +23,22 @@ import { NotificationsView } from './components/notifications/NotificationsView'
 import { ReportsView } from './components/reports/ReportsView';
 import { MaintenanceView } from './components/maintenance/MaintenanceView';
 import { ChecklistsView } from './components/checklists/ChecklistsView';
+import { CertificatesView } from './components/certificates/CertificatesView';
+import { AuditView } from './components/audit/AuditView';
 import { SettingsView } from './components/settings/SettingsView';
 import { WorkflowGuideModal } from './components/workflows/WorkflowGuideModal';
 import { QuickCreateModals } from './components/modals/QuickCreateModals';
-import { CheckCircle2, AlertCircle, Info, Flame } from 'lucide-react';
+import { IconAlertCircle, IconCircleCheck, IconFlame, IconInfoCircle } from '@tabler/icons-react';
 
 const AppContent: React.FC = () => {
-  const { currentUser, toastMessage, settings } = useApp();
+  const { currentUser, toastMessage, settings, realAuth } = useApp(['currentUser', 'toastMessage', 'settings', 'realAuth']);
   const [currentTab, setCurrentTab] = useTabRoute(currentUser.role);
   const [workflowGuideOpen, setWorkflowGuideOpen] = useState<boolean>(false);
   const [quickActionModal, setQuickActionModal] = useState<
     'customer' | 'job' | 'request' | 'quote' | 'invoice' | null
   >(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  useDialogFocus(); // focus trap + restore for all modal dialogs
 
   // If user is technician, default to technician portal
   React.useEffect(() => {
@@ -76,11 +80,11 @@ const AppContent: React.FC = () => {
             }`}
           >
             {toastMessage.type === 'error' ? (
-              <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
+              <IconAlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
             ) : toastMessage.type === 'info' ? (
-              <Info className="w-4 h-4 text-sky-300 shrink-0" />
+              <IconInfoCircle className="w-4 h-4 text-sky-300 shrink-0" />
             ) : (
-              <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
+              <IconCircleCheck className="w-4 h-4 text-emerald-300 shrink-0" />
             )}
             <span>{toastMessage.text}</span>
           </div>
@@ -160,6 +164,10 @@ const AppContent: React.FC = () => {
         {currentTab === 'maintenance' && currentUser.role !== 'technician' && <MaintenanceView />}
         {currentTab === 'checklists' && currentUser.role === 'admin' && <ChecklistsView />}
 
+        {currentTab === 'certificates' && <CertificatesView />}
+
+        {currentTab === 'audit' && currentUser.role === 'admin' && <AuditView />}
+
         {currentTab === 'settings' && <SettingsView />}
       </main>
 
@@ -172,7 +180,7 @@ const AppContent: React.FC = () => {
 
       {/* Interactive Workflow Guide Modal (Workflows A, B, C, D) */}
       <WorkflowGuideModal
-        isOpen={workflowGuideOpen}
+        isOpen={workflowGuideOpen && !realAuth}
         onClose={() => setWorkflowGuideOpen(false)}
         onNavigateTab={setCurrentTab}
         onOpenQuickAction={(action) => setQuickActionModal(action)}
@@ -182,7 +190,7 @@ const AppContent: React.FC = () => {
       <footer className="border-t border-slate-200 bg-white py-6 text-xs text-slate-500 no-print">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <Flame className="w-4 h-4 text-sky-700" />
+            <IconFlame className="w-4 h-4 text-sky-700" />
             <span className="font-semibold text-slate-800">{settings.companyName}</span>
             <span aria-hidden="true">·</span>
             <span>UK Field Service Management</span>
@@ -190,16 +198,18 @@ const AppContent: React.FC = () => {
             <span className="font-mono">Gas Safe: #{settings.gasSafeRegisterNo}</span>
           </div>
 
-          <div className="flex items-center gap-4 text-slate-500">
-            <span>Realistic Sample Business Data Loaded</span>
-            <span aria-hidden="true">·</span>
-            <button
-              onClick={() => setWorkflowGuideOpen(true)}
-              className="hover:text-sky-700 underline font-medium"
-            >
-              Test End-to-End Workflows
-            </button>
-          </div>
+          {!realAuth && (
+            <div className="flex items-center gap-4 text-slate-500">
+              <span>Realistic Sample Business Data Loaded</span>
+              <span aria-hidden="true">·</span>
+              <button
+                onClick={() => setWorkflowGuideOpen(true)}
+                className="hover:text-sky-700 underline font-medium"
+              >
+                Test End-to-End Workflows
+              </button>
+            </div>
+          )}
         </div>
       </footer>
       </div>

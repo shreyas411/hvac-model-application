@@ -73,3 +73,8 @@ Slide-in panel with name, type badge and company. Sections:
 ## Updates: postcode lookup
 
 Adding a service site has a postcode lookup (`frontend/src/services/postcode.ts`) that fills address line, city and postcode. It is currently a **mock** with a few test postcodes (SW1A 1AA, EC1A 1BB, M1 1AE, B1 1BB) and a simulated delay; swap in Loqate, GetAddress or Postcodes.io for production. Customer lists are paged and searched on the server.
+
+## Updates: edit notes, address line 2 and service sites
+
+- The Add/Edit form now has **Notes** and **Address Line 2** inputs; saving no longer drops line 2 or leaves notes uneditable (supersedes those limitations above).
+- Each service location in the drawer has **Edit** (reuses the add-site form) and **Remove**. The server refuses to remove a site still used by jobs, equipment or service requests (`409 LOCATION_IN_USE`, shown as a toast). Site contact name/phone are still not editable here.

@@ -73,3 +73,7 @@ Nav access: admin, dispatcher, technician, accountant (all four) (`Navbar.tsx:44
 - Disabling inventory hides the view only; it does not change stock data.
 - Quantity input falls back to 1 when cleared; write-offs larger than stock silently clamp to 0.
 - Currency is fixed to GBP.
+
+## Updates: delete part
+
+Each row has a **Delete** button (with a confirmation). The server refuses to delete a part that has stock history, so the movement ledger stays complete; the error shows as a toast.

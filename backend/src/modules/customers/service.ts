@@ -18,7 +18,7 @@ export async function getCustomer(id: string, db: Tx = prisma) {
   return toCustomer(row);
 }
 
-export const pageCustomers = (query: unknown) => pageFrom(query, prisma.customer, { include, searchFields: ['name', 'email', 'phone'] }, toCustomer);
+export const pageCustomers = (query: unknown) => pageFrom(query, prisma.customer, { include, searchFields: ['name', 'companyName', 'email', 'phone', 'locations.some.postcode'], filters: ['type', 'archived'] }, toCustomer);
 export const listCustomers = async () => (await prisma.customer.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toCustomer);
 
 /** Pass the caller's `tx` when inside a transaction, so this doesn't take a second pooled connection. */

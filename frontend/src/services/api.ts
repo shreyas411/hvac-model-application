@@ -68,3 +68,10 @@ export async function api<T = void>(method: string, path: string, body?: unknown
   if (!res.ok) throw new ApiError(res.status, json.code ?? 'ERROR', json.detail ?? res.statusText, json.issues);
   return json as T;
 }
+
+/** Download a binary (PDF) response as a Blob. */
+export async function apiBlob(path: string): Promise<Blob> {
+  const res = await send('GET', path);
+  if (!res.ok) throw new ApiError(res.status, 'ERROR', (await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.blob();
+}

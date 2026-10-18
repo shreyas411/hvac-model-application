@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { services } from '../../services';
 import { useChecklistTemplates } from '../../data/checklistTemplates';
@@ -6,7 +7,7 @@ import { ChecklistTemplate, JobType } from '../../types';
 import { DndContext, DragEndEvent, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, CheckSquare, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { IconCheck, IconChecklist, IconGripVertical, IconPencil, IconPlus, IconSquareCheck, IconTrash, IconX } from '@tabler/icons-react';
 
 const TYPES: [JobType, string][] = [
   ['installation', 'Installation'],
@@ -20,8 +21,8 @@ const CATEGORIES: ChecklistTemplate['category'][] = ['general', 'gas_safety', 'e
 const SortableRow: React.FC<{ id: string; editing: boolean; children: (handle: React.ReactNode) => React.ReactNode }> = ({ id, editing, children }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: editing });
   const handle = (
-    <button type="button" aria-label="Drag to reorder" {...attributes} {...listeners} className="text-slate-400 cursor-grab touch-none shrink-0">
-      <GripVertical className="w-4 h-4" />
+    <button type="button" aria-label="Drag to reorder" {...attributes} {...listeners} className="text-slate-400 cursor-grab touch-none shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+      <IconGripVertical className="w-4 h-4" aria-hidden="true" />
     </button>
   );
   return (
@@ -37,7 +38,7 @@ const SortableRow: React.FC<{ id: string; editing: boolean; children: (handle: R
 
 /** Admin-only: manage the checklist items offered for each job type. */
 export const ChecklistsView: React.FC = () => {
-  const { showToast } = useApp();
+  const { showToast } = useApp(['showToast']);
   const { templates, setTemplates, reload } = useChecklistTemplates();
   const [jobType, setJobType] = useState<JobType>('repair');
   const [label, setLabel] = useState('');
@@ -47,17 +48,18 @@ export const ChecklistsView: React.FC = () => {
   const [editLabel, setEditLabel] = useState('');
   const [editCategory, setEditCategory] = useState<ChecklistTemplate['category']>('general');
 
-  const run = (p: Promise<unknown>) => p.then(reload, (e) => showToast(e.message ?? 'Request failed', 'error'));
+  // resolves true on success so callers only reset their input when the save worked
+  const run = (p: Promise<unknown>) => p.then(reload).then(() => true, (e) => { showToast(e.message ?? 'Request failed', 'error'); return false; });
   const add = (e: React.FormEvent) => {
     e.preventDefault();
     if (!label.trim()) return;
-    void run(services.checklistTemplates.create({ jobType, label: label.trim(), category })).then(() => setLabel(''));
+    void run(services.checklistTemplates.create({ jobType, label: label.trim(), category })).then((ok) => ok && setLabel(''));
   };
 
   const startEdit = (t: ChecklistTemplate) => { setEditId(t.id); setEditLabel(t.label); setEditCategory(t.category); };
   const saveEdit = () => {
     if (!editId || !editLabel.trim()) return;
-    void run(services.checklistTemplates.update(editId, { label: editLabel.trim(), category: editCategory })).then(() => setEditId(null));
+    void run(services.checklistTemplates.update(editId, { label: editLabel.trim(), category: editCategory })).then((ok) => ok && setEditId(null));
   };
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const onDragEnd = (list: ChecklistTemplate[]) => ({ active, over }: DragEndEvent) => {
@@ -70,9 +72,9 @@ export const ChecklistsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 w-full px-6 py-4">
+    <div className="space-y-5 w-full px-4 sm:px-6 py-4">
       <div className="flex items-center gap-2">
-        <CheckSquare className="w-5 h-5 text-sky-700" />
+        <IconSquareCheck className="w-5 h-5 text-sky-700" aria-hidden="true" />
         <h1 className="text-lg font-bold text-slate-900">Job Checklists</h1>
       </div>
       <p className="text-xs text-slate-500">
@@ -80,15 +82,15 @@ export const ChecklistsView: React.FC = () => {
       </p>
 
       <form onSubmit={add} className="flex flex-wrap gap-2 bg-white border border-slate-200 rounded-xl p-3 text-xs">
-        <select value={jobType} onChange={(e) => setJobType(e.target.value as JobType)} className="border border-slate-300 rounded-md px-2 py-2 bg-white">
+        <select aria-label="Job type" value={jobType} onChange={(e) => setJobType(e.target.value as JobType)} className="border border-slate-300 rounded-md px-2 py-2 bg-white">
           {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Checklist item" className="flex-1 min-w-96 border border-slate-300 rounded-md px-2 py-2" />
-        <select value={category} onChange={(e) => setCategory(e.target.value as ChecklistTemplate['category'])} className="border border-slate-300 rounded-md px-2 py-2 bg-white capitalize">
+        <input aria-label="Checklist item" name="label" autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Checklist item…" className="flex-1 min-w-0 sm:min-w-96 border border-slate-300 rounded-md px-2 py-2" />
+        <select aria-label="Category" value={category} onChange={(e) => setCategory(e.target.value as ChecklistTemplate['category'])} className="border border-slate-300 rounded-md px-2 py-2 bg-white capitalize">
           {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
         </select>
         <button type="submit" className="flex items-center gap-1 px-3 rounded-md bg-sky-700 text-white font-semibold">
-          <Plus className="w-3.5 h-3.5" /> Add
+          <IconPlus className="w-3.5 h-3.5" aria-hidden="true" /> Add
         </button>
       </form>
 
@@ -105,17 +107,17 @@ export const ChecklistsView: React.FC = () => {
                   {(handle) => (<>
                   {editId === t.id ? (
                     <>
-                      <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="flex-1 border border-slate-300 rounded-md px-2 py-1" />
-                      <select value={editCategory} onChange={(e) => setEditCategory(e.target.value as ChecklistTemplate['category'])} className="border border-slate-300 rounded-md px-1 py-1 bg-white capitalize">
+                      <input aria-label="Item label" autoFocus value={editLabel} onChange={(e) => setEditLabel(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); else if (e.key === 'Escape') setEditId(null); }} className="flex-1 min-w-0 border border-slate-300 rounded-md px-2 py-1" />
+                      <select aria-label="Category" value={editCategory} onChange={(e) => setEditCategory(e.target.value as ChecklistTemplate['category'])} className="border border-slate-300 rounded-md px-1 py-1 bg-white capitalize">
                         {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
                       </select>
-                      <button type="button" aria-label="Save" onClick={saveEdit} className="text-emerald-600"><Check className="w-4 h-4" /></button>
-                      <button type="button" aria-label="Cancel" onClick={() => setEditId(null)} className="text-slate-400"><X className="w-4 h-4" /></button>
+                      <button type="button" aria-label="Save" onClick={saveEdit} className="text-emerald-600"><IconCheck className="w-4 h-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Cancel" onClick={() => setEditId(null)} className="text-slate-400"><IconX className="w-4 h-4" aria-hidden="true" /></button>
                     </>
                   ) : (
                     <>
                       {handle}
-                      <span className="flex-1 text-slate-800 p-1" contentEditable={true} suppressContentEditableWarning={true} onBlur={(e) => {
+                      <span role="textbox" aria-label="Checklist item text" className="flex-1 min-w-0 break-words text-slate-800 p-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500" contentEditable={true} suppressContentEditableWarning={true} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} onBlur={(e) => {
                         const newLabel = e.currentTarget.textContent?.trim() ?? '';
                         if (newLabel && newLabel !== t.label) {
                           void run(services.checklistTemplates.update(t.id, { label: newLabel }));
@@ -126,14 +128,14 @@ export const ChecklistsView: React.FC = () => {
                         {t.label}
                       </span>
                       <span className="text-[10px] text-slate-400 capitalize">{t.category.replace('_', ' ')}</span>
-                      <button type="button" aria-label={`Edit ${t.label}`} onClick={() => startEdit(t)} className="text-slate-400 hover:text-sky-700"><Pencil className="w-3.5 h-3.5" /></button>
-                      <button type="button" aria-label={`Delete ${t.label}`} onClick={() => void run(services.checklistTemplates.remove(t.id))} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button type="button" aria-label={`Edit ${t.label}`} onClick={() => startEdit(t)} className="text-slate-400 hover:text-sky-700"><IconPencil className="w-3.5 h-3.5" aria-hidden="true" /></button>
+                      <button type="button" aria-label={`Delete ${t.label}`} onClick={() => confirm(`Delete "${t.label}"?`) && void run(services.checklistTemplates.remove(t.id))} className="text-slate-400 hover:text-red-600"><IconTrash className="w-3.5 h-3.5" aria-hidden="true" /></button>
                     </>
                   )}
                 </>)}
                 </SortableRow>
               ))}
-              {!list.length && <li className="py-2 text-slate-400">No items yet.</li>}
+              {!list.length && <li><EmptyState icon={IconChecklist} compact>No items yet.</EmptyState></li>}
                 </ul>
               </SortableContext>
             </DndContext>

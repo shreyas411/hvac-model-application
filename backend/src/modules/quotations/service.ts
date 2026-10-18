@@ -1,4 +1,7 @@
 import type { Prisma } from '@prisma/client';
+import { createHash, randomBytes } from 'node:crypto';
+import { config } from '../../config.js';
+import { emailBookingConfirmed, emailQuotationReady } from '../notifications/templates.js';
 import type { Quotation } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
 import { conflict, notFound } from '../../common/errors.js';
@@ -15,7 +18,7 @@ import { createJob, getJob } from '../jobs/service.js';
 const include = { items: { orderBy: { position: 'asc' } } } satisfies Prisma.QuotationInclude;
 type Row = Prisma.QuotationGetPayload<{ include: typeof include }>;
 
-const toQuotation = ({ legacyId, items, ...q }: Row) => ({
+const toQuotation = ({ legacyId, items, acceptedSignature, approvalTokenHash, ...q }: Row) => ({
   ...plain(q, [], ['issueDate', 'expiryDate']),
   items: items.map(({ quotationId, invoiceId, position, ...x }) => plain(x)),
 }) as unknown as Quotation;
@@ -33,10 +36,14 @@ type Input = {
   items: ItemInput[]; vatRatePercent?: number; terms?: string; notes?: string;
 };
 
+/** Lines with an `option` are alternatives (Good/Better/Best); stored totals cover the shared lines plus the cheapest option. */
 const priced = async (items: ItemInput[], vatRatePercent?: number) => {
   const rows = lineRows(items);
   const vat = vatRatePercent ?? (await getSettings()).defaultVatRate;
-  return { rows, vatRatePercent: vat, ...totals(rows, vat) };
+  const tiers: Record<string, typeof rows> = {};
+  for (const r of rows) if (r.option) (tiers[r.option] ??= []).push(r);
+  const cheapest = Object.values(tiers).sort((a, b) => totals(a, vat).subtotal - totals(b, vat).subtotal)[0] ?? [];
+  return { rows, vatRatePercent: vat, ...totals([...rows.filter((r) => !r.option), ...cheapest], vat) };
 };
 
 export async function createQuotation(i: Input) {
@@ -81,17 +88,42 @@ async function move(id: string, from: Quotation['status'][], to: Quotation['stat
   }
   return getQuotation(id);
 }
-export const send = (id: string) => move(id, ['draft'], 'sent');
+export const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
+
+/** Only the hash is stored; the raw token exists in the customer's emailed link alone. */
+export async function send(id: string) {
+  const token = randomBytes(32).toString('base64url');
+  const q = await move(id, ['draft'], 'sent', { approvalTokenHash: hashToken(token) });
+  await emailQuotationReady(q, `${config.appUrl.split(',')[0]}/quote/${token}`);
+  return q;
+}
 export const reject = (id: string) => move(id, ['sent', 'viewed'], 'rejected');
-export const accept = (id: string, acceptedBy: string) => move(id, ['sent', 'viewed'], 'accepted', { acceptedAt: new Date(), acceptedBy });
+/** With options on the quote, the customer picks one: the other tiers' lines are dropped and totals reprice. */
+export function accept(id: string, acceptedBy: string, acceptedSignature?: string, option?: string) {
+  return prisma.$transaction(async (tx) => {
+    await lockRow(tx, 'quotations', id);
+    const q = await getQuotation(id, tx);
+    if (q.status !== 'sent' && q.status !== 'viewed') throw conflict('INVALID_TRANSITION', `Cannot move quotation from ${q.status} to accepted`);
+    const names = new Set(q.items.flatMap((i) => (i.option ? [i.option] : [])));
+    if (names.size && !(option && names.has(option))) throw conflict('OPTION_REQUIRED', `Choose one of: ${[...names].join(', ')}`);
+    const chosen = names.size ? await priced(q.items.filter((i) => !i.option || i.option === option), q.vatRatePercent) : undefined;
+    return toQuotation(await tx.quotation.update({
+      where: { id }, include,
+      data: {
+        status: 'accepted', acceptedAt: new Date(), acceptedBy, acceptedSignature,
+        ...(chosen && { subtotal: chosen.subtotal, vatAmount: chosen.vatAmount, total: chosen.total, items: { deleteMany: {}, create: chosen.rows } }),
+      },
+    }));
+  });
+}
 
 function assertConvertible(q: Quotation, already: string | undefined) {
   if (q.status !== 'accepted') throw conflict('NOT_ACCEPTED', 'Quotation must be accepted first');
   if (already) throw conflict('ALREADY_CONVERTED', `${q.quoteNumber} is already converted`);
 }
 
-export function convertToJob(id: string, slot: { appointmentDate: string; startTime: string; endTime: string; technicianId?: string | null }, who: Actor) {
-  return prisma.$transaction(async (tx) => {
+export async function convertToJob(id: string, slot: { appointmentDate: string; startTime: string; endTime: string; technicianId?: string | null }, who: Actor) {
+  const result = await prisma.$transaction(async (tx) => {
     await lockRow(tx, 'quotations', id);
     const q = await getQuotation(id, tx);
     assertConvertible(q, q.convertedToJobId ?? q.convertedToInvoiceId);
@@ -110,6 +142,8 @@ export function convertToJob(id: string, slot: { appointmentDate: string; startT
     await tx.quotation.update({ where: { id }, data: { convertedToJobId: job.id } });
     return { job, quotation: await getQuotation(id, tx) };
   });
+  if (result.job.status === 'scheduled') await emailBookingConfirmed(result.job);
+  return result;
 }
 
 export function convertToInvoice(id: string) {
@@ -117,6 +151,7 @@ export function convertToInvoice(id: string) {
     await lockRow(tx, 'quotations', id);
     const q = await getQuotation(id, tx);
     assertConvertible(q, q.convertedToJobId ?? q.convertedToInvoiceId);
+    if (await tx.invoice.count({ where: { quoteId: id, stageLabel: { not: null }, status: { not: 'void' } } })) throw conflict('HAS_STAGES', `${q.quoteNumber} is being billed in stages: raise the final stage invoice instead`);
     const invoice = await fromQuotation(q, tx);
     await tx.quotation.update({ where: { id }, data: { convertedToInvoiceId: invoice.id } });
     return { invoice, quotation: await getQuotation(id, tx) };

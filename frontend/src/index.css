@@ -10,7 +10,14 @@
   }
 }
 
+@page {
+  margin: 12mm;
+}
+
 @media print {
+  body.printing-sheet > :not(#print-root) {
+    display: none !important;
+  }
   body {
     background: white !important;
     color: black !important;

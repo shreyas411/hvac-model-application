@@ -1,28 +1,14 @@
-import React, { useState, useRef } from 'react';
-import { downloadSheet } from '../../utils/pdf';
+import React, { useState, useEffect } from 'react';
+import { EmptyState } from '../common/EmptyState';
+import { SignaturePad } from './SignaturePad';
+import { JobPhotos } from './JobPhotos';
+import { downloadSheet, printSheet } from '../../utils/pdf';
 import { useApp } from '../../context/AppContext';
 import { Job, JobStatus, JobChecklistItem, EquipmentReading, TechnicianProfile } from '../../types';
 import { useChecklistTemplates, toChecklistItems } from '../../data/checklistTemplates';
-import { formatGBP, formatDateUK, formatTimeOnly, canMoveJob } from '../../utils/formatters';
-import { 
-  CheckCircle2, 
-  Clock, 
-  MapPin, 
-  Phone, 
-  Mail, 
-  AlertTriangle, 
-  PenTool, 
-  FileText, 
-  Wrench, 
-  CheckSquare, 
-  Camera, 
-  Send, 
-  RotateCcw,
-  Plus,
-  Flame,
-  Printer,
-  Download
-} from 'lucide-react';
+import { formatGBP, formatDateUK, getTodayISO, canMoveJob } from '../../utils/formatters';
+import { useEscape } from '../../utils/useEscape';
+import { IconCircleCheck, IconDownload, IconFlame, IconMail, IconPackage, IconPencil, IconPhone, IconPlus, IconPrinter, IconSquareCheck, IconTool } from '@tabler/icons-react';
 
 interface TechnicianPortalViewProps {
   onNavigateTab?: (tab: string) => void;
@@ -41,22 +27,29 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
     updateJob, 
     updateJobStatus, 
     addJobPart,
+    addRefrigerantLog,
     parts, 
     addEquipmentServiceRecord,
     settings,
-    showToast
-  } = useApp();
+    showToast,
+    customerById,
+  } = useApp(['currentUser', 'jobs', 'customers', 'equipment', 'technicians', 'updateJob', 'updateJobStatus', 'addJobPart', 'addRefrigerantLog', 'parts', 'addEquipmentServiceRecord', 'settings', 'showToast', 'customerById']);
 
-  // Active technician: if current user is technician, use their technicianId, otherwise Liam Campbell
+  // Active technician: the signed-in technician; office roles start on the first one in the roster
   const [activeTechId, setActiveTechId] = useState<string>(
-    currentUser.technicianId || 'tech-1'
+    currentUser.technicianId || ''
   );
 
   const activeTech: TechnicianProfile = technicians.find((t) => t.id === activeTechId) || technicians[0] || NO_TECH;
 
   // Selected job for on-site execution
-  const [selectedJobId, setSelectedJobId] = useState<string>('job-1');
-  const activeJob = jobs.find((j) => j.id === selectedJobId) || jobs.find((j) => j.technicianId === activeTech.id) || jobs[0];
+  const [selectedJobId, setSelectedJobId] = useState<string>('');
+  const today = getTodayISO();
+  // This technician's open stops: today onwards, plus anything earlier that isn't finished
+  const techJobs = jobs
+    .filter((j) => j.technicianId === activeTech.id && j.status !== 'cancelled' && (j.appointmentDate >= today || j.status !== 'completed'))
+    .sort((x, y) => `${x.appointmentDate} ${x.startTime}`.localeCompare(`${y.appointmentDate} ${y.startTime}`));
+  const activeJob = techJobs.find((j) => j.id === selectedJobId) ?? techJobs[0]; // never another technician's job
 
   const customer = customers.find((c) => c.id === activeJob?.customerId);
   const location = customer?.serviceLocations.find((l) => l.id === activeJob?.locationId);
@@ -69,26 +62,37 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
   const [followUpNotes, setFollowUpNotes] = useState<string>(activeJob?.followUpNotes || '');
 
   // Diagnostic readings state
-  const [pressureBar, setPressureBar] = useState<string>('1.4');
-  const [flowTempC, setFlowTempC] = useState<string>('70');
-  const [returnTempC, setReturnTempC] = useState<string>('54');
-  const [coPpm, setCoPpm] = useState<string>('14');
-  const [co2Percent, setCo2Percent] = useState<string>('9.2');
-  const [refrigerantPsi, setRefrigerantPsi] = useState<string>('125');
+  const [pressureBar, setPressureBar] = useState<string>('');
+  const [flowTempC, setFlowTempC] = useState<string>('');
+  const [returnTempC, setReturnTempC] = useState<string>('');
+  const [coPpm, setCoPpm] = useState<string>('');
+  const [co2Percent, setCo2Percent] = useState<string>('');
+  const [refrigerantPsi, setRefrigerantPsi] = useState<string>('');
 
   // Parts consumption selector
-  const [selectedPartId, setSelectedPartId] = useState<string>(parts[0]?.id || '');
+  const [selectedPartId, setSelectedPartId] = useState<string>('');
+  const partId = selectedPartId || parts[0]?.id || ''; // parts load async: default at render time
+  const [busy, setBusy] = useState(false); // guards double-taps (double stock deduction, duplicate records)
   const [partQuantity, setPartQuantity] = useState<number>(1);
 
   // Digital Signature Canvas
   const [signatureName, setSignatureName] = useState<string>('');
+  const [signatureData, setSignatureData] = useState<string | null>(null);
   const [isSigned, setIsSigned] = useState<boolean>(!!activeJob?.customerSignature);
   const [showServiceReportModal, setShowServiceReportModal] = useState<boolean>(false);
+  useEscape(showServiceReportModal, () => setShowServiceReportModal(false));
 
-  // Filter tech jobs for today
-  const techJobs = jobs.filter(
-    (j) => j.technicianId === activeTech.id && j.status !== 'cancelled'
-  );
+  // Reset the form whenever the job shown changes: carrying one job's notes or readings onto another would corrupt records
+  const activeJobId = activeJob?.id;
+  useEffect(() => {
+    setWorkNotes(activeJob?.workPerformed || '');
+    setLabourHours(activeJob?.labourHours || 2.5);
+    setFollowUpRecommended(!!activeJob?.followUpRecommended);
+    setFollowUpNotes(activeJob?.followUpNotes || '');
+    setIsSigned(!!activeJob?.customerSignature);
+    setPressureBar(''); setFlowTempC(''); setReturnTempC(''); setCoPpm(''); setCo2Percent(''); setRefrigerantPsi('');
+    setSignatureName(''); setSignatureData(null);
+  }, [activeJobId]);
 
   // Add a template item (or a custom one) to the job's checklist
   const { templates } = useChecklistTemplates();
@@ -108,19 +112,33 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
   };
 
   // Add part to job & reduce stock
-  const handleAddPartToJob = (e: React.FormEvent) => {
+  const handleAddPartToJob = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeJob || !selectedPartId) return;
+    if (busy || !activeJob || !partId) return;
 
-    const part = parts.find((p) => p.id === selectedPartId);
+    const part = parts.find((p) => p.id === partId);
     if (!part) return;
 
-    addJobPart(activeJob.id, part.id, Number(partQuantity));
+    setBusy(true);
+    await addJobPart(activeJob.id, part.id, Number(partQuantity));
+    setBusy(false);
+  };
+
+  const [fridge, setFridge] = useState({ refrigerant: 'R410A', action: 'charge', amountKg: '', cylinderId: '', certNumber: '' });
+  const handleAddRefrigerant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeJob || busy) return;
+    setBusy(true);
+    const ok = await addRefrigerantLog(activeJob.id, { ...fridge, amountKg: Number(fridge.amountKg) });
+    setBusy(false);
+    if (ok) setFridge({ ...fridge, amountKg: '', cylinderId: '' }); // keep the entry on failure so it isn't retyped
   };
 
   // Save diagnostic readings & create equipment service record
-  const handleSaveFindings = () => {
-    if (!activeJob) return;
+  const handleSaveFindings = async () => {
+    if (!activeJob || busy) return;
+    if (!workNotes.trim()) return showToast('Describe the work performed before saving', 'error');
+    if (!(Number(labourHours) > 0)) return showToast('Enter the labour hours', 'error');
 
     const readings: EquipmentReading = {
       pressureBar: pressureBar ? parseFloat(pressureBar) : undefined,
@@ -131,7 +149,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
       refrigerantPsi: refrigerantPsi ? parseFloat(refrigerantPsi) : undefined,
     };
 
-    updateJob(
+    setBusy(true);
+    const saved = await updateJob(
       activeJob.id,
       {
         workPerformed: workNotes,
@@ -141,6 +160,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
       },
       'Updated work notes and diagnostic readings'
     );
+    setBusy(false);
+    if (!saved) return; // don't write service history or claim success if the job update failed
 
     // If equipment attached, add service history record
     if (activeJob.equipmentIds.length > 0) {
@@ -150,10 +171,10 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
           jobId: activeJob.id,
           technicianName: activeTech.name,
           serviceType: activeJob.type.replace('_', ' '),
-          findings: workNotes || 'Standard maintenance inspection performed.',
+          findings: workNotes,
           readings,
           partsReplaced: activeJob.partsUsed.map((p) => p.partName),
-          recommendations: followUpRecommended ? followUpNotes : 'System running satisfactory.',
+          recommendations: followUpRecommended ? followUpNotes : undefined,
         });
       });
     }
@@ -162,19 +183,18 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
   };
 
   // Capture Digital Customer Signature
-  const handleCaptureSignature = (e: React.FormEvent) => {
+  const handleCaptureSignature = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeJob || !signatureName.trim()) return;
+    if (!activeJob || busy || !signatureName.trim()) return;
+    if (!signatureData) return showToast('Ask the customer to sign in the box first', 'error');
 
-    // SVG signature mock path
-    const mockSigSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="50"><path d="M10,35 Q40,10 80,30 T150,32" stroke="%230284c7" stroke-width="2.5" fill="none"/></svg>`;
-
-    updateJob(
+    setBusy(true);
+    const ok = await updateJob(
       activeJob.id,
       {
         customerSignature: {
           name: signatureName,
-          dataUrl: mockSigSvg,
+          dataUrl: signatureData,
           signedAt: new Date().toISOString(),
         },
         status: 'completed',
@@ -182,6 +202,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
       },
       `Customer sign-off collected from ${signatureName}. Job marked as completed.`
     );
+    setBusy(false);
+    if (!ok) return; // e.g. the completion gate refused: don't show the job as signed off
 
     setIsSigned(true);
     showToast(`Signature saved for ${signatureName}. Job marked completed!`, 'success');
@@ -195,7 +217,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-lg border border-sky-400/30">
-              <Wrench className="w-5 h-5" />
+              <IconTool className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -211,43 +233,40 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
           </div>
 
           {/* Switch technician dropdown */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 hidden sm:inline">Active Van:</span>
-            <select
-              value={activeTechId}
-              onChange={(e) => setActiveTechId(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500"
-            >
-              {technicians.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.vanRegistration || 'Van'})
-                </option>
-              ))}
-            </select>
-          </div>
+          {currentUser.role !== 'technician' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 hidden sm:inline">Active Van:</span>
+              <select
+                value={activeTechId}
+                aria-label="Active van"
+              onChange={(e) => { setActiveTechId(e.target.value); setSelectedJobId(''); }}
+                className="bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-sky-500"
+              >
+                {technicians.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.vanRegistration || 'Van'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Today's Job Quick Carousel / Selector */}
         <div className="mt-4 pt-4 border-t border-slate-800">
           <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">
-            Today's Route & Assigned Stops ({techJobs.length})
+            Route & Assigned Stops ({techJobs.length})
           </span>
 
           <div className="flex gap-2 overflow-x-auto pb-1">
             {techJobs.map((job) => {
               const isSelected = job.id === activeJob?.id;
-              const cust = customers.find((c) => c.id === job.customerId);
+              const cust = customerById.get(job.customerId);
               return (
                 <button
                   key={job.id}
-                  onClick={() => {
-                    setSelectedJobId(job.id);
-                    setWorkNotes(job.workPerformed || '');
-                    setLabourHours(job.labourHours || 2.5);
-                    setFollowUpRecommended(!!job.followUpRecommended);
-                    setFollowUpNotes(job.followUpNotes || '');
-                    setIsSigned(!!job.customerSignature);
-                  }}
+                  onClick={() => setSelectedJobId(job.id)}
+                  aria-pressed={isSelected}
                   className={`px-3 py-2 rounded-lg text-left transition-colors whitespace-nowrap shrink-0 border ${
                     isSelected
                       ? 'bg-sky-600 text-white border-sky-400 shadow-xs'
@@ -291,17 +310,17 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                 onClick={() => setShowServiceReportModal(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
               >
-                <Printer className="w-3.5 h-3.5" />
+                <IconPrinter className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Service Report</span>
               </button>
             </div>
 
             {/* Step Workflow Status Buttons */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-2">
+              <span id="tp-status" className="block text-xs font-semibold text-slate-600 mb-2">
                 Update Job Status Progress:
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              </span>
+              <div role="group" aria-labelledby="tp-status" className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { status: 'new' as JobStatus, label: 'New', color: 'bg-slate-600 text-white' },
                   { status: 'awaiting_approval' as JobStatus, label: 'Awaiting Approval', color: 'bg-amber-600 text-white' },
@@ -320,8 +339,9 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                     <button
                       key={item.status}
                       disabled={!allowed}
-                      onClick={() => updateJobStatus(activeJob.id, item.status)}
-                      className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all border disabled:opacity-40 disabled:cursor-not-allowed ${
+                      aria-pressed={isActive}
+                      onClick={() => { if (item.status === 'cancelled' && !window.confirm(`Cancel ${activeJob.jobNumber}?`)) return; void updateJobStatus(activeJob.id, item.status); }}
+                      className={`py-3 px-3 text-xs font-semibold rounded-lg transition-all border disabled:opacity-40 disabled:cursor-not-allowed ${
                         isActive
                           ? `${item.color} shadow-xs border-transparent ring-2 ring-slate-900`
                           : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
@@ -360,16 +380,16 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                 <div className="flex items-center gap-3 mt-1.5">
                   <a
                     href={`tel:${location?.contactPhone || customer?.phone}`}
-                    className="inline-flex items-center gap-1 text-sky-700 hover:text-sky-900 font-medium"
+                    className="inline-flex items-center gap-1 py-2 text-sky-700 hover:text-sky-900 font-medium"
                   >
-                    <Phone className="w-3.5 h-3.5" />
+                    <IconPhone className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>{location?.contactPhone || customer?.phone}</span>
                   </a>
                   <a
                     href={`mailto:${customer?.email}`}
-                    className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900"
+                    className="inline-flex items-center gap-1 py-2 text-slate-600 hover:text-slate-900"
                   >
-                    <Mail className="w-3.5 h-3.5" />
+                    <IconMail className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Email</span>
                   </a>
                 </div>
@@ -398,7 +418,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
           <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <CheckSquare className="w-4 h-4 text-sky-700" />
+                <IconSquareCheck className="w-4 h-4 text-sky-700" aria-hidden="true" />
                 <h3 className="font-bold text-sm text-slate-900">
                   Service Checklist & Regulatory Compliance
                 </h3>
@@ -418,7 +438,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                     type="checkbox"
                     checked={item.checked}
                     onChange={() => handleChecklistToggle(item.id)}
-                    className="mt-0.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    className="mt-0.5 w-5 h-5 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                   />
                   <div className="flex-1">
                     <span className={`font-medium ${item.checked ? 'text-slate-900 line-through' : 'text-slate-800'}`}>
@@ -476,10 +496,10 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                     <input
                       value={customItem}
                       onChange={(e) => setCustomItem(e.target.value)}
-                      placeholder="Custom checklist item"
+                      aria-label="Custom checklist item" autoComplete="off" placeholder="Custom checklist item"
                       className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5"
                     />
-                    <button type="submit" className="px-3 rounded-lg bg-sky-700 text-white font-semibold">Add</button>
+                    <button type="submit" className="px-4 py-2 rounded-lg bg-sky-700 text-white font-semibold inline-flex items-center gap-1.5"><IconPlus className="w-4 h-4" aria-hidden="true" /> Add</button>
                   </form>
                 </div>
               );
@@ -490,7 +510,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
           <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Flame className="w-4 h-4 text-amber-600" />
+                <IconFlame className="w-4 h-4 text-amber-600" aria-hidden="true" />
                 <h3 className="font-bold text-sm text-slate-900">
                   HVAC Diagnostic Readings & Findings
                 </h3>
@@ -501,8 +521,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             {/* Gauge inputs */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
               <div>
-                <label className="block text-slate-600 font-semibold mb-1">Pressure (Bar)</label>
-                <input
+                <label htmlFor="tp-1" className="block text-slate-600 font-semibold mb-1">Pressure (Bar)</label>
+                <input id="tp-1"
                   type="number"
                   step="0.1"
                   value={pressureBar}
@@ -513,8 +533,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               </div>
 
               <div>
-                <label className="block text-slate-600 font-semibold mb-1">Flow Temp (°C)</label>
-                <input
+                <label htmlFor="tp-2" className="block text-slate-600 font-semibold mb-1">Flow Temp (°C)</label>
+                <input id="tp-2"
                   type="number"
                   value={flowTempC}
                   onChange={(e) => setFlowTempC(e.target.value)}
@@ -524,8 +544,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               </div>
 
               <div>
-                <label className="block text-slate-600 font-semibold mb-1">Return Temp (°C)</label>
-                <input
+                <label htmlFor="tp-3" className="block text-slate-600 font-semibold mb-1">Return Temp (°C)</label>
+                <input id="tp-3"
                   type="number"
                   value={returnTempC}
                   onChange={(e) => setReturnTempC(e.target.value)}
@@ -535,8 +555,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               </div>
 
               <div>
-                <label className="block text-slate-600 font-semibold mb-1">CO (ppm)</label>
-                <input
+                <label htmlFor="tp-4" className="block text-slate-600 font-semibold mb-1">CO (ppm)</label>
+                <input id="tp-4"
                   type="number"
                   value={coPpm}
                   onChange={(e) => setCoPpm(e.target.value)}
@@ -546,8 +566,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               </div>
 
               <div>
-                <label className="block text-slate-600 font-semibold mb-1">CO2 Ratio (%)</label>
-                <input
+                <label htmlFor="tp-5" className="block text-slate-600 font-semibold mb-1">CO2 Ratio (%)</label>
+                <input id="tp-5"
                   type="number"
                   step="0.1"
                   value={co2Percent}
@@ -558,8 +578,8 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               </div>
 
               <div>
-                <label className="block text-slate-600 font-semibold mb-1">Refrigerant Suction (psi)</label>
-                <input
+                <label htmlFor="tp-6" className="block text-slate-600 font-semibold mb-1">Refrigerant Suction (psi)</label>
+                <input id="tp-6"
                   type="number"
                   value={refrigerantPsi}
                   onChange={(e) => setRefrigerantPsi(e.target.value)}
@@ -572,10 +592,10 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             {/* Work notes & labour hours */}
             <div className="space-y-3 pt-2">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor="tp-7" className="block text-xs font-semibold text-slate-700 mb-1">
                   Work Notes & Action Performed:
                 </label>
-                <textarea
+                <textarea id="tp-7"
                   rows={3}
                   value={workNotes}
                   onChange={(e) => setWorkNotes(e.target.value)}
@@ -586,10 +606,10 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
 
               <div className="flex items-center gap-4">
                 <div className="w-40">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="tp-8" className="block text-xs font-semibold text-slate-700 mb-1">
                     Labour Hours:
                   </label>
-                  <input
+                  <input id="tp-8"
                     type="number"
                     step="0.5"
                     min="0.5"
@@ -603,7 +623,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                   <button
                     type="button"
                     onClick={handleSaveFindings}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-lg shadow-2xs"
+                    disabled={busy} className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-lg shadow-2xs disabled:opacity-60"
                   >
                     Save Findings & Log Readings
                   </button>
@@ -640,6 +660,29 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             </div>
           </div>
 
+          {/* Refrigerant handling log (required to complete jobs with a refrigerant checklist item) */}
+          {activeJob.checklist.some((c) => c.category === 'refrigerant') && (
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-3">
+              <h3 className="font-bold text-sm text-slate-900 pb-2 border-b border-slate-100">Refrigerant Log</h3>
+              <form onSubmit={handleAddRefrigerant} className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                <input required aria-label="Refrigerant" placeholder="Refrigerant" value={fridge.refrigerant} onChange={(e) => setFridge({ ...fridge, refrigerant: e.target.value })} className="px-2.5 py-1.5 border border-slate-300 rounded-md" />
+                <select aria-label="Action" value={fridge.action} onChange={(e) => setFridge({ ...fridge, action: e.target.value })} className="px-2.5 py-1.5 border border-slate-300 rounded-md bg-white">
+                  <option value="charge">Charge</option><option value="recover">Recover</option><option value="reclaim">Reclaim</option><option value="leak_check">Leak check</option>
+                </select>
+                <input required type="number" min="0" step="0.01" aria-label="Amount (kg)" placeholder="Amount (kg)" value={fridge.amountKg} onChange={(e) => setFridge({ ...fridge, amountKg: e.target.value })} className="px-2.5 py-1.5 border border-slate-300 rounded-md font-mono" />
+                <input aria-label="Cylinder ID" autoComplete="off" placeholder="Cylinder ID" value={fridge.cylinderId} onChange={(e) => setFridge({ ...fridge, cylinderId: e.target.value })} className="px-2.5 py-1.5 border border-slate-300 rounded-md" />
+                <input required aria-label="Certificate number" autoComplete="off" placeholder="Cert number" value={fridge.certNumber} onChange={(e) => setFridge({ ...fridge, certNumber: e.target.value })} className="px-2.5 py-1.5 border border-slate-300 rounded-md" />
+                <button type="submit" disabled={busy} className="px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-md disabled:opacity-60 inline-flex items-center gap-1.5"><IconPlus className="w-4 h-4" aria-hidden="true" /> Add Entry</button>
+              </form>
+              {activeJob.refrigerantLogs?.map((l) => (
+                <div key={l.id} className="text-xs p-2.5 bg-slate-50 rounded-lg flex justify-between">
+                  <span className="font-semibold">{l.action.replace('_', ' ')} · {l.refrigerant}</span>
+                  <span className="font-mono">{l.amountKg} kg</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Parts Used on Site (Van Stock Inventory Deduction) */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -650,7 +693,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             {/* Add Part Form */}
             <form onSubmit={handleAddPartToJob} className="flex flex-col sm:flex-row gap-2 text-xs">
               <select
-                value={selectedPartId}
+                aria-label="Part" value={partId}
                 onChange={(e) => setSelectedPartId(e.target.value)}
                 className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded-md bg-white text-slate-900"
               >
@@ -664,16 +707,16 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               <input
                 type="number"
                 min="1"
-                value={partQuantity}
+                aria-label="Quantity" value={partQuantity}
                 onChange={(e) => setPartQuantity(parseInt(e.target.value) || 1)}
                 className="w-20 px-2.5 py-1.5 border border-slate-300 rounded-md font-mono"
               />
 
               <button
                 type="submit"
-                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-md flex items-center justify-center gap-1"
+                disabled={busy} className="px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-md flex items-center justify-center gap-1 disabled:opacity-60"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Add Part</span>
               </button>
             </form>
@@ -697,22 +740,24 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-slate-400 py-1">No parts consumed yet on this visit.</p>
+              <EmptyState icon={IconPackage} compact>No parts consumed yet on this visit.</EmptyState>
             )}
           </div>
+
+          <JobPhotos jobId={activeJob.id} locked={activeJob.status === 'completed'} />
 
           {/* Customer Approval & Digital Signature */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <PenTool className="w-4 h-4 text-emerald-600" />
+                <IconPencil className="w-4 h-4 text-emerald-600" aria-hidden="true" />
                 <h3 className="font-bold text-sm text-slate-900">
                   Customer Sign-Off & Handover
                 </h3>
               </div>
               {isSigned ? (
                 <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <IconCircleCheck className="w-3.5 h-3.5" aria-hidden="true" />
                   Signed by {activeJob.customerSignature?.name}
                 </span>
               ) : (
@@ -723,37 +768,29 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             {!isSigned ? (
               <form onSubmit={handleCaptureSignature} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">
+                  <label htmlFor="tp-9" className="block text-slate-700 font-semibold mb-1">
                     Customer Full Name:
                   </label>
-                  <input
+                  <input id="tp-9"
                     type="text"
                     required
-                    value={signatureName}
+                    name="signatory" autoComplete="off" value={signatureName}
                     onChange={(e) => setSignatureName(e.target.value)}
                     placeholder="e.g. Dr. Alistair Finch / Nigel Edwards"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
                   />
                 </div>
 
-                {/* Simulated signature pad */}
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">
+                  <span className="block text-slate-700 font-semibold mb-1">
                     Sign on Glass / Touch Approval:
-                  </label>
-                  <div className="h-28 bg-slate-50 border border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center p-3 text-slate-400">
-                    <span className="text-xs italic">
-                      [Customer digital signature capture area]
-                    </span>
-                    <span className="text-[10px] text-slate-400 mt-1">
-                      (Click below to commit customer verification)
-                    </span>
-                  </div>
+                  </span>
+                  <SignaturePad key={activeJobId} onChange={setSignatureData} />
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm text-xs transition-colors"
+                  disabled={busy} className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm text-xs transition-colors disabled:opacity-60"
                 >
                   Capture Signature & Complete Job
                 </button>
@@ -782,7 +819,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
 
       {/* Official Service Report Modal (Printable/Downloadable) */}
       {showServiceReportModal && activeJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+        <div role="dialog" aria-modal="true" aria-label="Service report" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <span className="font-bold text-slate-900 text-sm">
@@ -793,21 +830,21 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                   onClick={(e) => downloadSheet(e.currentTarget, `${activeJob.jobNumber}-report.pdf`)}
                   className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download PDF</span>
+                  <IconDownload className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>IconDownload PDF</span>
                 </button>
                 <button
-                  onClick={() => window.print()}
+                  onClick={(e) => printSheet(e.currentTarget)}
                   className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1"
                 >
-                  <Printer className="w-3.5 h-3.5" />
+                  <IconPrinter className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Print Report</span>
                 </button>
                 <button
                   onClick={() => setShowServiceReportModal(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600"
+                  aria-label="Close" className="p-1 text-slate-400 hover:text-slate-600"
                 >
-                  ✕
+                  <span aria-hidden="true">✕</span>
                 </button>
               </div>
             </div>
@@ -836,7 +873,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
               <div>
                 <h3 className="font-bold text-slate-900 mb-1">Work Done & Observations</h3>
                 <p className="text-slate-800 whitespace-pre-wrap bg-slate-50 p-2.5 rounded border border-slate-200">
-                  {activeJob.workPerformed || 'Service inspection completed to Gas Safe / F-Gas standards.'}
+                  {activeJob.workPerformed || 'No work notes recorded.'}
                 </p>
               </div>
 
@@ -854,6 +891,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
 
                 <div className="border border-slate-200 p-2.5 rounded">
                   <span className="font-bold text-slate-900 block mb-1">Customer Sign-off:</span>
+                  {activeJob.customerSignature?.dataUrl && <img src={activeJob.customerSignature.dataUrl} alt="Customer signature" className="h-14 my-1" />}
                   <p className="text-slate-700">Signed: {activeJob.customerSignature?.name || 'Pending'}</p>
                   <p className="text-slate-500 text-[11px]">Timestamp: {activeJob.customerSignature?.signedAt ? formatDateUK(activeJob.customerSignature.signedAt) : 'Pending'}</p>
                 </div>

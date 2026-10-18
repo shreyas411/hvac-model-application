@@ -1,27 +1,11 @@
 import React, { useState, useMemo } from 'react';
+import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { Customer, CustomerType, ServiceLocation } from '../../types';
 import { formatDateUK, formatGBP } from '../../utils/formatters';
-import {
-  Building2,
-  User,
-  MapPin,
-  Phone,
-  Mail,
-  Search,
-  Plus,
-  Archive,
-  Eye,
-  Edit3,
-  Wrench,
-  FileText,
-  Receipt,
-  CheckCircle,
-  ExternalLink,
-  X,
-  Loader2
-} from 'lucide-react';
-import { lookupPostcode } from '../../services/postcode';
+import { useEscape } from '../../utils/useEscape';
+import { IconAirConditioning, IconArchive, IconCircleCheck, IconPencil, IconPlus, IconSearch, IconUsers, IconX } from '@tabler/icons-react';
+import { useServerPaged } from '../common/Pager';
 
 interface CustomersViewProps {
   onOpenQuickAction: (action: 'customer' | 'job' | 'quote' | 'invoice') => void;
@@ -37,21 +21,25 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     addCustomer, 
     updateCustomer, 
     addCustomerLocation,
+    updateCustomerLocation,
+    removeCustomerLocation,
     archiveCustomer,
     equipment,
     jobs,
     quotations,
     invoices,
     serviceRequests,
-  } = useApp();
+    customerById,
+  } = useApp(['customers', 'addCustomer', 'updateCustomer', 'addCustomerLocation', 'updateCustomerLocation', 'removeCustomerLocation', 'archiveCustomer', 'equipment', 'jobs', 'quotations', 'invoices', 'serviceRequests', 'customerById']);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'residential' | 'commercial'>('all');
   const [showArchived, setShowArchived] = useState(false);
+  const [busy, setBusy] = useState(false); // guards double-submit (would create duplicate customers/sites)
 
   // Selected customer for 360 view drawer/modal
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
+  const selectedCustomer = (selectedCustomerId ? customerById.get(selectedCustomerId) : undefined);
 
   // Customer Add/Edit Modal
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -64,15 +52,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [formPhone, setFormPhone] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formBillingLine1, setFormBillingLine1] = useState('');
+  const [formBillingLine2, setFormBillingLine2] = useState('');
   const [formBillingCity, setFormBillingCity] = useState('');
   const [formBillingPostcode, setFormBillingPostcode] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [formPref, setFormPref] = useState<'email' | 'sms' | 'both'>('email');
-  const [formGdpr, setFormGdpr] = useState(true);
-
-  // Postcode lookup state
-  const [isLookingUp, setIsLookingUp] = useState(false);
-  const [lookupResults, setLookupResults] = useState<any[]>([]);
+  const [formGdpr, setFormGdpr] = useState(false);
 
   // Multi-site add state in drawer
   const [newSiteLabel, setNewSiteLabel] = useState('');
@@ -81,32 +66,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [newSitePostcode, setNewSitePostcode] = useState('');
   const [newSiteAccessNotes, setNewSiteAccessNotes] = useState('');
   const [showAddSiteForm, setShowAddSiteForm] = useState(false);
+  const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
 
-  // Postcode lookup for new site
-  const [isSiteLookingUp, setIsSiteLookingUp] = useState(false);
-  const [siteLookupResults, setSiteLookupResults] = useState<any[]>([]);
+  // IconSearch, type and archived filters run on the server so paging covers the whole list
+  const paged = useServerPaged<Customer>('/customers', { q: searchTerm.trim() || undefined, type: typeFilter === 'all' ? undefined : typeFilter, archived: String(showArchived) }, customers);
 
-  // Filtered customer list
-  const filteredCustomers = useMemo(() => {
-    return customers.filter((c) => {
-      if (!showArchived && c.archived) return false;
-      if (showArchived && !c.archived) return false;
-      if (typeFilter !== 'all' && c.type !== typeFilter) return false;
-
-      if (searchTerm.trim()) {
-        const query = searchTerm.toLowerCase();
-        const matchesName = c.name.toLowerCase().includes(query);
-        const matchesCompany = c.companyName?.toLowerCase().includes(query);
-        const matchesEmail = c.email.toLowerCase().includes(query);
-        const matchesPhone = c.phone.includes(query);
-        const matchesPostcode = c.serviceLocations.some((l) =>
-          l.postcode.toLowerCase().includes(query)
-        );
-        return matchesName || matchesCompany || matchesEmail || matchesPhone || matchesPostcode;
-      }
-      return true;
-    });
-  }, [customers, searchTerm, typeFilter, showArchived]);
+  useEscape(showCustomerModal || !!selectedCustomer, () => (showCustomerModal ? setShowCustomerModal(false) : setSelectedCustomerId(null)));
 
   const handleOpenAddModal = () => {
     setEditingCustomer(null);
@@ -116,11 +81,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     setFormPhone('');
     setFormEmail('');
     setFormBillingLine1('');
-    setFormBillingCity('London');
+    setFormBillingLine2('');
+    setFormBillingCity('');
     setFormBillingPostcode('');
     setFormNotes('');
     setFormPref('both');
-    setFormGdpr(true);
+    setFormGdpr(false); // consent must be an affirmative tick, never pre-ticked
     setShowCustomerModal(true);
   };
 
@@ -132,6 +98,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     setFormPhone(c.phone);
     setFormEmail(c.email);
     setFormBillingLine1(c.billingAddress.line1);
+    setFormBillingLine2(c.billingAddress.line2 || '');
     setFormBillingCity(c.billingAddress.city);
     setFormBillingPostcode(c.billingAddress.postcode);
     setFormNotes(c.notes || '');
@@ -143,8 +110,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    setBusy(true);
+    let ok = true;
     if (editingCustomer) {
-      await updateCustomer(editingCustomer.id, {
+      ok = await updateCustomer(editingCustomer.id, {
         type: formType,
         name: formName,
         companyName: formType === 'commercial' ? formCompanyName : undefined,
@@ -152,6 +121,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         email: formEmail,
         billingAddress: {
           line1: formBillingLine1,
+          line2: formBillingLine2 || undefined,
           city: formBillingCity,
           postcode: formBillingPostcode.toUpperCase(),
         },
@@ -169,6 +139,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         email: formEmail,
         billingAddress: {
           line1: formBillingLine1,
+          line2: formBillingLine2 || undefined,
           city: formBillingCity,
           postcode: formBillingPostcode.toUpperCase(),
         },
@@ -186,10 +157,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         communicationPreference: formPref,
         gdprConsent: formGdpr,
       });
+      ok = !!newCustomer;
       if (newCustomer) setSelectedCustomerId(newCustomer.id);
     }
 
-    setShowCustomerModal(false);
+    setBusy(false);
+    if (ok) setShowCustomerModal(false); // stay open on failure so the form isn't lost
   };
 
   // Add extra service location to active customer
@@ -205,7 +178,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
       accessNotes: newSiteAccessNotes,
     };
 
-    await addCustomerLocation(selectedCustomer.id, newLoc);
+    setBusy(true);
+    const ok = editingSiteId ? await updateCustomerLocation(selectedCustomer.id, editingSiteId, newLoc) : await addCustomerLocation(selectedCustomer.id, newLoc);
+    setBusy(false);
+    if (!ok) return;
+    setEditingSiteId(null);
 
     setNewSiteLabel('');
     setNewSiteAddress1('');
@@ -213,26 +190,6 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     setNewSitePostcode('');
     setNewSiteAccessNotes('');
     setShowAddSiteForm(false);
-  };
-
-  const handleSiteLookup = async () => {
-    if (!newSitePostcode) return;
-    setIsSiteLookingUp(true);
-    try {
-      const results = await lookupPostcode(newSitePostcode);
-      setSiteLookupResults(results);
-    } catch (e) {
-      console.error('Site postcode lookup failed', e);
-    } finally {
-      setIsSiteLookingUp(false);
-    }
-  };
-
-  const selectSiteAddress = (addr: any) => {
-    setNewSiteAddress1(addr.addressLine1);
-    setNewSiteCity(addr.city);
-    setNewSitePostcode(addr.postcode);
-    setSiteLookupResults([]);
   };
 
   return (
@@ -253,20 +210,20 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           onClick={handleOpenAddModal}
           className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5 shrink-0"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Add Customer</span>
         </button>
       </div>
 
-      {/* Search & Filter Toolbar */}
+      {/* IconSearch & Filter Toolbar */}
       <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         <div className="relative w-full sm:w-80">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+          <IconSearch className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" aria-hidden="true" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by name, company, email, or postcode..."
+            aria-label="Search customers" name="search" autoComplete="off" placeholder="Search by name, company, email, or postcode…"
             className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
           />
         </div>
@@ -275,6 +232,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <div className="flex items-center bg-slate-100 p-0.5 rounded-md">
             <button
               onClick={() => setTypeFilter('all')}
+              aria-pressed={typeFilter === 'all'}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                 typeFilter === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
               }`}
@@ -283,6 +241,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
             </button>
             <button
               onClick={() => setTypeFilter('commercial')}
+              aria-pressed={typeFilter === 'commercial'}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                 typeFilter === 'commercial' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
               }`}
@@ -291,6 +250,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
             </button>
             <button
               onClick={() => setTypeFilter('residential')}
+              aria-pressed={typeFilter === 'residential'}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                 typeFilter === 'residential' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
               }`}
@@ -301,6 +261,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
           <button
             onClick={() => setShowArchived(!showArchived)}
+            aria-pressed={showArchived}
             className={`px-2.5 py-1 rounded text-xs font-medium border ${
               showArchived ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
             }`}
@@ -316,24 +277,24 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3">Customer / Company</th>
-                <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Contact</th>
-                <th className="py-2.5 px-3">Primary Service Location</th>
-                <th className="py-2.5 px-3">Sites</th>
-                <th className="py-2.5 px-3">GDPR</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th scope="col" className="py-2.5 px-3">Customer / Company</th>
+                <th scope="col" className="py-2.5 px-3">Type</th>
+                <th scope="col" className="py-2.5 px-3">Contact</th>
+                <th scope="col" className="py-2.5 px-3">Primary Service Location</th>
+                <th scope="col" className="py-2.5 px-3">Sites</th>
+                <th scope="col" className="py-2.5 px-3">GDPR</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredCustomers.map((c) => {
+              {paged.rows.map((c) => {
                 const primaryLoc = c.serviceLocations[0];
                 return (
                   <tr key={c.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3 px-3">
                       <button
                         onClick={() => setSelectedCustomerId(c.id)}
-                        className="text-left group focus:outline-none"
+                        className="text-left group rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                       >
                         <span className="font-bold text-slate-900 group-hover:text-sky-700 block">
                           {c.name}
@@ -377,7 +338,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     <td className="py-3 px-3">
                       {c.gdprConsent ? (
                         <span className="text-emerald-700 text-[11px] font-medium flex items-center gap-1">
-                          <CheckCircle className="w-3 h-3" />
+                          <IconCircleCheck className="w-3 h-3" aria-hidden="true" />
                           <span>Consent OK</span>
                         </span>
                       ) : (
@@ -389,23 +350,23 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => setSelectedCustomerId(c.id)}
-                          className="px-2 py-1 text-sky-700 hover:text-sky-900 hover:bg-sky-50 rounded font-semibold text-xs"
+                          aria-label={`360 view of ${c.name}`} className="px-2 py-1 text-sky-700 hover:text-sky-900 hover:bg-sky-50 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                         >
                           360 View
                         </button>
                         <button
                           onClick={() => handleOpenEditModal(c)}
                           className="p-1 text-slate-500 hover:text-slate-800 rounded"
-                          title="Edit Details"
+                          title="Edit Details" aria-label={`Edit ${c.name}`}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
+                          <IconPencil className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                         <button
                           onClick={() => archiveCustomer(c.id)}
                           className="p-1 text-slate-400 hover:text-slate-600 rounded"
-                          title={c.archived ? 'Restore' : 'Archive'}
+                          title={c.archived ? 'Restore' : 'Archive'} aria-label={`${c.archived ? 'Restore' : 'Archive'} ${c.name}`}
                         >
-                          <Archive className="w-3.5 h-3.5" />
+                          <IconArchive className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                       </div>
                     </td>
@@ -413,21 +374,20 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 );
               })}
 
-              {filteredCustomers.length === 0 && (
+              {paged.rows.length === 0 && !paged.loading && (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-400 text-xs">
-                    No customers found matching your criteria.
-                  </td>
+                  <td colSpan={7} className="py-6"><EmptyState icon={IconUsers}>No customers found matching your criteria.</EmptyState></td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {paged.pager}
       </div>
 
       {/* Customer 360 Drawer / Modal */}
       {selectedCustomer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-end bg-slate-900/40 backdrop-blur-2xs">
+        <div role="dialog" aria-modal="true" aria-label={`${selectedCustomer.name} account`} className="fixed inset-0 z-50 flex items-center justify-end bg-slate-900/40 backdrop-blur-2xs">
           <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
             {/* Drawer Header */}
             <div className="p-4 sm:p-5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
@@ -444,9 +404,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </div>
               <button
                 onClick={() => setSelectedCustomerId(null)}
-                className="p-1 text-slate-400 hover:text-slate-700"
+                aria-label="Close" className="p-1 text-slate-400 hover:text-slate-700"
               >
-                <X className="w-5 h-5" />
+                <IconX className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
@@ -477,7 +437,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     Service Locations ({selectedCustomer.serviceLocations.length})
                   </h3>
                   <button
-                    onClick={() => setShowAddSiteForm(!showAddSiteForm)}
+                    onClick={() => { setEditingSiteId(null); setNewSiteLabel(''); setNewSiteAddress1(''); setNewSiteCity(''); setNewSitePostcode(''); setNewSiteAccessNotes(''); setShowAddSiteForm(!showAddSiteForm); }}
                     className="text-xs font-semibold text-sky-700 hover:underline"
                   >
                     {showAddSiteForm ? 'Cancel' : '+ Add Location'}
@@ -491,7 +451,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       <input
                         type="text"
                         required
-                        placeholder="Site Label (e.g. Plant Room)"
+                        aria-label="Site label" placeholder="Site Label (e.g. Plant Room)"
                         value={newSiteLabel}
                         onChange={(e) => setNewSiteLabel(e.target.value)}
                         className="px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs"
@@ -499,7 +459,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       <input
                         type="text"
                         required
-                        placeholder="Address Line 1"
+                        aria-label="Address line 1" placeholder="Address Line 1"
                         value={newSiteAddress1}
                         onChange={(e) => setNewSiteAddress1(e.target.value)}
                         className="px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs"
@@ -509,7 +469,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       <input
                         type="text"
                         required
-                        placeholder="City"
+                        aria-label="City" placeholder="City"
                         value={newSiteCity}
                         onChange={(e) => setNewSiteCity(e.target.value)}
                         className="px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs"
@@ -517,7 +477,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       <input
                         type="text"
                         required
-                        placeholder="Postcode (e.g. SW19 4QW)"
+                        aria-label="Postcode" autoComplete="off" placeholder="Postcode (e.g. SW19 4QW)"
                         value={newSitePostcode}
                         onChange={(e) => setNewSitePostcode(e.target.value)}
                         className="px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs"
@@ -525,16 +485,16 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     </div>
                     <input
                       type="text"
-                      placeholder="Access Notes / Keycode"
+                      aria-label="Access notes" placeholder="Access Notes / Keycode"
                       value={newSiteAccessNotes}
                       onChange={(e) => setNewSiteAccessNotes(e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs"
                     />
                     <button
                       type="submit"
-                      className="w-full py-1.5 bg-sky-700 hover:bg-sky-800 text-white font-semibold rounded text-xs"
+                      disabled={busy} className="w-full py-1.5 bg-sky-700 hover:bg-sky-800 text-white font-semibold rounded text-xs disabled:opacity-60"
                     >
-                      Save Service Location
+                      {editingSiteId ? 'Update Service Location' : 'Save Service Location'}
                     </button>
                   </form>
                 )}
@@ -542,7 +502,26 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 <div className="space-y-2">
                   {selectedCustomer.serviceLocations.map((loc) => (
                     <div key={loc.id} className="p-3 bg-white border border-slate-200 rounded-lg">
-                      <span className="font-bold text-slate-900 block">{loc.label}</span>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-bold text-slate-900 block">{loc.label}</span>
+                        <span className="flex gap-2 shrink-0 text-[11px] font-semibold">
+                          <button
+                            onClick={() => {
+                              setEditingSiteId(loc.id); setNewSiteLabel(loc.label); setNewSiteAddress1(loc.addressLine1); setNewSiteCity(loc.city);
+                              setNewSitePostcode(loc.postcode); setNewSiteAccessNotes(loc.accessNotes || ''); setShowAddSiteForm(true);
+                            }}
+                            aria-label={`Edit ${loc.label}`} className="text-sky-700 hover:underline"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => window.confirm(`Remove ${loc.label}? Sites used by jobs or equipment can't be removed.`) && void removeCustomerLocation(selectedCustomer.id, loc.id)}
+                            aria-label={`Remove ${loc.label}`} className="text-rose-700 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </span>
+                      </div>
                       <p className="text-slate-600 mt-0.5">
                         {loc.addressLine1}, {loc.city} <strong className="font-mono text-slate-800">{loc.postcode}</strong>
                       </p>
@@ -566,11 +545,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                         <span className="font-semibold text-slate-900">{eq.brand} {eq.model}</span>
                         <span className="text-[11px] text-slate-500 block font-mono">S/N: {eq.serialNumber}</span>
                       </div>
-                      <span className="text-[11px] font-mono text-sky-700">Next: {eq.nextServiceDueDate}</span>
+                      <span className="text-[11px] font-mono text-sky-700">Next: {formatDateUK(eq.nextServiceDueDate)}</span>
                     </div>
                   ))}
                   {equipment.filter((e) => e.customerId === selectedCustomer.id).length === 0 && (
-                    <p className="text-slate-400 py-1">No equipment registered yet for this client.</p>
+                    <EmptyState icon={IconAirConditioning} compact>No equipment registered yet for this client.</EmptyState>
                   )}
                 </div>
               </div>
@@ -586,7 +565,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                         <span className="text-[11px] text-slate-500 block">{job.description}</span>
                       </div>
                       <div className="text-right">
-                        <span className="font-medium text-slate-800 block">{job.appointmentDate}</span>
+                        <span className="font-medium text-slate-800 block">{formatDateUK(job.appointmentDate)}</span>
                         <span className="text-[10px] uppercase font-bold text-sky-700">{job.status}</span>
                       </div>
                     </div>
@@ -639,7 +618,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
       {/* Customer Add/Edit Modal */}
       {showCustomerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div role="dialog" aria-modal="true" aria-label={editingCustomer ? 'Edit customer' : 'Add customer'} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900">
@@ -647,16 +626,16 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </h3>
               <button
                 onClick={() => setShowCustomerModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                aria-label="Close" className="text-slate-400 hover:text-slate-600 p-1"
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
 
             <form onSubmit={handleSaveCustomer} className="p-5 space-y-3 overflow-y-auto text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Customer Type</label>
-                <div className="flex gap-4">
+                <span id="cu-type" className="block font-semibold text-slate-700 mb-1">Customer Type</span>
+                <div role="radiogroup" aria-labelledby="cu-type" className="flex gap-4">
                   <label className="flex items-center gap-1.5 cursor-pointer">
                     <input
                       type="radio"
@@ -679,11 +658,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Primary Contact Name *</label>
-                <input
+                <label htmlFor="cu-1" className="block font-semibold text-slate-700 mb-1">Primary Contact Name *</label>
+                <input id="cu-1"
                   type="text"
                   required
-                  value={formName}
+                  name="name" autoComplete="off" value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder="e.g. Dr. Alistair Finch or Nigel Edwards"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
@@ -692,11 +671,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
               {formType === 'commercial' && (
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Company / Trading Name *</label>
-                  <input
+                  <label htmlFor="cu-2" className="block font-semibold text-slate-700 mb-1">Company / Trading Name *</label>
+                  <input id="cu-2"
                     type="text"
                     required
-                    value={formCompanyName}
+                    name="company" autoComplete="off" value={formCompanyName}
                     onChange={(e) => setFormCompanyName(e.target.value)}
                     placeholder="e.g. Crown Hospitality Group Ltd"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
@@ -706,22 +685,22 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Phone Number *</label>
-                  <input
+                  <label htmlFor="cu-3" className="block font-semibold text-slate-700 mb-1">Phone Number *</label>
+                  <input id="cu-3"
                     type="tel"
                     required
-                    value={formPhone}
+                    name="phone" autoComplete="off" value={formPhone}
                     onChange={(e) => setFormPhone(e.target.value)}
                     placeholder="e.g. 020 8940 3392"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Email Address *</label>
-                  <input
+                  <label htmlFor="cu-4" className="block font-semibold text-slate-700 mb-1">Email Address *</label>
+                  <input id="cu-4"
                     type="email"
                     required
-                    value={formEmail}
+                    name="email" autoComplete="off" spellCheck={false} value={formEmail}
                     onChange={(e) => setFormEmail(e.target.value)}
                     placeholder="e.g. client@example.co.uk"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
@@ -730,35 +709,45 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Billing Street Address</label>
-                <input
+                <label htmlFor="cu-5" className="block font-semibold text-slate-700 mb-1">Billing Street Address</label>
+                <input id="cu-5"
                   type="text"
                   required
-                  value={formBillingLine1}
+                  name="line1" autoComplete="off" value={formBillingLine1}
                   onChange={(e) => setFormBillingLine1(e.target.value)}
                   placeholder="e.g. 9 Heron Court, Richmond Green"
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                 />
               </div>
 
+              <div>
+                <label htmlFor="cu-6" className="block font-semibold text-slate-700 mb-1">Address Line 2</label>
+                <input id="cu-6"
+                  type="text"
+                  name="line2" autoComplete="off" value={formBillingLine2}
+                  onChange={(e) => setFormBillingLine2(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">City / Borough</label>
-                  <input
+                  <label htmlFor="cu-7" className="block font-semibold text-slate-700 mb-1">City / Borough</label>
+                  <input id="cu-7"
                     type="text"
                     required
-                    value={formBillingCity}
+                    name="city" autoComplete="off" value={formBillingCity}
                     onChange={(e) => setFormBillingCity(e.target.value)}
                     placeholder="e.g. London / Surrey"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">UK Postcode *</label>
-                  <input
+                  <label htmlFor="cu-8" className="block font-semibold text-slate-700 mb-1">UK Postcode *</label>
+                  <input id="cu-8"
                     type="text"
                     required
-                    value={formBillingPostcode}
+                    name="postcode" autoComplete="off" spellCheck={false} value={formBillingPostcode}
                     onChange={(e) => setFormBillingPostcode(e.target.value)}
                     placeholder="e.g. TW9 1NW"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono uppercase"
@@ -767,8 +756,18 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Communication Preference</label>
-                <select
+                <label htmlFor="cu-9" className="block font-semibold text-slate-700 mb-1">Notes</label>
+                <textarea id="cu-9"
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="cu-10" className="block font-semibold text-slate-700 mb-1">Communication Preference</label>
+                <select id="cu-10"
                   value={formPref}
                   onChange={(e) => setFormPref(e.target.value as any)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs bg-white"
@@ -799,7 +798,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg"
+                  disabled={busy} className="px-4 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg disabled:opacity-60"
                 >
                   {editingCustomer ? 'Update Customer' : 'Create Customer'}
                 </button>

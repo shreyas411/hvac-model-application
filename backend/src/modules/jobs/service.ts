@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { emailBookingConfirmed, emailEngineerOnTheWay } from '../notifications/templates.js';
 import type { Prisma } from '@prisma/client';
 import type { Job, JobStatus } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
@@ -22,6 +23,7 @@ type Row = Prisma.JobGetPayload<{ include: typeof include }>;
 
 const toJob = ({ legacyId, equipment, partsUsed, checklist, auditLog, refrigerantLogs, ...j }: Row) => ({
   ...plain(j, [], ['appointmentDate']),
+  slaBreached: !!j.slaDueAt && j.slaDueAt < new Date() && j.status === 'new',
   technicianId: j.technicianId, // null is meaningful here: unassigned
   equipmentIds: equipment.map((e) => e.equipmentId),
   refrigerantLogs: refrigerantLogs.map(({ jobId, ...l }) => plain(l)),
@@ -165,7 +167,11 @@ export type JobInput = Omit<Job, 'id' | 'jobNumber' | 'createdAt' | 'updatedAt' 
 
 /** Single entry point for creating jobs (direct, from request, from quotation). Numbering, refs, conflicts, audit. Joins `tx` when given. */
 export async function createJob(input: JobInput, who: Actor, tx?: Tx): Promise<Job> {
-  if (!tx) return prisma.$transaction((t) => createJob(input, who, t));
+  if (!tx) {
+    const job = await prisma.$transaction((t) => createJob(input, who, t));
+    if (job.status === 'scheduled') await emailBookingConfirmed(job); // after commit; callers that pass their own tx send it themselves
+    return job;
+  }
   const { auditAction, auditDetails, equipmentIds, checklist, appointmentDate, status, ...i } = input;
   await assertLocation(i.customerId, i.locationId, tx!);
   const equipment = await assertEquipment(equipmentIds, tx!);
@@ -175,11 +181,13 @@ export async function createJob(input: JobInput, who: Actor, tx?: Tx): Promise<J
     await assertCertifications(tx!, i.technicianId, i.requiredSkills);
   }
   await assertSlot(tx!, input);
+  const sla = i.type === 'preventive_maintenance' ? null : await tx!.maintenanceAgreement.aggregate({ where: { customerId: i.customerId, locationId: i.locationId, active: true, slaResponseHours: { not: null } }, _min: { slaResponseHours: true } });
+  const slaDueAt = sla?._min.slaResponseHours ? new Date(Date.now() + sla._min.slaResponseHours * 3_600_000) : undefined; // call-outs only: scheduled PM visits aren't response-timed
   return toJob(await tx!.job.create({
 
     include,
     data: {
-      ...i,
+      ...i, slaDueAt,
       appointmentDate: new Date(appointmentDate),
       status: status ?? (i.technicianId ? 'scheduled' : 'new'),
       jobNumber: await nextNumber('job', new Date(), tx!),
@@ -241,11 +249,13 @@ function assertCompletable(job: Job) {
   if (missing.length) throw unprocessable('NOT_COMPLETABLE', `Cannot complete job, missing: ${missing.join('; ')}`);
 }
 
-export function changeStatus(id: string, status: JobStatus, who: Actor, opts: { note?: string; override?: boolean } = {}) {
-  return prisma.$transaction(async (tx) => {
+export async function changeStatus(id: string, status: JobStatus, who: Actor, opts: { note?: string; override?: boolean } = {}) {
+  let from: JobStatus | undefined;
+  const updated = await prisma.$transaction(async (tx) => {
     await lockRow(tx, 'jobs', id); // serialises concurrent transitions: the second one re-reads the new status
     const job = await getJob(id, tx);
     if (status === job.status) return job;
+    from = job.status;
     if (opts.override && who.role !== 'admin') throw forbidden('Only admins may override the status workflow');
     if (opts.override && !opts.note?.trim()) throw unprocessable('REASON_REQUIRED', 'A reason (note) is required for a status override');
     if (!opts.override && !TRANSITIONS[job.status].includes(status))
@@ -267,6 +277,9 @@ export function changeStatus(id: string, status: JobStatus, who: Actor, opts: { 
       },
     }));
   });
+  if (from && status === 'scheduled' && from !== 'scheduled') await emailBookingConfirmed(updated);
+  if (from && status === 'dispatched' && from === 'scheduled') await emailEngineerOnTheWay(updated);
+  return updated;
 }
 
 /** Technician-role guard: own jobs only, limited status targets. */

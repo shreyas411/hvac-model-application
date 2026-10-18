@@ -1,25 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Job, JobStatus, Priority, JobType } from '../../types';
-import { formatGBP, formatDateUK, getTodayISO, canMoveJob } from '../../utils/formatters';
-import {
-  Calendar as CalendarIcon,
-  Clock, 
-  AlertTriangle, 
-  Plus, 
-  User, 
-  MapPin, 
-  CheckCircle2, 
-  Wrench, 
-  History, 
-  Edit2, 
-  Trash2, 
-  FileText,
-  ChevronLeft,
-  ChevronRight,
-  List,
-  Grid
-} from 'lucide-react';
+import { formatDateUK, getTodayISO, addDaysISO, canMoveJob } from '../../utils/formatters';
+import { useEscape } from '../../utils/useEscape';
+import { IconAlertTriangle, IconChevronLeft, IconChevronRight, IconLayoutGrid, IconList, IconMapPin, IconPlus } from '@tabler/icons-react';
+import { useServerPaged } from '../common/Pager';
 
 interface DispatchBoardViewProps {
   onOpenQuickAction: (action: 'job') => void;
@@ -32,19 +17,18 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   selectedJobId,
   onSelectJob,
 }) => {
-  console.log('%c[SCHE-DEBUG] 🛠️ DispatchBoardView Component Mounted', 'color: #ff00ff; font-weight: bold;');
   const {
     jobs,
     technicians,
     customers,
-    equipment,
     updateJob,
 
     updateJobStatus, 
     checkScheduleConflict,
     currentUser,
-    parts
-  } = useApp();
+    customerById,
+  } = useApp(['jobs', 'technicians', 'customers', 'updateJob', 'updateJobStatus', 'checkScheduleConflict', 'currentUser', 'customerById']);
+  const paged = useServerPaged<Job>('/jobs', {}, jobs);
 
   const [viewMode, setViewMode] = useState<'board' | 'list' | 'calendar'>('board');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayISO()); // Today
@@ -59,6 +43,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   const [modalDescription, setModalDescription] = useState<string>('');
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
   const [certWarning, setCertWarning] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false); // guards double-save
 
   const openEditModal = (job: Job) => {
     setEditingJob(job);
@@ -70,6 +55,8 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     setConflictWarning(null);
     setCertWarning(null);
   };
+
+  useEscape(!!editingJob, () => setEditingJob(null));
 
   const handleModalSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,8 +80,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
             ...(missingLicenses.length ? [`Missing licenses: ${missingLicenses.join(', ')}`] : [])
           ].join('; ');
 
-          console.warn('[Scheduling Guard] Blocked by Certification Gap:', details);
-          setCertWarning(`Certification Gap: Technician lacks required qualifications for this job. ${details}`);
+                setCertWarning(`Certification Gap: Technician lacks required qualifications for this job. ${details}`);
           return;
         }
       }
@@ -125,29 +111,22 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
         (parseInt(modalStartTime.split(':')[0]) * 60 + parseInt(modalStartTime.split(':')[1])))
     );
 
-    console.log('%c[DEBUG] 🚀 Step 1: handleModalSave triggered', 'color: blue; font-weight: bold; font-size: 14px;');
-    console.log('[DEBUG] Current state:', { modalDate, modalStartTime, modalEndTime, modalTechnicianId });
-
-    try {
-      await updateJob(
-        editingJob.id,
-        {
-          appointmentDate: modalDate,
-          startTime: modalStartTime,
-          endTime: modalEndTime,
-          technicianId: modalTechnicianId || null,
-          description: modalDescription,
-          estimatedDurationMinutes: durationMins,
-          status: editingJob.status === 'new' && modalTechnicianId ? 'scheduled' : editingJob.status,
-        },
-        `Rescheduled appointment to ${modalDate} ${modalStartTime}-${modalEndTime} (${modalTechnicianId ? 'Assigned' : 'Unassigned'})`
-      );
-      console.log('%c[DEBUG] ✅ Step 2: updateJob call completed successfully', 'color: green; font-weight: bold; font-size: 14px;');
-    } catch (e) {
-      console.error('%c[DEBUG] ❌ Step 2: updateJob call failed', 'color: red; font-weight: bold; font-size: 14px;', e);
-    }
-
-    setEditingJob(null);
+    setBusy(true);
+    const ok = await updateJob(
+      editingJob.id,
+      {
+        appointmentDate: modalDate,
+        startTime: modalStartTime,
+        endTime: modalEndTime,
+        technicianId: modalTechnicianId || null,
+        description: modalDescription,
+        estimatedDurationMinutes: durationMins,
+        status: editingJob.status === 'new' && modalTechnicianId ? 'scheduled' : editingJob.status,
+      },
+      `Rescheduled appointment to ${modalDate} ${modalStartTime}-${modalEndTime} (${modalTechnicianId ? 'Assigned' : 'Unassigned'})`
+    );
+    setBusy(false);
+    if (ok) setEditingJob(null); // stay open on failure so the edits aren't lost
   };
 
 
@@ -188,21 +167,23 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
           <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
             <button
               onClick={() => setViewMode('board')}
+              aria-pressed={viewMode === 'board'}
               className={`px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
                 viewMode === 'board' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Grid className="w-3.5 h-3.5" />
+              <IconLayoutGrid className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Dispatch Board</span>
             </button>
             <button
               onClick={() => setViewMode('list')}
+              aria-pressed={viewMode === 'list'}
               className={`px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
                 viewMode === 'list' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <List className="w-3.5 h-3.5" />
-              <span>List View</span>
+              <IconList className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>IconList View</span>
             </button>
           </div>
 
@@ -210,7 +191,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
             onClick={() => onOpenQuickAction('job')}
             className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Book New Job</span>
           </button>
         </div>
@@ -221,14 +202,12 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
-              const d = new Date(selectedDate);
-              d.setDate(d.getDate() - 1);
-              setSelectedDate(d.toISOString().split('T')[0]);
+              setSelectedDate(addDaysISO(selectedDate, -1));
             }}
             className="p-1.5 hover:bg-slate-100 rounded border border-slate-200"
-            title="Previous Day"
+            title="Previous Day" aria-label="Previous day"
           >
-            <ChevronLeft className="w-4 h-4 text-slate-600" />
+            <IconChevronLeft className="w-4 h-4 text-slate-600" aria-hidden="true" />
           </button>
 
           <span className="font-bold text-slate-900 text-sm px-2">
@@ -237,14 +216,12 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
 
           <button
             onClick={() => {
-              const d = new Date(selectedDate);
-              d.setDate(d.getDate() + 1);
-              setSelectedDate(d.toISOString().split('T')[0]);
+              setSelectedDate(addDaysISO(selectedDate, 1));
             }}
             className="p-1.5 hover:bg-slate-100 rounded border border-slate-200"
-            title="Next Day"
+            title="Next Day" aria-label="Next day"
           >
-            <ChevronRight className="w-4 h-4 text-slate-600" />
+            <IconChevronRight className="w-4 h-4 text-slate-600" aria-hidden="true" />
           </button>
 
           <button
@@ -279,11 +256,12 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               {jobs
                 .filter((j) => !j.technicianId && j.status !== 'cancelled')
                 .map((job) => {
-                  const cust = customers.find((c) => c.id === job.customerId);
+                  const cust = customerById.get(job.customerId);
                   return (
                     <div
                       key={job.id}
                       onClick={() => openEditModal(job)}
+                      role="button" tabIndex={0} aria-label={`Open ${job.jobNumber}`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditModal(job); } }}
                       className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:border-sky-300 cursor-pointer space-y-2 transition-all"
                     >
                       <div className="flex items-center justify-between">
@@ -291,6 +269,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                         <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${priorityBadges[job.priority]}`}>
                           {job.priority}
                         </span>
+                        {job.slaBreached && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-600 text-white">SLA breached</span>}
                       </div>
                       <p className="text-xs font-semibold text-slate-800 line-clamp-1">{cust?.name}</p>
                       <p className="text-[11px] text-slate-500 line-clamp-2">{job.description}</p>
@@ -344,7 +323,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                 {/* Assigned Job Cards */}
                 <div className="space-y-3 flex-1 overflow-y-auto">
                   {techJobs.map((job) => {
-                    const cust = customers.find((c) => c.id === job.customerId);
+                    const cust = customerById.get(job.customerId);
                     const loc = cust?.serviceLocations.find((l) => l.id === job.locationId);
                     const statusInfo = statusColors[job.status] || statusColors.scheduled;
 
@@ -352,6 +331,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                       <div
                         key={job.id}
                         onClick={() => openEditModal(job)}
+                        role="button" tabIndex={0} aria-label={`Open ${job.jobNumber}`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditModal(job); } }}
                         className={`p-3 rounded-lg border shadow-2xs hover:shadow-sm cursor-pointer space-y-2 transition-all ${statusInfo.bg}`}
                       >
                         <div className="flex items-center justify-between">
@@ -361,6 +341,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                           <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${priorityBadges[job.priority]}`}>
                             {job.priority}
                           </span>
+                          {job.slaBreached && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-600 text-white">SLA breached</span>}
                         </div>
 
                         <div>
@@ -368,7 +349,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                             {cust?.name}
                           </span>
                           <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                            <IconMapPin className="w-3 h-3 text-slate-400 shrink-0" aria-hidden="true" />
                             <span className="truncate">{loc?.addressLine1}, {loc?.postcode}</span>
                           </span>
                         </div>
@@ -399,12 +380,12 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
         </div>
       )}
 
-      {/* List View Mode */}
+      {/* IconList View Mode */}
       {viewMode === 'list' && (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="p-3 border-b border-slate-100 flex items-center justify-between">
             <span className="text-xs font-bold text-slate-900">
-              All Scheduled Jobs ({jobs.length})
+              All Scheduled Jobs ({paged.total})
             </span>
           </div>
 
@@ -412,19 +393,19 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                 <tr>
-                  <th className="py-2.5 px-3">Job Number</th>
-                  <th className="py-2.5 px-3">Date & Time</th>
-                  <th className="py-2.5 px-3">Type</th>
-                  <th className="py-2.5 px-3">Customer & Location</th>
-                  <th className="py-2.5 px-3">Technician</th>
-                  <th className="py-2.5 px-3">Priority</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 text-right">Actions</th>
+                  <th scope="col" className="py-2.5 px-3">Job Number</th>
+                  <th scope="col" className="py-2.5 px-3">Date & Time</th>
+                  <th scope="col" className="py-2.5 px-3">Type</th>
+                  <th scope="col" className="py-2.5 px-3">Customer & Location</th>
+                  <th scope="col" className="py-2.5 px-3">Technician</th>
+                  <th scope="col" className="py-2.5 px-3">Priority</th>
+                  <th scope="col" className="py-2.5 px-3">Status</th>
+                  <th scope="col" className="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {jobs.map((job) => {
-                  const cust = customers.find((c) => c.id === job.customerId);
+                {paged.rows.map((job) => {
+                  const cust = customerById.get(job.customerId);
                   const tech = technicians.find((t) => t.id === job.technicianId);
                   const loc = cust?.serviceLocations.find((l) => l.id === job.locationId);
 
@@ -455,6 +436,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                         <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${priorityBadges[job.priority]}`}>
                           {job.priority}
                         </span>
+                        {job.slaBreached && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-600 text-white">SLA breached</span>}
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         <span className="capitalize text-slate-700 font-medium">
@@ -464,7 +446,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                       <td className="py-2.5 px-3 text-right">
                         <button
                           onClick={() => openEditModal(job)}
-                          className="px-2 py-1 text-xs text-sky-700 hover:text-sky-900 font-semibold hover:bg-sky-50 rounded"
+                          aria-label={`Edit or reassign ${job.jobNumber}`} className="px-2 py-1 text-xs text-sky-700 hover:text-sky-900 font-semibold hover:bg-sky-50 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                         >
                           Edit / Reassign
                         </button>
@@ -475,12 +457,13 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               </tbody>
             </table>
           </div>
+          {paged.pager}
         </div>
       )}
 
       {/* Reschedule / Reassign Modal with Scheduling Conflict Warning */}
       {editingJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div role="dialog" aria-modal="true" aria-label={`Reschedule ${editingJob.jobNumber}`} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
@@ -493,9 +476,9 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               </div>
               <button
                 onClick={() => setEditingJob(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                aria-label="Close" className="text-slate-400 hover:text-slate-600 p-1"
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
 
@@ -503,8 +486,8 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               
               {/* Conflict warning banner */}
               {conflictWarning && (
-                <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
+                  <IconAlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="text-xs">
                     <p className="font-bold">Scheduling Conflict!</p>
                     <p className="mt-0.5">{conflictWarning}</p>
@@ -519,8 +502,8 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
 
               {/* Certification warning banner */}
               {certWarning && (
-                <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div role="alert" className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 flex items-start gap-2">
+                  <IconAlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="text-xs">
                     <p className="font-bold">Certification Requirement Gap!</p>
                     <p className="mt-0.5">{certWarning}</p>
@@ -531,11 +514,11 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
 
               {/* Technician selection */}
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
+                <label htmlFor="ds-tech" className="block font-semibold text-slate-700 mb-1">
                   Assign Technician
                 </label>
                 <select
-                  value={modalTechnicianId}
+                  id="ds-tech" value={modalTechnicianId}
                   onChange={(e) => {
                     setModalTechnicianId(e.target.value);
                     setConflictWarning(null);
@@ -555,11 +538,11 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
               {/* Date & times */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Appointment Date</label>
+                  <label htmlFor="ds-date" className="block font-semibold text-slate-700 mb-1">Appointment Date</label>
                   <input
                     type="date"
                     required
-                    value={modalDate}
+                    id="ds-date" value={modalDate}
                     onChange={(e) => {
                       setModalDate(e.target.value);
                       setConflictWarning(null);
@@ -568,11 +551,11 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Start Time</label>
+                  <label htmlFor="ds-start" className="block font-semibold text-slate-700 mb-1">Start Time</label>
                   <input
                     type="time"
                     required
-                    value={modalStartTime}
+                    id="ds-start" value={modalStartTime}
                     onChange={(e) => {
                       setModalStartTime(e.target.value);
                       setConflictWarning(null);
@@ -581,11 +564,11 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">End Time</label>
+                  <label htmlFor="ds-end" className="block font-semibold text-slate-700 mb-1">End Time</label>
                   <input
                     type="time"
                     required
-                    value={modalEndTime}
+                    id="ds-end" value={modalEndTime}
                     onChange={(e) => {
                       setModalEndTime(e.target.value);
                       setConflictWarning(null);
@@ -597,10 +580,10 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
 
               {/* Work description */}
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Work Instructions</label>
+                <label htmlFor="ds-desc" className="block font-semibold text-slate-700 mb-1">Work Instructions</label>
                 <textarea
                   rows={2}
-                  value={modalDescription}
+                  id="ds-desc" name="description" value={modalDescription}
                   onChange={(e) => setModalDescription(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-sky-500"
                 />
@@ -618,6 +601,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                       key={st}
                       type="button"
                       disabled={current !== st && !forced && !canMoveJob(current, st)}
+                      aria-pressed={current === st}
                       onClick={() => updateJobStatus(editingJob.id, st, undefined, forced || undefined)}
                       className={`px-2 py-1 rounded text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed ${
                         current === st
@@ -644,7 +628,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                 <div className="max-h-24 overflow-y-auto space-y-1 bg-slate-50 p-2 rounded border border-slate-200 text-[10px]">
                   {editingJob.auditTrail.map((log, idx) => (
                     <div key={idx} className="text-slate-600">
-                      <span className="font-semibold text-slate-900">{log.action}</span> by {log.userName} at {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: {log.details}
+                      <span className="font-semibold text-slate-900">{log.action}</span> by {log.userName} at {new Date(log.timestamp).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}: {log.details}
                     </div>
                   ))}
                 </div>
@@ -661,9 +645,9 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700"
+                  disabled={busy} className="px-4 py-1.5 rounded text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-60"
                 >
-                  Save Schedule
+                  {busy ? 'Saving…' : 'Save Schedule'}
                 </button>
               </div>
             </form>

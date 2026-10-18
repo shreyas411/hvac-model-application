@@ -37,3 +37,7 @@ The job lands unassigned on the dispatch board for the dispatcher to schedule; i
 
 - Fixed 14-day lead time, fixed 09:00 slot; neither is configurable.
 - No billing automation: invoices are still generated from the completed job.
+
+## Updates: price, term and SLA
+
+Agreement form adds **annual price** (ex-VAT, with *auto-invoice*), **term end date** with *auto-renew* (past the term an agreement deactivates unless auto-renew rolls it on), and **SLA hours**. The list row summarises them (`£x/yr auto-invoiced · renews yyyy-mm-dd · SLA nh`). Call-outs at the site get `slaDueAt`; see [maintenance.md](../../backend/docs/api/maintenance.md). Not done: SLA breach alerts, renewal repricing or customer notice.

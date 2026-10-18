@@ -34,6 +34,7 @@ export const INITIAL_SETTINGS: CompanySettings = {
   workingHoursStart: '08:00',
   workingHoursEnd: '17:30',
   enableInventory: true,
+  autoSendEmails: false,
   prefixJob: 'JOB-',
   prefixQuote: 'QTE-',
   prefixInvoice: 'INV-',

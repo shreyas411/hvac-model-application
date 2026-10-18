@@ -33,6 +33,7 @@ Each area below has its own deep-dive file in [`docs/features/`](docs/features/)
 | Reports | [reports-features.md](docs/features/reports-features.md) |
 | Settings | [settings-features.md](docs/features/settings-features.md) |
 | Checklist Templates | [checklists-features.md](docs/features/checklists-features.md) |
+| Audit Log | [audit-log-features.md](docs/features/audit-log-features.md) |
 
 ## Cross-cutting
 
@@ -47,4 +48,4 @@ Each area below has its own deep-dive file in [`docs/features/`](docs/features/)
 | Offline mode & installable app | [offline-and-pwa-features.md](docs/features/offline-and-pwa-features.md) |
 | Security & authentication | [security-and-auth-features.md](docs/features/security-and-auth-features.md) |
 
-Backend endpoints are documented in [`backend/docs/api/`](backend/docs/api/README.md); open gaps are tracked in [LOOPHOLES.md](LOOPHOLES.md). See [README.md](README.md) for setup and project structure.
+Backend endpoints are documented in [`backend/docs/api/`](backend/docs/api/README.md); open gaps are tracked in [LOOPHOLES.md](LOOPHOLES.md) and planned work in [docs/ROADMAP.md](docs/ROADMAP.md). See [README.md](README.md) for setup and project structure.

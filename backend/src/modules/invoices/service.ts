@@ -11,6 +11,8 @@ import { date, isUuid, lockRow, plain, prisma, refer, type Tx } from '../../comm
 import { getSettings } from '../settings/service.js';
 import { getJob } from '../jobs/service.js';
 import { assertLocation } from '../customers/service.js';
+import { createNotification } from '../notifications/service.js';
+import { emailInvoiceIssued } from '../notifications/templates.js';
 
 const include = {
   items: { orderBy: { position: 'asc' } },
@@ -29,24 +31,39 @@ export async function getInvoice(id: string, c: Tx = prisma) {
   if (!row) throw notFound('Invoice');
   return toInvoice(row);
 }
-export const pageInvoices = (query: unknown) => pageFrom(query, prisma.invoice, { include, searchFields: ['invoiceNumber', 'notes'] }, toInvoice);
+export const pageInvoices = (query: unknown) => pageFrom(query, prisma.invoice, { include, searchFields: ['invoiceNumber', 'notes', 'customer.name'] }, toInvoice);
 export const listInvoices = async () => (await prisma.invoice.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toInvoice);
 
-export type ItemInput = Pick<LineItem, 'type' | 'description' | 'quantity' | 'unitPrice' | 'vatRatePercent'>;
+export type ItemInput = Pick<LineItem, 'type' | 'description' | 'quantity' | 'unitPrice' | 'vatRatePercent' | 'option'>;
 /** Line-item rows with server-computed amounts (client floats are never trusted). */
 export const lineRows = (items: ItemInput[]) =>
-  items.map((i, position) => ({ type: i.type, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice, vatRatePercent: i.vatRatePercent, amount: round2(i.quantity * i.unitPrice), position }));
+  items.map((i, position) => ({ type: i.type, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice, vatRatePercent: i.vatRatePercent, ...(i.option && { option: i.option }), amount: round2(i.quantity * i.unitPrice), position }));
 
 export type InvoiceInput = {
   customerId: string; locationId: string; quoteId?: string; jobId?: string; items: ItemInput[];
   vatRatePercent?: number; issueDate?: string; paymentTermsDays?: number; dueDate?: string; notes?: string;
   status?: 'draft' | 'issued';
+  reverseCharge?: boolean; cisRatePercent?: number; retentionPercent?: number;
 };
 
-type Rows = ReturnType<typeof lineRows>;
-type Totals = { subtotal: number; vatAmount: number; total: number };
+type Terms = Pick<InvoiceInput, 'reverseCharge' | 'cisRatePercent' | 'retentionPercent'>;
+/**
+ * Totals plus the amounts withheld from what the customer pays now. Reverse charge zeroes VAT; CIS is taken on labour lines only (ex VAT);
+ * retention is a share of the gross total. ponytail: credit notes don't scale either, release retention before crediting if that matters.
+ */
+function priced(rows: Rows, vat: number, t: Terms) {
+  const rate = t.reverseCharge ? 0 : vat;
+  const tt = totals(rows.map((r) => ({ ...r, vatRatePercent: t.reverseCharge ? 0 : r.vatRatePercent })), rate);
+  const labour = round2(rows.filter((r) => r.type === 'labour').reduce((a, r) => a + r.amount, 0));
+  const cis = t.cisRatePercent ?? 0, ret = t.retentionPercent ?? 0;
+  return { ...tt, vatRatePercent: rate, reverseCharge: !!t.reverseCharge, cisRatePercent: cis, cisDeduction: round2((labour * cis) / 100), retentionPercent: ret, retentionHeld: round2((tt.total * ret) / 100) };
+}
+const withheld = (i: { cisDeduction: number; retentionHeld: number }) => round2(i.cisDeduction + i.retentionHeld);
 
-async function insertInvoice(tx: Tx, i: Omit<InvoiceInput, 'items' | 'vatRatePercent'>, rows: Rows, vat: number, t: Totals) {
+type Rows = ReturnType<typeof lineRows>;
+type Totals = Pick<ReturnType<typeof priced>, 'subtotal' | 'vatAmount' | 'total'> & Partial<ReturnType<typeof priced>>;
+
+async function insertInvoice(tx: Tx, i: Omit<InvoiceInput, 'items' | 'vatRatePercent' | keyof Terms>, rows: Rows, vat: number, t: Totals) {
   await assertLocation(i.customerId, i.locationId);
   if (i.quoteId && (!isUuid(i.quoteId) || !(await tx.quotation.count({ where: { id: i.quoteId } })))) throw notFound('Quotation');
   if (i.jobId) await getJob(i.jobId, tx);
@@ -57,17 +74,18 @@ async function insertInvoice(tx: Tx, i: Omit<InvoiceInput, 'items' | 'vatRatePer
     data: {
       invoiceNumber: await nextNumber('invoice', new Date(), tx), quoteId: i.quoteId, jobId: i.jobId, customerId: i.customerId, locationId: i.locationId,
       issueDate: new Date(issueDate), dueDate: new Date(i.dueDate ?? addDays(issueDate, terms)), status: i.status ?? 'issued',
-      ...t, vatRatePercent: vat, amountPaid: 0, balanceDue: t.total, paymentTermsDays: terms, notes: i.notes,
+      ...t, vatRatePercent: vat, amountPaid: 0, balanceDue: round2(t.total - round2((t.cisDeduction ?? 0) + (t.retentionHeld ?? 0))), paymentTermsDays: terms, notes: i.notes,
       items: { create: rows },
     },
   }));
 }
 
-export async function createInvoice({ items, vatRatePercent, ...i }: InvoiceInput, tx?: Tx): Promise<Invoice> {
-  if (!tx) return prisma.$transaction((t) => createInvoice({ items, vatRatePercent, ...i }, t));
+export async function createInvoice({ items, vatRatePercent, reverseCharge, cisRatePercent, retentionPercent, ...i }: InvoiceInput, tx?: Tx): Promise<Invoice> {
+  if (!tx) return prisma.$transaction((t) => createInvoice({ items, vatRatePercent, reverseCharge, cisRatePercent, retentionPercent, ...i }, t));
   const rows = lineRows(items);
   const vat = vatRatePercent ?? (await getSettings()).defaultVatRate;
-  return insertInvoice(tx, i, rows, vat, totals(rows, vat));
+  const t = priced(rows, vat, { reverseCharge, cisRatePercent, retentionPercent });
+  return insertInvoice(tx, i, rows, t.vatRatePercent, t);
 }
 
 export function updateInvoice(id: string, patch: Partial<InvoiceInput>) {
@@ -75,25 +93,26 @@ export function updateInvoice(id: string, patch: Partial<InvoiceInput>) {
     await lockRow(tx, 'invoices', id);
     const inv = await getInvoice(id, tx);
     if (inv.status === 'void') throw conflict('INVOICE_VOID', 'Invoice is void');
-    const money = patch.items || patch.vatRatePercent !== undefined;
+    const money = patch.items || patch.vatRatePercent !== undefined || patch.reverseCharge !== undefined || patch.cisRatePercent !== undefined || patch.retentionPercent !== undefined;
     if (money && inv.status !== 'draft') throw conflict('NOT_EDITABLE', 'Line items and VAT can only change while draft');
     const { items, vatRatePercent, dueDate, notes, paymentTermsDays, issueDate } = patch;
     const rows = lineRows(items ?? inv.items);
-    const vat = vatRatePercent ?? inv.vatRatePercent;
-    const t = totals(rows, vat);
+    const t = priced(rows, vatRatePercent ?? inv.vatRatePercent, {
+      reverseCharge: patch.reverseCharge ?? inv.reverseCharge, cisRatePercent: patch.cisRatePercent ?? inv.cisRatePercent, retentionPercent: patch.retentionPercent ?? inv.retentionPercent,
+    });
     return toInvoice(await tx.invoice.update({
       where: { id }, include,
       data: {
         ...(dueDate && { dueDate: new Date(dueDate) }), ...(notes !== undefined && { notes }), ...(issueDate && { issueDate: new Date(issueDate) }),
-        ...(paymentTermsDays && { paymentTermsDays }), vatRatePercent: vat, ...t, balanceDue: round2(t.total - inv.amountPaid),
+        ...(paymentTermsDays && { paymentTermsDays }), ...t, balanceDue: round2(t.total - withheld(t) - inv.amountPaid),
         ...(items && { items: { deleteMany: {}, create: rows } }),
       },
     }));
   });
 }
 
-export function issueInvoice(id: string, who: Actor) {
-  return prisma.$transaction(async (tx) => {
+export async function issueInvoice(id: string, who: Actor) {
+  const issued = await prisma.$transaction(async (tx) => {
     await lockRow(tx, 'invoices', id);
     const inv = await getInvoice(id, tx);
     if (inv.status !== 'draft') throw conflict('NOT_DRAFT', 'Only draft invoices can be issued');
@@ -101,14 +120,16 @@ export function issueInvoice(id: string, who: Actor) {
     await audit(tx, 'invoice', id, who, 'issued', inv.invoiceNumber);
     return toInvoice(await tx.invoice.update({ where: { id }, data: { status: 'issued' }, include }));
   });
+  await emailInvoiceIssued(issued);
+  return issued;
 }
 
 const sum = (n: { _sum: { amount: unknown } }) => Number(n._sum.amount ?? 0);
 const creditedTotal = async (tx: Tx, invoiceId: string) => sum(await tx.creditNote.aggregate({ where: { invoiceId }, _sum: { amount: true } }));
 
 /** Balance and status after payments/credits/refunds. `credited` = fully written off by credit notes. */
-function settle(total: number, amountPaid: number, credited: number) {
-  const balanceDue = Math.max(0, round2(total - credited - amountPaid));
+function settle(total: number, amountPaid: number, credited: number, held: number) {
+  const balanceDue = Math.max(0, round2(total - credited - held - amountPaid));
   const status = credited >= total - 0.005 ? 'credited' as const : balanceDue <= 0.01 ? 'paid' as const : amountPaid > 0 ? 'partially_paid' as const : 'issued' as const;
   return { balanceDue, status };
 }
@@ -123,10 +144,23 @@ export function recordPayment(id: string, p: Omit<PaymentRecord, 'id' | 'recorde
     if (p.reference && (await tx.payment.count({ where: { invoiceId: id, reference: p.reference, refunded: false } })))
       throw conflict('DUPLICATE_PAYMENT_REFERENCE', `Payment reference ${p.reference} is already recorded on this invoice`);
     const amountPaid = round2(inv.amountPaid + p.amount);
-    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, id));
+    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, id), withheld(inv));
     const pay = await tx.payment.create({ data: { invoiceId: id, date: new Date(p.date), amount: p.amount, method: p.method, reference: p.reference, recordedBy: who.name, notes: p.notes } });
     await audit(tx, 'invoice', id, who, 'payment recorded', `${p.amount.toFixed(2)} via ${p.method} (${pay.id})`);
     return toInvoice(await tx.invoice.update({ where: { id }, include, data: { amountPaid, balanceDue, status } }));
+  });
+}
+
+/** Retention is paid out: it becomes due again (status/balance recomputed). The released amount is kept in the audit log. */
+export function releaseRetention(id: string, who: Actor) {
+  return prisma.$transaction(async (tx) => {
+    await lockRow(tx, 'invoices', id);
+    const inv = await getInvoice(id, tx);
+    if (inv.status === 'draft' || inv.status === 'void') throw conflict('NOT_PAYABLE', `Cannot release retention on a ${inv.status} invoice`);
+    if (!inv.retentionHeld) throw conflict('NO_RETENTION', 'No retention is being held on this invoice');
+    const { balanceDue, status } = settle(inv.total, inv.amountPaid, await creditedTotal(tx, id), inv.cisDeduction);
+    await audit(tx, 'invoice', id, who, 'retention released', inv.retentionHeld.toFixed(2));
+    return toInvoice(await tx.invoice.update({ where: { id }, include, data: { retentionHeld: 0, balanceDue, status } }));
   });
 }
 
@@ -155,7 +189,7 @@ export function creditInvoice(id: string, c: { amount: number; reason: string },
     // VAT is the credited share of the invoice's VAT (amount is gross)
     const vatAmount = inv.total ? round2((c.amount * inv.vatAmount) / inv.total) : 0;
     const credit = await tx.creditNote.create({ data: { creditNumber: await nextNumber('credit', new Date(), tx), invoiceId: id, amount: c.amount, vatAmount, reason: c.reason, createdBy: who.name } });
-    const { balanceDue, status } = settle(inv.total, inv.amountPaid, round2(already + c.amount));
+    const { balanceDue, status } = settle(inv.total, inv.amountPaid, round2(already + c.amount), withheld(inv));
     await audit(tx, 'invoice', id, who, 'credit note', `${credit.creditNumber}: ${c.amount.toFixed(2)} (${c.reason})`);
     return { creditNote: { ...plain(credit), createdAt: credit.createdAt.toISOString() }, invoice: toInvoice(await tx.invoice.update({ where: { id }, include, data: { balanceDue, status } })) };
   });
@@ -170,7 +204,7 @@ export function refundPayment(invoiceId: string, paymentId: string, reason: stri
     if (!pay) throw notFound('Payment');
     if (pay.refunded) throw conflict('ALREADY_REFUNDED', 'Payment already refunded');
     const amountPaid = round2(inv.amountPaid - Number(pay.amount));
-    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, invoiceId));
+    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, invoiceId), withheld(inv));
     await tx.payment.update({ where: { id: paymentId }, data: { refunded: true } });
     await audit(tx, 'invoice', invoiceId, who, 'payment refunded', `${Number(pay.amount).toFixed(2)} (${paymentId}): ${reason}`);
     return toInvoice(await tx.invoice.update({ where: { id: invoiceId }, include, data: { amountPaid, balanceDue, status } }));
@@ -208,9 +242,49 @@ export async function fromQuotation(q: Quotation, tx: Tx) {
   }, rows, q.vatRatePercent, { subtotal: q.subtotal, vatAmount: q.vatAmount, total: q.total });
 }
 
+/**
+ * Deposit / stage / final invoice for an accepted quote, one invoice (row) per stage. Stages bill a percent of the quote subtotal as a single line;
+ * the final invoice (remaining percent) is the full quote with each earlier stage deducted. ponytail: stage lines use the quote's document VAT rate, not per-line rates.
+ */
+export function createStageInvoice(quoteId: string, s: { percent?: number; label?: string; final?: boolean }) {
+  return prisma.$transaction(async (tx) => {
+    await lockRow(tx, 'quotations', quoteId);
+    const row = isUuid(quoteId) ? await tx.quotation.findUnique({ where: { id: quoteId }, include: { items: { orderBy: { position: 'asc' } } } }) : null;
+    if (!row) throw notFound('Quotation');
+    if (row.status !== 'accepted') throw conflict('NOT_ACCEPTED', 'Quotation must be accepted first');
+    if (row.convertedToInvoiceId) throw conflict('ALREADY_CONVERTED', `${row.quoteNumber} is already fully invoiced`);
+    const prior = await tx.invoice.findMany({ where: { quoteId, stageLabel: { not: null }, status: { not: 'void' } }, orderBy: { createdAt: 'asc' } });
+    const remaining = round2(100 - prior.reduce((a, i) => a + Number(i.stagePercent), 0));
+    const percent = s.final ? remaining : s.percent;
+    if (!percent || percent > remaining) throw unprocessable('BAD_STAGE_PERCENT', `${row.quoteNumber} has ${remaining}% left to invoice`);
+    const label = s.label?.trim() || (s.final ? 'Final' : `Stage ${prior.length + 1}`);
+    const vat = Number(row.vatRatePercent);
+    const base = { customerId: row.customerId, locationId: row.locationId, quoteId, jobId: row.jobId ?? undefined };
+    let items: ItemInput[];
+    if (s.final) {
+      const q = row.items.map((x) => ({ type: x.type, description: x.description, quantity: Number(x.quantity), unitPrice: Number(x.unitPrice), vatRatePercent: x.vatRatePercent === null ? undefined : Number(x.vatRatePercent) }));
+      items = [...q, ...prior.map((i) => ({ type: 'discount' as const, description: `Less ${i.stageLabel} (${i.invoiceNumber})`, quantity: 1, unitPrice: -Number(i.subtotal), vatRatePercent: Number(i.vatRatePercent) }))];
+    } else items = [{ type: 'fee', description: `${label} - ${percent}% of Quotation ${row.quoteNumber}`, quantity: 1, unitPrice: round2((Number(row.subtotal) * percent) / 100) }];
+    const rows = lineRows(items);
+    const t = priced(rows, vat, {});
+    const inv = await insertInvoice(tx, { ...base, notes: `${label} invoice (${percent}%) for accepted Quotation ${row.quoteNumber}.` }, rows, vat, t);
+    await tx.invoice.update({ where: { id: inv.id }, data: { stageLabel: label, stagePercent: percent } });
+    if (s.final) await tx.quotation.update({ where: { id: quoteId }, data: { convertedToInvoiceId: inv.id } });
+    return getInvoice(inv.id, tx);
+  });
+}
 /** Daily sweep: issued / partially_paid past due_date become overdue (also done by pg_cron, see the migration). */
+/** Flips past-due invoices to overdue and drafts a payment reminder for each (staff approve it in Notifications; skipped without consent). */
 export async function markOverdue(now = today()) {
-  const { count } = await prisma.invoice.updateMany({ where: { status: { in: ['issued', 'partially_paid'] }, dueDate: { lt: new Date(now) } }, data: { status: 'overdue' } });
+  const where = { status: { in: ['issued', 'partially_paid'] as ('issued' | 'partially_paid')[] }, dueDate: { lt: new Date(now) } };
+  const due = await prisma.invoice.findMany({ where, select: { id: true, invoiceNumber: true, customerId: true, balanceDue: true, dueDate: true } });
+  const { count } = await prisma.invoice.updateMany({ where: { id: { in: due.map((i) => i.id) }, ...where }, data: { status: 'overdue' } });
+  for (const i of due) {
+    await createNotification({
+      customerId: i.customerId, type: 'payment_reminder', channel: 'email', subject: `Payment reminder: invoice ${i.invoiceNumber}`,
+      messageBody: `Invoice ${i.invoiceNumber} (balance £${i.balanceDue.toFixed(2)}) was due on ${i.dueDate.toISOString().slice(0, 10)}. Please arrange payment, or get in touch if you've already paid.`,
+    }).catch(() => undefined); // no consent / other channel preferred: no reminder
+  }
   return count;
 }
 

@@ -59,3 +59,11 @@ All rounded to whole percent; show "0%" when the denominator is 0.
 ## Updates: VAT return
 
 `GET /reports/vat?start&end` returns output VAT (box 1), input VAT on stock purchases (box 4) and net VAT for a period; see [billing-corrections-features.md](billing-corrections-features.md). The Reports screen itself does not yet show it.
+
+## Updates: period filter, profitability, aged debtors
+
+- The **This month / Last month / All time** selector now filters the numbers: jobs by appointment date, invoices by issue date, quotations by created date. The CSV export includes the period.
+- "Active Engineers" shows the real technician count.
+- **Job Profitability** table: completed jobs in the period with revenue (labour billed plus parts price), parts cost and margin. Labour cost is not tracked, so margin overstates true profit.
+- **Aged Debtors**: unpaid balances on issued, overdue and part-paid invoices bucketed Current, 1-30, 31-60, 61-90 and 90+ days past due. Not affected by the period filter.
+- All calculated in the browser from loaded data; no new API.

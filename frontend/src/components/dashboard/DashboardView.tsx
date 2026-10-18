@@ -1,23 +1,8 @@
 import React, { useState, useMemo } from 'react';
+import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
-import { formatGBP, formatDateUK } from '../../utils/formatters';
-import { 
-  Calendar, 
-  Clock, 
-  AlertCircle, 
-  CheckCircle2, 
-  UserPlus, 
-  CalendarPlus, 
-  FileText, 
-  Receipt, 
-  Wrench, 
-  Flame, 
-  TrendingUp, 
-  ArrowRight,
-  Filter,
-  Check,
-  AlertTriangle
-} from 'lucide-react';
+import { addDaysISO, formatDateUK, formatGBP, getTodayISO } from '../../utils/formatters';
+import { IconAlertCircle, IconArrowRight, IconCalendarPlus, IconCircleCheck, IconFileText, IconFilter, IconFlame, IconReceipt, IconTool } from '@tabler/icons-react';
 
 interface DashboardViewProps {
   onNavigateTab: (tab: string) => void;
@@ -41,8 +26,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     customers, 
     equipment,
     currentUser,
-    switchUserRole
-  } = useApp();
+    switchUserRole,
+    realAuth,
+    settings,
+    customerById,
+  } = useApp(['jobs', 'serviceRequests', 'quotations', 'invoices', 'technicians', 'customers', 'equipment', 'currentUser', 'switchUserRole', 'realAuth', 'settings', 'customerById']);
 
   // Filters
   const [filterDateRange, setFilterDateRange] = useState<'all' | 'today' | 'this_week' | 'this_month'>('all');
@@ -50,9 +38,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [filterJobStatus, setFilterJobStatus] = useState<string>('all');
   const [filterCustomerId, setFilterCustomerId] = useState<string>('all');
 
+  // Today / this week (Mon-Sun) / next 7 days, all in local time
+  const today = getTodayISO();
+  const weekStart = addDaysISO(today, -((new Date(`${today}T00:00`).getDay() + 6) % 7));
+  const weekEnd = addDaysISO(weekStart, 6);
+  const soon = addDaysISO(today, 7);
+  const monthLabel = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
   // Filtered jobs calculation
   const filteredJobs = useMemo(() => {
-    const todayStr = '2026-10-13'; // App runtime reference date
+    const todayStr = today;
     return jobs.filter((job) => {
       if (filterTechnicianId !== 'all' && job.technicianId !== filterTechnicianId) return false;
       if (filterJobStatus !== 'all' && job.status !== filterJobStatus) return false;
@@ -62,34 +57,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         if (job.appointmentDate !== todayStr) return false;
       } else if (filterDateRange === 'this_week') {
         // approx week range
-        if (job.appointmentDate < '2026-10-12' || job.appointmentDate > '2026-10-18') return false;
+        if (job.appointmentDate < weekStart || job.appointmentDate > weekEnd) return false;
       } else if (filterDateRange === 'this_month') {
-        if (!job.appointmentDate.startsWith('2026-10')) return false;
+        if (!job.appointmentDate.startsWith(todayStr.slice(0, 7))) return false;
       }
       return true;
     });
-  }, [jobs, filterDateRange, filterTechnicianId, filterJobStatus, filterCustomerId]);
+  }, [jobs, today, weekStart, weekEnd, filterDateRange, filterTechnicianId, filterJobStatus, filterCustomerId]);
 
   // Overall KPI counts
-  const totalJobsCount = jobs.length;
-  const jobsTodayCount = jobs.filter((j) => j.appointmentDate === '2026-10-13').length;
-  const inProgressCount = jobs.filter((j) => j.status === 'in_progress').length;
-  const completedJobsCount = jobs.filter((j) => j.status === 'completed').length;
-  const cancelledJobsCount = jobs.filter((j) => j.status === 'cancelled').length;
-
-  const newRequestsCount = serviceRequests.filter((r) => r.status === 'new').length;
-  const overdueJobs = jobs.filter(
-    (j) => j.appointmentDate < '2026-10-13' && j.status !== 'completed' && j.status !== 'cancelled'
-  );
-
-  const outstandingQuotes = quotations.filter((q) => q.status === 'sent' || q.status === 'draft');
-  const unpaidInvoices = invoices.filter((i) => i.status === 'issued' || i.status === 'overdue' || i.status === 'partially_paid');
-
-  const totalCollectedRevenue = invoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
-  const totalOutstandingRevenue = invoices.reduce((sum, inv) => sum + inv.balanceDue, 0);
-
-  // Maintenance due equipment
-  const maintenanceDueEquipments = equipment.filter((eq) => eq.nextServiceDueDate <= '2026-10-18');
+  const {
+    totalJobsCount, jobsTodayCount, inProgressCount, completedJobsCount, cancelledJobsCount, newRequestsCount, overdueJobs,
+    outstandingQuotes, unpaidInvoices, totalCollectedRevenue, totalOutstandingRevenue, maintenanceDueEquipments,
+  } = useMemo(() => ({
+    totalJobsCount: jobs.length,
+    jobsTodayCount: jobs.filter((j) => j.appointmentDate === today).length,
+    inProgressCount: jobs.filter((j) => j.status === 'in_progress').length,
+    completedJobsCount: jobs.filter((j) => j.status === 'completed').length,
+    cancelledJobsCount: jobs.filter((j) => j.status === 'cancelled').length,
+    newRequestsCount: serviceRequests.filter((r) => r.status === 'new').length,
+    overdueJobs: jobs.filter((j) => j.appointmentDate < today && j.status !== 'completed' && j.status !== 'cancelled'),
+    outstandingQuotes: quotations.filter((q) => q.status === 'sent' || q.status === 'draft'),
+    unpaidInvoices: invoices.filter((i) => i.status === 'issued' || i.status === 'overdue' || i.status === 'partially_paid'),
+    totalCollectedRevenue: invoices.reduce((sum, inv) => sum + inv.amountPaid, 0),
+    totalOutstandingRevenue: invoices.reduce((sum, inv) => sum + inv.balanceDue, 0),
+    maintenanceDueEquipments: equipment.filter((eq) => eq.nextServiceDueDate <= soon),
+  }), [jobs, serviceRequests, quotations, invoices, equipment, today, soon]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -101,11 +94,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             Operations & Dispatch Overview
           </h1>
           <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-            <span>Apex Climate Solutions Ltd</span>
+            <span>{settings.companyName}</span>
             <span aria-hidden="true">·</span>
-            <span>London & South East Depot</span>
+            <span>{settings.city}</span>
             <span aria-hidden="true">·</span>
-            <span>Tuesday, 13 October 2026</span>
+            <span>{new Date().toLocaleDateString('en-GB', { dateStyle: 'full' })}</span>
           </div>
         </div>
 
@@ -115,28 +108,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             onClick={() => onOpenQuickAction('request')}
             className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5"
           >
-            <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+            <IconAlertCircle className="w-3.5 h-3.5 text-amber-600" aria-hidden="true" />
             <span>Service Request</span>
           </button>
           <button
             onClick={() => onOpenQuickAction('job')}
             className="px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5"
           >
-            <CalendarPlus className="w-3.5 h-3.5" />
+            <IconCalendarPlus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Book Job</span>
           </button>
           <button
             onClick={() => onOpenQuickAction('quote')}
             className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5"
           >
-            <FileText className="w-3.5 h-3.5 text-emerald-600" />
+            <IconFileText className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
             <span>New Quote</span>
           </button>
           <button
             onClick={() => onOpenQuickAction('invoice')}
             className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5"
           >
-            <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+            <IconReceipt className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" />
             <span>New Invoice</span>
           </button>
         </div>
@@ -215,29 +208,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Filter Toolbar */}
+      {/* IconFilter Toolbar */}
       <div className="bg-white p-3 border border-slate-200 rounded-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 text-slate-500 shrink-0">
-          <Filter className="w-3.5 h-3.5" />
-          <span className="font-semibold text-slate-700">Filter View:</span>
+          <IconFilter className="w-3.5 h-3.5" aria-hidden="true" />
+          <span className="font-semibold text-slate-700">IconFilter View:</span>
         </div>
 
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
           {/* Date range filter */}
           <select
-            value={filterDateRange}
+            aria-label="Date range" value={filterDateRange}
             onChange={(e) => setFilterDateRange(e.target.value as any)}
             className="px-2.5 py-1.5 border border-slate-200 rounded-md bg-white text-slate-800 text-xs focus:ring-1 focus:ring-sky-500"
           >
             <option value="all">All Dates</option>
-            <option value="today">Today Only (13 Oct)</option>
+            <option value="today">Today Only</option>
             <option value="this_week">This Week</option>
-            <option value="this_month">October 2026</option>
+            <option value="this_month">{monthLabel}</option>
           </select>
 
           {/* Technician filter */}
           <select
-            value={filterTechnicianId}
+            aria-label="Technician" value={filterTechnicianId}
             onChange={(e) => setFilterTechnicianId(e.target.value)}
             className="px-2.5 py-1.5 border border-slate-200 rounded-md bg-white text-slate-800 text-xs focus:ring-1 focus:ring-sky-500"
           >
@@ -251,22 +244,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Status filter */}
           <select
-            value={filterJobStatus}
+            aria-label="Job status" value={filterJobStatus}
             onChange={(e) => setFilterJobStatus(e.target.value)}
             className="px-2.5 py-1.5 border border-slate-200 rounded-md bg-white text-slate-800 text-xs focus:ring-1 focus:ring-sky-500"
           >
             <option value="all">All Job Statuses</option>
             <option value="new">New</option>
+            <option value="awaiting_approval">Awaiting Approval</option>
             <option value="scheduled">Scheduled</option>
             <option value="dispatched">Dispatched</option>
             <option value="in_progress">In Progress</option>
+            <option value="on_hold">On Hold</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
           </select>
 
           {/* Customer filter */}
           <select
-            value={filterCustomerId}
+            aria-label="Customer" value={filterCustomerId}
             onChange={(e) => setFilterCustomerId(e.target.value)}
             className="px-2.5 py-1.5 border border-slate-200 rounded-md bg-white text-slate-800 text-xs focus:ring-1 focus:ring-sky-500 col-span-2 sm:col-span-1"
           >
@@ -304,7 +299,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="bg-white border border-slate-200 rounded-lg p-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-sky-700" />
+                <IconTool className="w-4 h-4 text-sky-700" aria-hidden="true" />
                 <h2 className="text-sm font-bold text-slate-900">
                   Technician Availability & Live Van Status
                 </h2>
@@ -314,14 +309,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 className="text-xs font-semibold text-sky-700 hover:text-sky-900 flex items-center gap-1"
               >
                 <span>Dispatch Board</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <IconArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               {technicians.map((tech) => {
                 const assignedToday = jobs.filter(
-                  (j) => j.technicianId === tech.id && j.appointmentDate === '2026-10-13'
+                  (j) => j.technicianId === tech.id && j.appointmentDate === today
                 );
                 const activeJob = assignedToday.find((j) => j.status === 'in_progress');
 
@@ -355,7 +350,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </span>
                       {activeJob ? (
                         <span className="font-semibold text-sky-700 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-sky-600 animate-ping" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-600 animate-ping motion-reduce:animate-none" />
                           On Site ({activeJob.jobNumber})
                         </span>
                       ) : (
@@ -396,17 +391,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
                     <tr>
-                      <th className="py-2.5 px-3">Job / Type</th>
-                      <th className="py-2.5 px-3">Customer & Location</th>
-                      <th className="py-2.5 px-3">Date & Time</th>
-                      <th className="py-2.5 px-3">Technician</th>
-                      <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3 text-right">Action</th>
+                      <th scope="col" className="py-2.5 px-3">Job / Type</th>
+                      <th scope="col" className="py-2.5 px-3">Customer & Location</th>
+                      <th scope="col" className="py-2.5 px-3">Date & Time</th>
+                      <th scope="col" className="py-2.5 px-3">Technician</th>
+                      <th scope="col" className="py-2.5 px-3">Status</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredJobs.map((job) => {
-                      const customer = customers.find((c) => c.id === job.customerId);
+                      const customer = customerById.get(job.customerId);
                       const tech = technicians.find((t) => t.id === job.technicianId);
                       const loc = customer?.serviceLocations.find((l) => l.id === job.locationId);
 
@@ -434,12 +429,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               {customer?.name || 'Unknown'}
                             </span>
                             <span className="text-[11px] text-slate-500 truncate block">
-                              {loc?.city || 'London'}, {loc?.postcode}
+                              {[loc?.city, loc?.postcode].filter(Boolean).join(', ')}
                             </span>
                           </td>
                           <td className="py-3 px-3 whitespace-nowrap">
                             <span className="text-slate-900 font-medium block">
-                              {job.appointmentDate}
+                              {formatDateUK(job.appointmentDate)}
                             </span>
                             <span className="text-[11px] text-slate-500 font-mono">
                               {job.startTime} - {job.endTime}
@@ -471,7 +466,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 if (onSelectJob) onSelectJob(job.id);
                                 onNavigateTab('dispatch');
                               }}
-                              className="px-2 py-1 text-[11px] font-semibold text-sky-700 hover:text-sky-900 hover:bg-sky-50 rounded transition-colors"
+                              aria-label={`Manage ${job.jobNumber}`} className="px-2 py-1 text-[11px] font-semibold text-sky-700 hover:text-sky-900 hover:bg-sky-50 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                             >
                               Manage
                             </button>
@@ -493,7 +488,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600" />
+                <IconAlertCircle className="w-4 h-4 text-amber-600" aria-hidden="true" />
                 <h2 className="text-sm font-bold text-slate-900">Action Queue</h2>
               </div>
               <span className="text-xs font-mono tabular-nums text-slate-500">
@@ -503,7 +498,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             {/* Service Requests Awaiting Booking */}
             {serviceRequests.filter((r) => r.status === 'new').map((req) => {
-              const cust = customers.find((c) => c.id === req.customerId);
+              const cust = customerById.get(req.customerId);
               return (
                 <div 
                   key={req.id}
@@ -530,10 +525,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               );
             })}
 
+            {newRequestsCount + overdueJobs.length + maintenanceDueEquipments.length === 0 && (
+              <EmptyState icon={IconCircleCheck} compact>Nothing needs attention.</EmptyState>
+            )}
+
+            {/* Overdue jobs (counted in the header above) */}
+            {overdueJobs.slice(0, 3).map((job) => (
+              <div key={job.id} className="p-3 bg-rose-50/80 border border-rose-200 rounded-lg text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold font-mono text-rose-900">{job.jobNumber}</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-rose-700 bg-rose-100">Overdue</span>
+                </div>
+                <p className="text-slate-600">{customerById.get(job.customerId)?.name}</p>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] text-slate-500 font-mono">Was due: {formatDateUK(job.appointmentDate)}</span>
+                  <button
+                    onClick={() => { onSelectJob?.(job.id); onNavigateTab('dispatch'); }}
+                    aria-label={`Manage overdue ${job.jobNumber}`}
+                    className="text-sky-700 hover:text-sky-900 font-semibold text-[11px]"
+                  >
+                    Manage →
+                  </button>
+                </div>
+              </div>
+            ))}
+
             {/* Upcoming / Overdue Equipment Maintenance Reminders */}
             {maintenanceDueEquipments.slice(0, 2).map((eq) => {
-              const cust = customers.find((c) => c.id === eq.customerId);
-              const isOverdue = eq.nextServiceDueDate < '2026-10-13';
+              const cust = customerById.get(eq.customerId);
+              const isOverdue = eq.nextServiceDueDate < today;
               return (
                 <div 
                   key={eq.id}
@@ -554,7 +574,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <p className="text-slate-600">{cust?.name}</p>
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-[11px] text-slate-500 font-mono">
-                      Due: {eq.nextServiceDueDate}
+                      Due: {formatDateUK(eq.nextServiceDueDate)}
                     </span>
                     <button
                       onClick={() => onNavigateTab('equipment')}
@@ -569,28 +589,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Workflow Interactive Shortcuts (Section 16 End-to-End Workflows) */}
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-lg p-4 space-y-3 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-sky-400 uppercase tracking-wider">
-                Guided Test Scenarios
-              </span>
-              <Flame className="w-4 h-4 text-amber-400" />
+          {!realAuth && (
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-lg p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-sky-400 uppercase tracking-wider">
+                  Guided Test Scenarios
+                </span>
+                <IconFlame className="w-4 h-4 text-amber-400" aria-hidden="true" />
+              </div>
+              <h3 className="text-sm font-bold text-white">
+                End-to-End HVAC Business Workflows
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Step through realistic UK HVAC business operations: enquiry to cash, multi-split installation quotes, heat pump annual compliance, and on-site repair authorizations.
+              </p>
+              <div className="pt-2">
+                <button
+                  onClick={onOpenWorkflowGuide}
+                  className="w-full py-2 px-3 text-xs font-semibold text-slate-900 bg-white hover:bg-slate-100 rounded-lg shadow-sm transition-colors text-center"
+                >
+                  Launch Workflow Simulator
+                </button>
+              </div>
             </div>
-            <h3 className="text-sm font-bold text-white">
-              End-to-End HVAC Business Workflows
-            </h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Step through realistic UK HVAC business operations: enquiry to cash, multi-split installation quotes, heat pump annual compliance, and on-site repair authorizations.
-            </p>
-            <div className="pt-2">
-              <button
-                onClick={onOpenWorkflowGuide}
-                className="w-full py-2 px-3 text-xs font-semibold text-slate-900 bg-white hover:bg-slate-100 rounded-lg shadow-sm transition-colors text-center"
-              >
-                Launch Workflow Simulator
-              </button>
-            </div>
-          </div>
+          )}
 
           {/* Company Compliance Information Card */}
           <div className="bg-white border border-slate-200 rounded-lg p-4 text-xs space-y-2">
@@ -598,19 +620,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="space-y-1.5 text-slate-600">
               <div className="flex items-center justify-between">
                 <span>Gas Safe Register:</span>
-                <span className="font-mono font-semibold text-slate-800">#649201</span>
+                <span className="font-mono font-semibold text-slate-800">{settings.gasSafeRegisterNo ? `#${settings.gasSafeRegisterNo}` : '—'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Refcom F-Gas Certificate:</span>
-                <span className="font-mono font-semibold text-slate-800">#REF1039841</span>
+                <span className="font-mono font-semibold text-slate-800">{settings.fGasCertNo ? `#${settings.fGasCertNo}` : '—'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>HMRC VAT Number:</span>
-                <span className="font-mono font-semibold text-slate-800">GB 384 9201 44</span>
+                <span className="font-mono font-semibold text-slate-800">{settings.vatNumber || '—'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Default UK VAT Rate:</span>
-                <span className="font-semibold text-slate-800">20% (Standard)</span>
+                <span className="font-semibold text-slate-800">{settings.defaultVatRate}%</span>
               </div>
             </div>
           </div>
