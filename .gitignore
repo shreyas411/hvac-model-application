@@ -13,3 +13,6 @@ coverage/
 .playwright-mcp
 LOOPHOLES.md
 .qwen
+.agents/
+skills-lock.json
+*.tsbuildinfo
