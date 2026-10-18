@@ -3,7 +3,7 @@ import { pageFrom } from '../../common/paginate.js';
 import type { Prisma } from '@prisma/client';
 import type { Customer, ServiceLocation } from '../../types.js';
 import { ApiError, notFound } from '../../common/errors.js';
-import { isUuid, plain, prisma } from '../../common/prisma.js';
+import { isUuid, plain, prisma, type Tx } from '../../common/prisma.js';
 
 const include = { locations: { orderBy: { createdAt: 'asc' } } } satisfies Prisma.CustomerInclude;
 type Row = Prisma.CustomerGetPayload<{ include: typeof include }>;
@@ -12,8 +12,8 @@ const toLocation = ({ customerId, legacyId, createdAt, updatedAt, ...l }: Row['l
 const toCustomer = ({ legacyId, locations, createdAt, updatedAt, ...c }: Row) =>
   ({ ...plain(c), serviceLocations: locations.map(toLocation), createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString() }) as unknown as Customer;
 
-export async function getCustomer(id: string) {
-  const row = isUuid(id) ? await prisma.customer.findUnique({ where: { id }, include }) : null;
+export async function getCustomer(id: string, db: Tx = prisma) {
+  const row = isUuid(id) ? await db.customer.findUnique({ where: { id }, include }) : null;
   if (!row) throw notFound('Customer');
   return toCustomer(row);
 }
@@ -21,9 +21,10 @@ export async function getCustomer(id: string) {
 export const pageCustomers = (query: unknown) => pageFrom(query, prisma.customer, { include, searchFields: ['name', 'email', 'phone'] }, toCustomer);
 export const listCustomers = async () => (await prisma.customer.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toCustomer);
 
-export async function assertLocation(customerId: string, locationId: string) {
-  await getCustomer(customerId);
-  const loc = isUuid(locationId) ? await prisma.serviceLocation.findFirst({ where: { id: locationId, customerId } }) : null;
+/** Pass the caller's `tx` when inside a transaction, so this doesn't take a second pooled connection. */
+export async function assertLocation(customerId: string, locationId: string, db: Tx = prisma) {
+  await getCustomer(customerId, db);
+  const loc = isUuid(locationId) ? await db.serviceLocation.findFirst({ where: { id: locationId, customerId } }) : null;
   if (!loc) throw new ApiError(422, 'INVALID_LOCATION', 'Location does not belong to customer');
   return toLocation(loc);
 }

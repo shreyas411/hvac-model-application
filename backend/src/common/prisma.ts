@@ -3,7 +3,8 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { unprocessable } from './errors.js';
 import { pageFrom } from './paginate.js';
 
-export const prisma = new PrismaClient();
+// Prisma's defaults (2s wait for a pooled connection, 5s per transaction) turn bursts of concurrent bookings into 500s.
+export const prisma = new PrismaClient({ transactionOptions: { maxWait: 10_000, timeout: 15_000 } });
 
 /** Client or interactive-transaction client. */
 export type Tx = Prisma.TransactionClient;

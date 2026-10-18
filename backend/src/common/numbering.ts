@@ -13,7 +13,7 @@ export async function nextNumber(key: NumberKey, now = new Date(), c: Tx = prism
     INSERT INTO counters (key, year, next_value) VALUES (${key}, ${yearOf(key, year)}, 2)
     ON CONFLICT (key, year) DO UPDATE SET next_value = counters.next_value + 1
     RETURNING next_value - 1 AS n`;
-  const s = await getSettings();
+  const s = await getSettings(c);
   const prefix = ({ job: s.prefixJob, quote: s.prefixQuote, invoice: s.prefixInvoice, request: 'SR-', credit: 'CN-' })[key].replace(/-+$/, '');
   return key === 'request' ? `${prefix}-${n}` : `${prefix}-${year}-${String(n).padStart(4, '0')}`;
 }

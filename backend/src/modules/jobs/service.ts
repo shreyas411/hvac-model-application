@@ -10,7 +10,6 @@ import { pageFrom } from '../../common/paginate.js';
 import { assertLocation } from '../customers/service.js';
 import { adjustStockIn, getPart } from '../inventory/service.js';
 import { getSettings } from '../settings/service.js';
-import { getTechnician } from '../technicians/service.js';
 
 const include = {
   equipment: { select: { equipmentId: true } },
@@ -147,10 +146,13 @@ async function withEquipmentSkills(tx: Tx, equipmentIds: string[], skills: strin
   return [...new Set([...skills, ...(types.some((t) => GAS_BOILERS.includes(t)) ? ['GAS_SAFE'] : []), ...(types.some((t) => REFRIGERANT.includes(t)) ? ['F_GAS'] : [])])];
 }
 
-async function assertEquipment(ids: string[]) {
+async function assertTechnician(tx: Tx, id: string) {
+  if (!isUuid(id) || !(await tx.technician.count({ where: { id } }))) throw notFound('Technician');
+}
 
+async function assertEquipment(ids: string[], tx: Tx) {
   const unique = [...new Set(ids)];
-  if (unique.length && (!unique.every(isUuid) || (await prisma.equipment.count({ where: { id: { in: unique } } })) !== unique.length)) throw notFound('Equipment');
+  if (unique.length && (!unique.every(isUuid) || (await tx.equipment.count({ where: { id: { in: unique } } })) !== unique.length)) throw notFound('Equipment');
   return unique;
 }
 
@@ -165,11 +167,11 @@ export type JobInput = Omit<Job, 'id' | 'jobNumber' | 'createdAt' | 'updatedAt' 
 export async function createJob(input: JobInput, who: Actor, tx?: Tx): Promise<Job> {
   if (!tx) return prisma.$transaction((t) => createJob(input, who, t));
   const { auditAction, auditDetails, equipmentIds, checklist, appointmentDate, status, ...i } = input;
-  await assertLocation(i.customerId, i.locationId);
-  const equipment = await assertEquipment(equipmentIds);
+  await assertLocation(i.customerId, i.locationId, tx!);
+  const equipment = await assertEquipment(equipmentIds, tx!);
   i.requiredSkills = await withEquipmentSkills(tx!, equipment, i.requiredSkills);
   if (i.technicianId) {
-    await getTechnician(i.technicianId);
+    await assertTechnician(tx!, i.technicianId);
     await assertCertifications(tx!, i.technicianId, i.requiredSkills);
   }
   await assertSlot(tx!, input);
@@ -200,15 +202,15 @@ export function updateJob(id: string, patch: Partial<Job>, who: Actor, action = 
     // The work record is evidence: once closed only an admin may touch it (audited below).
     if ((cur.status === 'completed' || cur.status === 'cancelled') && who.role !== 'admin') throw conflict('JOB_CLOSED', `A ${cur.status} job is read-only`);
     if (who.role === 'technician' && cur.status !== 'dispatched' && cur.status !== 'in_progress') throw conflict('JOB_NOT_ACTIVE', 'Work record can only be edited while the job is dispatched or in progress');
-    const equipment = patch.equipmentIds && (await assertEquipment(patch.equipmentIds));
+    const equipment = patch.equipmentIds && (await assertEquipment(patch.equipmentIds, tx));
     const next = { ...cur, ...patch, requiredSkills: await withEquipmentSkills(tx, equipment ?? cur.equipmentIds, patch.requiredSkills ?? cur.requiredSkills) };
     if (equipment || patch.requiredSkills) patch = { ...patch, requiredSkills: next.requiredSkills };
     if (patch.technicianId !== undefined || patch.appointmentDate || patch.startTime || patch.endTime) await assertSlot(tx, next, id);
     if (patch.technicianId) {
-      await getTechnician(patch.technicianId);
+      await assertTechnician(tx, patch.technicianId);
       await assertCertifications(tx, patch.technicianId, next.requiredSkills);
     } else if (equipment && cur.technicianId) await assertCertifications(tx, cur.technicianId, next.requiredSkills);
-    if (patch.customerId || patch.locationId) await assertLocation(next.customerId, next.locationId);
+    if (patch.customerId || patch.locationId) await assertLocation(next.customerId, next.locationId, tx);
 
     return toJob(await tx.job.update({
       where: { id }, include,
