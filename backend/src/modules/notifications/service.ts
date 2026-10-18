@@ -58,7 +58,7 @@ async function deliver(id: string) {
 
 /** Staff approval; delivery happens right away, the worker retries anything left ready_to_send. */
 export async function approveAndSend(id: string, who: Actor) {
-  const { count } = isUuid(id) ? await prisma.notification.updateMany({ where: { id, status: { not: 'sent' } }, data: { status: 'ready_to_send', approvedBy: who.name } }) : { count: 0 };
+  const { count } = isUuid(id) ? await prisma.notification.updateMany({ where: { id, status: { notIn: ['sent', 'sending'] } }, data: { status: 'ready_to_send', approvedBy: who.name } }) : { count: 0 };
   if (!count) {
     await getNotification(id); // 404 if missing
     throw conflict('ALREADY_SENT', 'Notification already sent');
