@@ -72,10 +72,10 @@ export const ChecklistsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 w-full px-4 sm:px-6 py-4">
-      <div className="flex items-center gap-2">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
+      <div className="pb-2 flex items-center gap-2">
         <IconSquareCheck className="w-5 h-5 text-sky-700" aria-hidden="true" />
-        <h1 className="text-lg font-bold text-slate-900">Job Checklists</h1>
+        <h1 className="text-lg font-bold tracking-tight text-slate-900">Job Checklists</h1>
       </div>
       <p className="text-xs text-slate-500">
         Items listed here are offered to technicians for jobs of that type, and added automatically to new jobs.

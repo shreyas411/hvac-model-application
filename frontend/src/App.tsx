@@ -9,7 +9,6 @@ import { AuthGate } from './components/auth/AuthGate';
 import { Navbar } from './components/layout/Navbar';
 import { useTabRoute } from './routes';
 import { useDialogFocus } from './utils/useDialogFocus';
-import { RoleBanner } from './components/layout/RoleBanner';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { DispatchBoardView } from './components/scheduling/DispatchBoardView';
 import { TechnicianPortalView } from './components/technician/TechnicianPortalView';
@@ -63,8 +62,8 @@ const AppContent: React.FC = () => {
       />
 
       <div className={`${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60'} flex-1 flex flex-col min-w-0 transition-[padding]`}>
-      {/* Role & Permissions Banner */}
-      <RoleBanner onSelectTab={setCurrentTab} />
+      {/* Role & Permissions Banner — hidden for now */}
+      {/* <RoleBanner onSelectTab={setCurrentTab} /> */}
 
       {/* Floating Toast Notification */}
       {toastMessage && <Toast {...toastMessage} onDismiss={() => showToast('')} />}

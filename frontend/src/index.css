@@ -8,6 +8,23 @@
   code, kbd, samp, pre {
     font-family: 'JetBrains Mono', monospace;
   }
+
+  /* Tailwind v4 preflight resets these to cursor:default */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  select:not(:disabled),
+  summary,
+  label:has(input:is([type="checkbox"], [type="radio"], [type="file"]):not(:disabled)),
+  input:is([type="checkbox"], [type="radio"], [type="file"], [type="date"], [type="time"]):not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
 }
 
 @page {

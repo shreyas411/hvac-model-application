@@ -85,12 +85,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }), [jobs, serviceRequests, quotations, invoices, equipment, today, soon]);
 
   return (
-    <div className="space-y-6 w-full px-4 sm:px-6 lg:px-8 py-6">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
       
       {/* Top Banner / Welcome with Quick Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-lg font-bold tracking-tight text-slate-900">
             Operations & Dispatch Overview
           </h1>
           <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">

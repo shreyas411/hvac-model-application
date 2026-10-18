@@ -46,10 +46,10 @@ export const MaintenanceView: React.FC = () => {
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="space-y-5 w-full px-4 sm:px-6 py-4">
-      <div className="flex items-center gap-2">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
+      <div className="pb-2 flex items-center gap-2">
         <IconCalendarTime className="w-5 h-5 text-sky-700" aria-hidden="true" />
-        <h1 className="text-lg font-bold text-slate-900">Maintenance Agreements</h1>
+        <h1 className="text-lg font-bold tracking-tight text-slate-900">Maintenance Agreements</h1>
       </div>
       <p className="text-xs text-slate-500">A job is raised automatically as each agreement's next due date approaches.</p>
 
