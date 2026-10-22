@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
+import { Button } from '@/src/components/ui/button';
 import { IconArrowRight, IconBriefcase, IconDeviceMobile, IconFileSpreadsheet, IconUsers } from '@tabler/icons-react';
 
 interface RoleBannerProps {
@@ -47,55 +48,50 @@ export const RoleBanner: React.FC<RoleBannerProps> = ({ onSelectTab }) => {
   const currentConfig = roleConfigs[currentUser.role];
 
   return (
-    <div className="bg-slate-100 border-b border-slate-200 py-2 px-4 sm:px-6 lg:px-8">
+    <div className="bg-muted border-b border-border py-2 px-4 sm:px-6 lg:px-8">
       <div className="w-full flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
         {/* Current Role Info */}
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-white rounded border border-slate-200">
+          <div className="p-1.5 bg-background rounded border border-border">
             {currentConfig.icon}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-900">{currentConfig.title}</span>
-              <span className="text-[11px] font-medium text-slate-500">({currentConfig.badge})</span>
+              <span className="font-semibold text-foreground">{currentConfig.title}</span>
+              <span className="text-[11px] font-medium text-muted-foreground">({currentConfig.badge})</span>
             </div>
-            <p className="text-slate-600 line-clamp-1">{currentConfig.desc}</p>
+            <p className="text-muted-foreground line-clamp-1">{currentConfig.desc}</p>
           </div>
         </div>
 
         {/* Quick Switch Buttons for Testing Roles (dev only: signed-in users can't switch) */}
         <div className="flex items-center gap-1.5 flex-wrap shrink-0">
           {!realAuth && (<>
-          <span className="text-[11px] text-slate-500 font-medium mr-1 hidden sm:inline">
+          <span className="text-[11px] text-muted-foreground font-medium mr-1 hidden sm:inline">
             Test as:
           </span>
           {(['admin', 'dispatcher', 'technician', 'accountant'] as const).map((role) => (
-            <button
+            <Button
               key={role}
+              size="xs"
+              variant={currentUser.role === role ? 'default' : 'outline'}
               onClick={() => {
                 switchUserRole(role);
                 if (role === 'technician') onSelectTab('technician_portal');
               }}
               aria-pressed={currentUser.role === role}
-              className={`px-2 py-1 rounded text-[11px] font-medium capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${
-                currentUser.role === role
-                  ? 'bg-slate-900 text-white font-semibold'
-                  : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
-              }`}
+              className="capitalize text-[11px]"
             >
               {role}
-            </button>
+            </Button>
           ))}
           </>)}
 
           {currentConfig.primaryAction && (
-            <button
-              onClick={() => onSelectTab(currentConfig.primaryAction!.tab)}
-              className="ml-2 inline-flex items-center gap-1 rounded text-[11px] font-semibold text-sky-700 hover:text-sky-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-            >
+            <Button variant="link" size="xs" className="ml-2 text-[11px] font-semibold" onClick={() => onSelectTab(currentConfig.primaryAction!.tab)}>
               <span>{currentConfig.primaryAction.label}</span>
-              <IconArrowRight className="w-3 h-3" aria-hidden="true" />
-            </button>
+              <IconArrowRight aria-hidden="true" />
+            </Button>
           )}
         </div>
       </div>

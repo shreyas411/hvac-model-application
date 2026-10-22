@@ -38,7 +38,7 @@ export const WorkflowGuideModal: React.FC<WorkflowGuideModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close guide" className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            aria-label="Close guide" className="p-1.5 text-slate-500 hover:text-slate-700 rounded-md hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
           >
             <IconX className="w-5 h-5" aria-hidden="true" />
           </button>

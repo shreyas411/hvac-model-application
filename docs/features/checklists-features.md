@@ -22,3 +22,6 @@ Tab `checklists` is admin only. Everyone signed in can read templates (technicia
 | Job completion gate | `gas_safety` and `electrical` items must be ticked, and any `refrigerant` item requires a refrigerant log entry (see [compliance-features.md](compliance-features.md)) |
 
 Templates are copied onto the job, so later template edits do not change existing jobs.
+
+## Updates: inactive, delete
+- Checklist templates can be marked inactive or soft-deleted.

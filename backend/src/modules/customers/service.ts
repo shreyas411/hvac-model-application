@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { pageFrom } from '../../common/paginate.js';
 import type { Prisma } from '@prisma/client';
 import type { Customer, ServiceLocation } from '../../types.js';
-import { ApiError, notFound } from '../../common/errors.js';
+import { ApiError, conflict, notFound } from '../../common/errors.js';
 import { isUuid, plain, prisma, type Tx } from '../../common/prisma.js';
 
-const include = { locations: { orderBy: { createdAt: 'asc' } } } satisfies Prisma.CustomerInclude;
+const include = { locations: { where: { isDeleted: false }, orderBy: { createdAt: 'asc' } } } satisfies Prisma.CustomerInclude;
 type Row = Prisma.CustomerGetPayload<{ include: typeof include }>;
 
 const toLocation = ({ customerId, legacyId, createdAt, updatedAt, ...l }: Row['locations'][number]) => plain(l) as unknown as ServiceLocation;
@@ -18,7 +18,7 @@ export async function getCustomer(id: string, db: Tx = prisma) {
   return toCustomer(row);
 }
 
-export const pageCustomers = (query: unknown) => pageFrom(query, prisma.customer, { include, searchFields: ['name', 'companyName', 'email', 'phone', 'locations.some.postcode'], filters: ['type', 'archived'] }, toCustomer);
+export const pageCustomers = (query: unknown) => pageFrom(query, prisma.customer, { include, searchFields: ['name', 'companyName', 'email', 'phone', 'locations.some.postcode'], sorts: ['type'], filters: ['type', 'archived', 'inactive'] }, toCustomer);
 export const listCustomers = async () => (await prisma.customer.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toCustomer);
 
 /** Pass the caller's `tx` when inside a transaction, so this doesn't take a second pooled connection. */
@@ -29,14 +29,25 @@ export async function assertLocation(customerId: string, locationId: string, db:
   return toLocation(loc);
 }
 
+/** An email identifies a customer: one active record per address (also enforced by the customers_active_email_key index for simultaneous requests). */
+async function assertEmailFree(email: string, exceptId?: string) {
+  const other = email && await prisma.customer.findFirst({ where: { email: { equals: email, mode: 'insensitive' }, archived: false, ...(exceptId && { id: { not: exceptId } }) }, select: { name: true } });
+  if (other) throw conflict('DUPLICATE_CUSTOMER', `${other.name} already uses ${email}. Open that customer instead of adding another`);
+}
+
 type NewLocation = Omit<ServiceLocation, 'id'>;
 export const createCustomer = async (data: Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'serviceLocations'> & { serviceLocations: NewLocation[] }) => {
   const { serviceLocations, billingAddress, ...rest } = data;
+  rest.email = rest.email.trim().toLowerCase();
+  if (!rest.archived) await assertEmailFree(rest.email);
   return toCustomer(await prisma.customer.create({ data: { ...rest, billingAddress, locations: { create: serviceLocations } }, include }));
 };
 
 export async function updateCustomer(id: string, patch: Partial<Omit<Customer, 'id' | 'serviceLocations' | 'createdAt' | 'updatedAt'>>) {
-  await getCustomer(id);
+  const cur = await getCustomer(id);
+  if (patch.email !== undefined) patch = { ...patch, email: patch.email.trim().toLowerCase() };
+  // Only an active record has to be unique: check when its email changes or when it is restored from the archive.
+  if (!(patch.archived ?? cur.archived) && (patch.email !== undefined || patch.archived === false)) await assertEmailFree(patch.email ?? cur.email, id);
   return toCustomer(await prisma.customer.update({ where: { id }, data: patch, include }));
 }
 
@@ -58,7 +69,7 @@ export async function removeLocation(customerId: string, locId: string) {
   const where = { locationId: locId };
   if (isUuid(locId) && (await Promise.all([prisma.job.count({ where }), prisma.equipment.count({ where }), prisma.serviceRequest.count({ where })])).some(Boolean))
     throw new ApiError(409, 'LOCATION_IN_USE', 'Location is referenced by jobs or equipment');
-  if (isUuid(locId)) await prisma.serviceLocation.deleteMany({ where: { id: locId, customerId } });
+  if (isUuid(locId)) await prisma.serviceLocation.updateMany({ where: { id: locId, customerId }, data: { isDeleted: true, deletedAt: new Date() } });
   return getCustomer(customerId);
 }
 

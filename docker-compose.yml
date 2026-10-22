@@ -19,6 +19,7 @@ services:
       context: ./frontend
       args:
         VITE_API_URL: http://localhost:3001
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
     ports: ["3000:80"]
 
   # One-shot: applies prisma/migrations (tables, RLS, the settings row), then exits. The API waits for it.

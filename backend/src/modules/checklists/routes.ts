@@ -25,7 +25,7 @@ export const checklistsRouter = crud<ChecklistTemplate>({
     },
   },
   label: 'Checklist template', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin'],
-  create: template, update: template.pick({ label: true, category: true }).partial().strict(), del: true,
+  create: template, update: template.pick({ label: true, category: true }).partial().extend({ inactive: z.boolean().optional() }).strict(), del: true,
 });
 
 // Body: ids in the desired order (one job type's list); position = index.

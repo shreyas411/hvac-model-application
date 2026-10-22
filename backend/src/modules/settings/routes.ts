@@ -2,12 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
+import { ukPostcode } from '../../common/zod.js';
 import { getSettings, updateSettings } from './service.js';
 
 export const settingsSchema = z.object({
   companyName: z.string(), tradingName: z.string(), gasSafeRegisterNo: z.string(), fGasCertNo: z.string(),
   vatNumber: z.string(), companyNumber: z.string(), email: z.string(), phone: z.string(),
-  addressLine1: z.string(), city: z.string(), postcode: z.string(), website: z.string(),
+  addressLine1: z.string(), city: z.string(), postcode: ukPostcode.or(z.literal('')), website: z.string(),
   currencySymbol: z.string(), defaultVatRate: z.number().min(0).max(100),
   defaultHourlyRate: z.number().nonnegative(), defaultTravelCharge: z.number().nonnegative(),
   availableVatRates: z.array(z.number().min(0).max(100)),

@@ -77,3 +77,6 @@ Nav access: admin, dispatcher, technician, accountant (all four) (`Navbar.tsx:44
 ## Updates: delete part
 
 Each row has a **Delete** button (with a confirmation). The server refuses to delete a part that has stock history, so the movement ledger stays complete; the error shows as a toast.
+
+## Updates: inactive, delete
+- Parts can be marked inactive or soft-deleted, filtered by `?inactive`, and the list pages and sorts on the server.

@@ -4,6 +4,10 @@ import { IconPhoto } from '@tabler/icons-react';
 import { useApp } from '../../context/AppContext';
 import { services } from '../../services';
 import type { JobPhoto } from '../../services';
+import { Button } from '@/src/components/ui/button';
+import { Card } from '@/src/components/ui/card';
+import { Input } from '@/src/components/ui/input';
+import { cn } from '@/src/lib/utils';
 
 /** Longest edge 1600px, WebP: a phone photo drops from ~4MB to ~200KB. Steps quality down if still over the server's 600KB cap. */
 async function shrink(file: File) {
@@ -26,10 +30,10 @@ const Thumb: React.FC<{ jobId: string; photo: JobPhoto; onRemove?: () => void }>
     return () => URL.revokeObjectURL(url);
   }, [jobId, photo.id]);
   return (
-    <figure className="relative border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+    <figure className="relative border border-border rounded-lg overflow-hidden bg-muted/50">
       {src ? <img src={src} alt={photo.caption || 'Job photo'} className="w-full h-28 object-cover" /> : <div className="h-28" />}
-      {photo.caption && <figcaption className="px-2 py-1 text-[10px] text-slate-600 truncate">{photo.caption}</figcaption>}
-      {onRemove && <button type="button" onClick={onRemove} aria-label="Remove photo" className="absolute top-1 right-1 w-9 h-9 flex items-center justify-center bg-white/90 rounded text-lg font-bold text-rose-600"><span aria-hidden="true">×</span></button>}
+      {photo.caption && <figcaption className="px-2 py-1 text-[10px] text-muted-foreground truncate">{photo.caption}</figcaption>}
+      {onRemove && <Button type="button" variant="outline" size="icon-sm" onClick={onRemove} aria-label="Remove photo" className="absolute top-1 right-1 size-9 bg-white/90 text-lg font-bold text-destructive"><span aria-hidden="true">×</span></Button>}
     </figure>
   );
 };
@@ -43,7 +47,7 @@ export const JobPhotos: React.FC<{ jobId: string; locked?: boolean }> = ({ jobId
   const seq = useRef(0);
   const load = () => { // ignore a slow response for a previous job so one job never shows another's photos
     const id = ++seq.current;
-    return services.jobs.photos(jobId).then((p) => { if (id === seq.current) setPhotos(p); }, (e: Error) => showToast(e.message, 'error'));
+    return services.jobs.photos(jobId).then((p) => { if (id === seq.current) setPhotos(p); }, (e: Error) => { if (navigator.onLine) showToast(e.message, 'error'); }); // no signal: the list simply can't load, a raw "Failed to fetch" helps nobody
   };
   useEffect(() => { void load(); }, [jobId]);
 
@@ -61,12 +65,12 @@ export const JobPhotos: React.FC<{ jobId: string; locked?: boolean }> = ({ jobId
   const remove = (id: string) => services.jobs.removePhoto(jobId, id).then(load, (e: Error) => showToast(e.message, 'error'));
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-3">
-      <h3 className="font-bold text-sm text-slate-900">Job Photos ({photos.length})</h3>
+    <Card className="gap-0 py-4 px-4 sm:p-5 space-y-3">
+      <h3 className="font-bold text-sm">Job Photos ({photos.length})</h3>
       {!locked && (
         <div className="flex flex-col sm:flex-row gap-2 text-xs">
-          <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Caption (optional)" aria-label="Photo caption" maxLength={200} className="flex-1 px-3 py-2 border border-slate-300 rounded-md" />
-          <label className={`px-3 py-2 rounded-md font-semibold text-center cursor-pointer focus-within:ring-2 focus-within:ring-sky-500 ${busy ? 'bg-slate-200 text-slate-500' : 'bg-sky-600 text-white'}`}>
+          <Input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Caption (optional)" aria-label="Photo caption" maxLength={200} className="flex-1" />
+          <label className={cn('px-3 py-2 rounded-md font-semibold text-center cursor-pointer focus-within:ring-2 focus-within:ring-ring', busy ? 'bg-muted text-muted-foreground' : 'bg-primary text-primary-foreground')}>
             {busy ? 'Uploading…' : 'Take / add photo'}
             <input type="file" accept="image/*" capture="environment" multiple className="sr-only" disabled={busy} onChange={(e) => void pick(e)} />
           </label>
@@ -77,6 +81,6 @@ export const JobPhotos: React.FC<{ jobId: string; locked?: boolean }> = ({ jobId
           {photos.map((p) => <Thumb key={p.id} jobId={jobId} photo={p} onRemove={locked ? undefined : () => confirmToast('Delete this photo?', () => void remove(p.id))} />)}
         </div>
       )}
-    </div>
+    </Card>
   );
 };

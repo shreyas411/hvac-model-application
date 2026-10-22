@@ -34,6 +34,7 @@ Each area below has its own deep-dive file in [`docs/features/`](docs/features/)
 | Settings | [settings-features.md](docs/features/settings-features.md) |
 | Checklist Templates | [checklists-features.md](docs/features/checklists-features.md) |
 | Audit Log | [audit-log-features.md](docs/features/audit-log-features.md) |
+| UI conventions & shared components | [ui-conventions-features.md](docs/features/ui-conventions-features.md) |
 
 ## Cross-cutting
 

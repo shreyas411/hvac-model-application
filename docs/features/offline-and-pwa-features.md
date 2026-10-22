@@ -26,3 +26,8 @@ Queued writes carry an `x-idempotency-key`. The backend stores the first respons
 
 - Offline coverage is only as good as what was loaded before signal dropped; pages never opened have no cached data.
 - Queued edits are not merged: if two people edit the same record, the last replay wins (backend validation still applies and rejected writes are dropped).
+
+## Updates: sync banner, app shell, refused writes
+- Page navigations (`/invoices`, `/technician_portal`, …) get the cached app shell, so a reload with no signal still opens the app. `/api/v1/auth/*` is never queued.
+- With no network every pending write is answered `202 queued` immediately, and the UI says "saved on this phone". Lists reload from the server only once the queue is empty.
+- Writes the server refuses after being queued (job cancelled meanwhile, rule changed) are stored in Cache Storage and shown in `SyncBanner` until dismissed. A new build reloads the page once if it takes over within 10 s of opening.

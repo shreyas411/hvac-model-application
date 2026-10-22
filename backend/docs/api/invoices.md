@@ -42,3 +42,9 @@ Issuing an invoice (`POST /invoices/:id/issue`) queues an `invoice_issued` email
 `balanceDue` = total − credits − `cisDeduction` − `retentionHeld` − payments. `POST /invoices/:id/release-retention` (admin, accountant) makes the held amount due again (409 `NO_RETENTION` if none).
 
 `POST /invoices/stage` (admin, accountant) `{ quoteId, percent?, final?, label? }` raises a deposit/stage invoice (percent of the accepted quote subtotal) or, with `final`, the remaining percent as the full quote minus earlier stages. Each stage is its own invoice (`stageLabel`, `stagePercent`). 409 `NOT_ACCEPTED` / `ALREADY_CONVERTED`; 422 `BAD_STAGE_PERCENT` if more than the unbilled percent.
+
+## Changes
+- `DELETE /invoices/:id` (admin) soft-deletes; only `draft` or `void` invoices without payments (`409 IN_USE` otherwise).
+- `reverseCharge` and CIS (`cisRatePercent`) are only allowed for commercial customers (`422 RESIDENTIAL_TERMS`), on create and on money edits.
+- Status becomes `overdue` as soon as `dueDate` has passed with a balance (recomputed on payment, credit, refund and retention release), not only via the daily sweep. Audit entries show amounts as `£`.
+- List `?sort=issueDate|dueDate|total|balanceDue|status`.

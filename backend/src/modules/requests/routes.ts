@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
+import { prisma, removeRecord } from '../../common/prisma.js';
 import { paginate } from '../../common/paginate.js';
 import { hhmm, isoDate, priority } from '../../common/zod.js';
 import * as svc from './service.js';
@@ -19,6 +20,7 @@ export const requestsRouter = Router();
 requestsRouter.use(allow('admin', 'dispatcher'));
 requestsRouter.get('/', h((req) => svc.pageRequests(req.query)));
 requestsRouter.get('/:id', h((req) => svc.getRequest(req.params.id)));
+requestsRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.serviceRequest, req.params.id, 'Service request', (r) => r.status === 'converted' && 'A converted request is part of its job history')));
 requestsRouter.post('/', h((req) => svc.createRequest(request.parse(req.body)), 201));
 requestsRouter.patch('/:id', h((req) =>
   svc.updateRequest(req.params.id, request.partial().extend({ status: z.enum(['new', 'awaiting_approval', 'cancelled']).optional() }).parse(req.body))));

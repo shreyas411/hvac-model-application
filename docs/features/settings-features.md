@@ -69,3 +69,6 @@ New checkbox **Send customer emails automatically** (`autoSendEmails`, default o
 ## Updates: work day hours
 
 Company settings now expose **Work Day Starts** / **Work Day Ends** (`workingHoursStart`/`workingHoursEnd`, time inputs; end cannot precede start). They set the dispatch board's time range and each technician's daily capacity. See [dispatch-features.md](dispatch-features.md).
+
+## Updates
+- Company postcode is validated as a UK postcode. Settings uses the shared tabbed layout described in [ui-conventions-features.md](ui-conventions-features.md).

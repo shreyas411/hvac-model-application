@@ -4,7 +4,7 @@ import type { Actor } from '../../common/auth.js';
 import { ApiError, conflict, notFound, unprocessable } from '../../common/errors.js';
 import { pageFrom } from '../../common/paginate.js';
 import { audit } from '../../common/audit.js';
-import { addDays, today } from '../../common/dates.js';
+import { addDays, today, ukDate } from '../../common/dates.js';
 import { round2, totals } from '../../common/money.js';
 import { nextNumber } from '../../common/numbering.js';
 import { date, isUuid, lockRow, plain, prisma, refer, type Tx } from '../../common/prisma.js';
@@ -31,7 +31,7 @@ export async function getInvoice(id: string, c: Tx = prisma) {
   if (!row) throw notFound('Invoice');
   return toInvoice(row);
 }
-export const pageInvoices = (query: unknown) => pageFrom(query, prisma.invoice, { include, searchFields: ['invoiceNumber', 'notes', 'customer.name'] }, toInvoice);
+export const pageInvoices = (query: unknown) => pageFrom(query, prisma.invoice, { include, searchFields: ['invoiceNumber', 'notes', 'customer.name'], sorts: ['issueDate', 'dueDate', 'total', 'balanceDue', 'status'] }, toInvoice);
 export const listInvoices = async () => (await prisma.invoice.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toInvoice);
 
 export type ItemInput = Pick<LineItem, 'type' | 'description' | 'quantity' | 'unitPrice' | 'vatRatePercent' | 'option'>;
@@ -80,8 +80,16 @@ async function insertInvoice(tx: Tx, i: Omit<InvoiceInput, 'items' | 'vatRatePer
   }));
 }
 
+/** Domestic reverse charge and CIS only exist between VAT-registered / CIS businesses; a householder or landlord (end user) must never get them. */
+async function assertBusinessTerms(tx: Tx, customerId: string, t: Terms) {
+  if (!t.reverseCharge && !t.cisRatePercent) return;
+  if ((await tx.customer.findUnique({ where: { id: customerId }, select: { type: true } }))?.type !== 'commercial')
+    throw unprocessable('RESIDENTIAL_TERMS', 'Reverse charge and CIS only apply to commercial customers');
+}
+
 export async function createInvoice({ items, vatRatePercent, reverseCharge, cisRatePercent, retentionPercent, ...i }: InvoiceInput, tx?: Tx): Promise<Invoice> {
   if (!tx) return prisma.$transaction((t) => createInvoice({ items, vatRatePercent, reverseCharge, cisRatePercent, retentionPercent, ...i }, t));
+  await assertBusinessTerms(tx, i.customerId, { reverseCharge, cisRatePercent });
   const rows = lineRows(items);
   const vat = vatRatePercent ?? (await getSettings()).defaultVatRate;
   const t = priced(rows, vat, { reverseCharge, cisRatePercent, retentionPercent });
@@ -96,6 +104,7 @@ export function updateInvoice(id: string, patch: Partial<InvoiceInput>) {
     const money = patch.items || patch.vatRatePercent !== undefined || patch.reverseCharge !== undefined || patch.cisRatePercent !== undefined || patch.retentionPercent !== undefined;
     if (money && inv.status !== 'draft') throw conflict('NOT_EDITABLE', 'Line items and VAT can only change while draft');
     const { items, vatRatePercent, dueDate, notes, paymentTermsDays, issueDate } = patch;
+    if (money) await assertBusinessTerms(tx, inv.customerId, { reverseCharge: patch.reverseCharge ?? inv.reverseCharge, cisRatePercent: patch.cisRatePercent ?? inv.cisRatePercent });
     const rows = lineRows(items ?? inv.items);
     const t = priced(rows, vatRatePercent ?? inv.vatRatePercent, {
       reverseCharge: patch.reverseCharge ?? inv.reverseCharge, cisRatePercent: patch.cisRatePercent ?? inv.cisRatePercent, retentionPercent: patch.retentionPercent ?? inv.retentionPercent,
@@ -128,9 +137,9 @@ const sum = (n: { _sum: { amount: unknown } }) => Number(n._sum.amount ?? 0);
 const creditedTotal = async (tx: Tx, invoiceId: string) => sum(await tx.creditNote.aggregate({ where: { invoiceId }, _sum: { amount: true } }));
 
 /** Balance and status after payments/credits/refunds. `credited` = fully written off by credit notes. */
-function settle(total: number, amountPaid: number, credited: number, held: number) {
+function settle(total: number, amountPaid: number, credited: number, held: number, dueDate?: string) {
   const balanceDue = Math.max(0, round2(total - credited - held - amountPaid));
-  const status = credited >= total - 0.005 ? 'credited' as const : balanceDue <= 0.01 ? 'paid' as const : amountPaid > 0 ? 'partially_paid' as const : 'issued' as const;
+  const status = credited >= total - 0.005 ? 'credited' as const : balanceDue <= 0.01 ? 'paid' as const : dueDate && dueDate < new Date().toISOString().slice(0, 10) ? 'overdue' as const : amountPaid > 0 ? 'partially_paid' as const : 'issued' as const; // part-paid past its due date stays overdue
   return { balanceDue, status };
 }
 
@@ -144,9 +153,9 @@ export function recordPayment(id: string, p: Omit<PaymentRecord, 'id' | 'recorde
     if (p.reference && (await tx.payment.count({ where: { invoiceId: id, reference: p.reference, refunded: false } })))
       throw conflict('DUPLICATE_PAYMENT_REFERENCE', `Payment reference ${p.reference} is already recorded on this invoice`);
     const amountPaid = round2(inv.amountPaid + p.amount);
-    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, id), withheld(inv));
+    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, id), withheld(inv), inv.dueDate);
     const pay = await tx.payment.create({ data: { invoiceId: id, date: new Date(p.date), amount: p.amount, method: p.method, reference: p.reference, recordedBy: who.name, notes: p.notes } });
-    await audit(tx, 'invoice', id, who, 'payment recorded', `${p.amount.toFixed(2)} via ${p.method} (${pay.id})`);
+    await audit(tx, 'invoice', id, who, 'payment recorded', `£${p.amount.toFixed(2)} via ${p.method}`);
     return toInvoice(await tx.invoice.update({ where: { id }, include, data: { amountPaid, balanceDue, status } }));
   });
 }
@@ -158,8 +167,8 @@ export function releaseRetention(id: string, who: Actor) {
     const inv = await getInvoice(id, tx);
     if (inv.status === 'draft' || inv.status === 'void') throw conflict('NOT_PAYABLE', `Cannot release retention on a ${inv.status} invoice`);
     if (!inv.retentionHeld) throw conflict('NO_RETENTION', 'No retention is being held on this invoice');
-    const { balanceDue, status } = settle(inv.total, inv.amountPaid, await creditedTotal(tx, id), inv.cisDeduction);
-    await audit(tx, 'invoice', id, who, 'retention released', inv.retentionHeld.toFixed(2));
+    const { balanceDue, status } = settle(inv.total, inv.amountPaid, await creditedTotal(tx, id), inv.cisDeduction, inv.dueDate);
+    await audit(tx, 'invoice', id, who, 'retention released', `£${inv.retentionHeld.toFixed(2)}`);
     return toInvoice(await tx.invoice.update({ where: { id }, include, data: { retentionHeld: 0, balanceDue, status } }));
   });
 }
@@ -189,8 +198,8 @@ export function creditInvoice(id: string, c: { amount: number; reason: string },
     // VAT is the credited share of the invoice's VAT (amount is gross)
     const vatAmount = inv.total ? round2((c.amount * inv.vatAmount) / inv.total) : 0;
     const credit = await tx.creditNote.create({ data: { creditNumber: await nextNumber('credit', new Date(), tx), invoiceId: id, amount: c.amount, vatAmount, reason: c.reason, createdBy: who.name } });
-    const { balanceDue, status } = settle(inv.total, inv.amountPaid, round2(already + c.amount), withheld(inv));
-    await audit(tx, 'invoice', id, who, 'credit note', `${credit.creditNumber}: ${c.amount.toFixed(2)} (${c.reason})`);
+    const { balanceDue, status } = settle(inv.total, inv.amountPaid, round2(already + c.amount), withheld(inv), inv.dueDate);
+    await audit(tx, 'invoice', id, who, 'credit note', `${credit.creditNumber}: £${c.amount.toFixed(2)} (${c.reason})`);
     return { creditNote: { ...plain(credit), createdAt: credit.createdAt.toISOString() }, invoice: toInvoice(await tx.invoice.update({ where: { id }, include, data: { balanceDue, status } })) };
   });
 }
@@ -204,15 +213,15 @@ export function refundPayment(invoiceId: string, paymentId: string, reason: stri
     if (!pay) throw notFound('Payment');
     if (pay.refunded) throw conflict('ALREADY_REFUNDED', 'Payment already refunded');
     const amountPaid = round2(inv.amountPaid - Number(pay.amount));
-    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, invoiceId), withheld(inv));
+    const { balanceDue, status } = settle(inv.total, amountPaid, await creditedTotal(tx, invoiceId), withheld(inv), inv.dueDate);
     await tx.payment.update({ where: { id: paymentId }, data: { refunded: true } });
-    await audit(tx, 'invoice', invoiceId, who, 'payment refunded', `${Number(pay.amount).toFixed(2)} (${paymentId}): ${reason}`);
+    await audit(tx, 'invoice', invoiceId, who, 'payment refunded', `£${Number(pay.amount).toFixed(2)}: ${reason}`);
     return toInvoice(await tx.invoice.update({ where: { id: invoiceId }, include, data: { amountPaid, balanceDue, status } }));
   });
 }
 
 /** Invoices a finished job. The job is read under a row lock inside the transaction, so labour/parts can't change between read and bill. */
-export function generateFromJob(jobId: string, who: Actor) {
+export function generateFromJob(jobId: string, vatRatePercent: number, who: Actor) {
   return prisma.$transaction(async (tx) => {
     await lockRow(tx, 'jobs', jobId);
     const job = await getJob(jobId, tx);
@@ -227,7 +236,7 @@ export function generateFromJob(jobId: string, who: Actor) {
     if (!items.length) throw unprocessable('NOTHING_TO_INVOICE', `Job ${job.jobNumber} has no labour, travel or parts to bill`);
     await audit(tx, 'job', job.id, who, 'invoice generated', job.jobNumber);
     return createInvoice({
-      customerId: job.customerId, locationId: job.locationId, jobId: job.id, items,
+      customerId: job.customerId, locationId: job.locationId, jobId: job.id, items, vatRatePercent,
       notes: `Invoice generated from completed Job ${job.jobNumber} by ${who.name}.`,
     }, tx);
   });
@@ -282,7 +291,7 @@ export async function markOverdue(now = today()) {
   for (const i of due) {
     await createNotification({
       customerId: i.customerId, type: 'payment_reminder', channel: 'email', subject: `Payment reminder: invoice ${i.invoiceNumber}`,
-      messageBody: `Invoice ${i.invoiceNumber} (balance £${i.balanceDue.toFixed(2)}) was due on ${i.dueDate.toISOString().slice(0, 10)}. Please arrange payment, or get in touch if you've already paid.`,
+      messageBody: `Invoice ${i.invoiceNumber} (balance £${i.balanceDue.toFixed(2)}) was due on ${ukDate(i.dueDate)}. Please arrange payment, or get in touch if you've already paid.`,
     }).catch(() => undefined); // no consent / other channel preferred: no reminder
   }
   return count;

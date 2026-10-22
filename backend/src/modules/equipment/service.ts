@@ -1,9 +1,9 @@
 import type { Prisma } from '@prisma/client';
 import type { Equipment, EquipmentServiceRecord } from '../../types.js';
 import { pageFrom } from '../../common/paginate.js';
-import { addMonths } from '../../common/dates.js';
+import { addMonths, isPast } from '../../common/dates.js';
 import { conflict, notFound, unprocessable } from '../../common/errors.js';
-import { date, isUuid, plain, prisma, refer, type Tx } from '../../common/prisma.js';
+import { date, isUuid, plain, prisma, refer, softDelete, type Tx } from '../../common/prisma.js';
 import { assertLocation } from '../customers/service.js';
 import { getJob } from '../jobs/service.js';
 
@@ -15,6 +15,7 @@ type Row = Prisma.EquipmentGetPayload<{ include: typeof include }>;
 
 const toEquipment = ({ legacyId, createdAt, updatedAt, serviceRecords, ...e }: Row) => ({
   ...plain(e, [], [...DATES]),
+  expired: isPast(e.warrantyExpiryDate), // warranty ran out
   serviceHistory: serviceRecords.map(({ equipmentId, legacyId, createdAt, ...r }) => plain(r, [], ['date'])),
 }) as unknown as Equipment;
 
@@ -25,13 +26,13 @@ export async function getEquipment(id: string, c: Tx = prisma) {
 }
 
 /** Plugs into crud(): reads and delete only, writes go through the functions below. */
-export const pageEquipment = (query: unknown) => pageFrom(query, prisma.equipment, { include, searchFields: ['brand', 'model', 'serialNumber'] }, toEquipment);
+export const pageEquipment = (query: unknown) => pageFrom(query, prisma.equipment, { include, searchFields: ['brand', 'model', 'serialNumber', 'customer.name'], sorts: ['type', 'warrantyExpiryDate', 'nextServiceDueDate'], filters: ['inactive', 'status', 'type'] }, toEquipment);
 export const equipmentStore = {
   all: async () => (await prisma.equipment.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toEquipment),
   find: (id: string) => getEquipment(id).catch(() => undefined),
   insert: (d: any) => createEquipment(d),
   update: (id: string, d: any) => updateEquipment(id, d),
-  remove: async (id: string) => { await prisma.equipment.delete({ where: { id } }); },
+  remove: async (id: string) => { await softDelete(prisma.equipment, { id }); },
 };
 
 const dbDates = (d: Partial<Equipment>) => Object.fromEntries(DATES.filter((k) => d[k]).map((k) => [k, new Date(d[k]!)]));

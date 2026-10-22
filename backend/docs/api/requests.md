@@ -11,3 +11,6 @@ All routes A D.
 | POST | `/requests` | `{ customerId, locationId, reportedProblem, priority?, preferredSlot?, equipmentId?, contactPerson?, contactPhone?, internalNotes? }`; assigns `SR-n` |
 | PATCH | `/requests/:id` | Partial; status may be set to `new`, `awaiting_approval` or `cancelled` |
 | POST | `/requests/:id/convert` | `{ appointmentDate, startTime, endTime, technicianId? }` → the new job. Emergency → `emergency_callout`, else `repair`. `ALREADY_CONVERTED` on repeat |
+
+## Changes
+- `DELETE /requests/:id` (admin) soft-deletes; a `converted` request cannot be deleted (it is part of its job's history).

@@ -3,8 +3,20 @@ import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { Priority, ServiceRequest } from '../../types';
 import { formatDateUK, getTodayISO } from '../../utils/formatters';
-import { useEscape } from '../../utils/useEscape';
-import { IconAlertTriangle, IconArrowRight, IconCircleCheck, IconInbox, IconPlus } from '@tabler/icons-react';
+import { Alert, AlertDescription, AlertTitle } from '@/src/components/ui/alert';
+import { Badge } from '@/src/components/ui/badge';
+import { Button } from '@/src/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
+import { Label } from '@/src/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
+import { IconAlertTriangle, IconCalendarPlus, IconCircleCheck, IconInbox, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { Input } from '@/src/components/ui/input';
+import { DatePicker } from '../common/DatePicker';
+import { DetailDrawer } from '../common/DetailDrawer';
+import { SortHead, useServerPaged } from '../common/Pager';
+import { RowActions } from '../common/RowActions';
+import { TableCard } from '../common/TableCard';
+import { Tip } from '@/src/components/common/Tip';
 
 interface ServiceRequestsViewProps {
   onOpenQuickAction: (action: 'request' | 'job') => void;
@@ -16,6 +28,7 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
   onNavigateTab,
 }) => {
   const { 
+    jobs,
     serviceRequests, 
     customers, 
     equipment, 
@@ -23,9 +36,15 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
     convertRequestToJob,
     checkScheduleConflict,
     customerById,
-  } = useApp(['serviceRequests', 'customers', 'equipment', 'technicians', 'convertRequestToJob', 'checkScheduleConflict', 'customerById']);
+    deleteRecord,
+    confirmToast,
+    currentUser,
+  } = useApp(['jobs', 'serviceRequests', 'customers', 'equipment', 'technicians', 'convertRequestToJob', 'checkScheduleConflict', 'customerById', 'deleteRecord', 'confirmToast', 'currentUser']);
 
-  const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'awaiting_approval' | 'converted'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'awaiting_approval' | 'converted' | 'cancelled'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  // Search and status run on the server so paging covers the whole list (search matches request number and problem text)
+  const paged = useServerPaged<ServiceRequest>('/requests', { q: searchTerm.trim() || undefined, status: statusFilter === 'all' ? undefined : statusFilter }, serviceRequests);
   
   // Convert modal
   const [convertingRequest, setConvertingRequest] = useState<ServiceRequest | null>(null);
@@ -35,13 +54,6 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
   const [assignTechId, setAssignTechId] = useState<string>(technicians[0]?.id || '');
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); // guards double-submit (would book the job twice)
-
-  const filteredRequests = serviceRequests.filter((r) => {
-    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-    return true;
-  });
-
-  useEscape(!!convertingRequest, () => setConvertingRequest(null));
 
   const handleOpenConvert = (sr: ServiceRequest) => {
     setConvertingRequest(sr);
@@ -91,245 +103,142 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
     emergency: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
     high: 'bg-amber-100 text-amber-800 border-amber-300 font-semibold',
     medium: 'bg-sky-100 text-sky-800 border-sky-300',
-    low: 'bg-slate-100 text-slate-700 border-slate-300',
+    low: 'bg-muted text-foreground border-border',
   };
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
-      
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-slate-900">
-            Customer Service Requests & Enquiries
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Triage breakdown alerts, evaluate priority, and schedule onto the technician dispatch board
-          </p>
-        </div>
-
-        <button
-          onClick={() => onOpenQuickAction('request')}
-          className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5 shrink-0"
-        >
-          <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
-          <span>New Enquiry</span>
-        </button>
-      </div>
-
-      {/* Filter Tabs */}
-      <div role="group" aria-label="Filter by status" className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2 text-xs">
-        {[
-          { id: 'all', label: 'All Requests' },
-          { id: 'new', label: 'New / Unassigned' },
-          { id: 'awaiting_approval', label: 'Awaiting Approval' },
-          { id: 'converted', label: 'Converted to Job' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setStatusFilter(tab.id as any)}
-            aria-pressed={statusFilter === tab.id}
-            className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-              statusFilter === tab.id
-                ? 'bg-slate-900 text-white font-semibold'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Requests Cards List */}
-      <div className="space-y-3">
-        {filteredRequests.map((req) => {
-          const cust = customerById.get(req.customerId);
-          const loc = cust?.serviceLocations.find((l) => l.id === req.locationId);
-          const eq = equipment.find((e) => e.id === req.equipmentId);
-
-          return (
-            <div
-              key={req.id}
-              className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs hover:border-slate-300 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
-            >
-              <div className="space-y-1.5 flex-1">
-                <div className="flex items-center gap-2.5">
-                  <span className="font-mono font-bold text-sm text-slate-900">
-                    {req.requestNumber}
-                  </span>
-                  <span className={`text-[10px] uppercase px-2 py-0.5 rounded border ${priorityBadges[req.priority]}`}>
-                    {req.priority} Priority
-                  </span>
-                  <span className="text-xs text-slate-400 capitalize">
-                    Slot: {req.preferredSlot}
-                  </span>
-                </div>
-
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900">{cust?.name}</h3>
-                  <p className="text-xs text-slate-500">
-                    {loc ? `${loc.addressLine1}, ${loc.city} (${loc.postcode})` : 'No site on file'}
-                  </p>
-                </div>
-
-                <p className="text-xs text-slate-800 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                  {req.reportedProblem}
-                </p>
-
-                {eq && (
-                  <p className="text-[11px] text-sky-800 font-medium">
-                    Attached Asset: {eq.brand} {eq.model} (S/N: {eq.serialNumber})
-                  </p>
-                )}
-              </div>
-
-              <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-2 shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 text-xs">
-                <span className="text-slate-500 text-[11px]">
-                  Logged {formatDateUK(req.createdAt)}
-                </span>
-
-                {req.status === 'converted' ? (
-                  <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md font-semibold text-xs flex items-center gap-1">
-                    <IconCircleCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Job Booked</span>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleOpenConvert(req)}
-                    className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg shadow-2xs flex items-center gap-1"
-                  >
-                    <span>Schedule Job</span>
-                    <IconArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {filteredRequests.length === 0 && (
-          <div className="bg-white border border-slate-200 rounded-xl py-6"><EmptyState icon={IconInbox}>No service requests found in this category.</EmptyState></div>
-        )}
-      </div>
-
-      {/* Convert to Job Wizard Modal */}
-      {convertingRequest && (
-        <div role="dialog" aria-modal="true" aria-label="Convert request to job" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-sm text-slate-900">
-                  Convert {convertingRequest.requestNumber} to Job
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Assign appointment slot and technician
-                </p>
-              </div>
-              <button
-                onClick={() => setConvertingRequest(null)}
-                aria-label="Close" className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <span aria-hidden="true">✕</span>
-              </button>
-            </div>
-
-            <form onSubmit={handleConfirmConvert} className="p-5 space-y-4 text-xs">
-              {conflictWarning && (
-                <div role="alert" className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 flex items-start gap-2">
-                  <IconAlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" aria-hidden="true" />
-                  <div>
-                    <p className="font-bold">Technician Conflict!</p>
-                    <p className="mt-0.5">{conflictWarning}</p>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label htmlFor="sr-tech" className="block font-semibold text-slate-700 mb-1">
-                  Assign Qualified Technician *
-                </label>
-                <select
-                  id="sr-tech" value={assignTechId}
-                  onChange={(e) => {
-                    setAssignTechId(e.target.value);
-                    setConflictWarning(null);
-                  }}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
-                >
-                  {technicians.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.skills.join(', ')})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="sr-date" className="block font-semibold text-slate-700 mb-1">
-                  Appointment Date *
-                </label>
-                <input
-                  type="date"
-                  required
-                  id="sr-date" name="date" min={getTodayISO()} value={assignDate}
-                  onChange={(e) => {
-                    setAssignDate(e.target.value);
-                    setConflictWarning(null);
-                  }}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="sr-start" className="block font-semibold text-slate-700 mb-1">Start Time *</label>
-                  <input
-                    type="time"
-                    required
-                    id="sr-start" name="start" value={assignStartTime}
-                    onChange={(e) => {
-                      setAssignStartTime(e.target.value);
-                      setConflictWarning(null);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="sr-end" className="block font-semibold text-slate-700 mb-1">End Time *</label>
-                  <input
-                    type="time"
-                    required
-                    id="sr-end" name="end" value={assignEndTime}
-                    onChange={(e) => {
-                      setAssignEndTime(e.target.value);
-                      setConflictWarning(null);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConvertingRequest(null)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg disabled:opacity-60"
-                >
-                  {busy ? 'Scheduling…' : 'Confirm & Schedule'}
-                </button>
-              </div>
-            </form>
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-lg font-bold tracking-tight">Service Requests</h1>
+            <Badge variant="secondary" className="text-base tabular-nums" aria-live="polite" aria-label={`${paged.total} ${paged.total === 1 ? 'request' : 'requests'}`}>{paged.total}</Badge>
           </div>
+          <p className="text-xs text-muted-foreground mt-0.5">Triage enquiries, set priority, and schedule them onto the dispatch board</p>
         </div>
-      )}
+        <Button size="sm" onClick={() => onOpenQuickAction('request')} className="shrink-0">
+          <IconPlus aria-hidden="true" />
+          <span>New Enquiry</span>
+        </Button>
+      </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-80">
+          <IconSearch className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-2.5" aria-hidden="true" />
+          <Input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} aria-label="Search requests" name="search" autoComplete="off" placeholder="Search number or problem…" className="pl-9 h-8 text-xs" />
+        </div>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+          <SelectTrigger size="sm" aria-label="Request status" className="w-44 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="new">New / Unassigned</SelectItem>
+            <SelectItem value="awaiting_approval">Awaiting Approval</SelectItem>
+            <SelectItem value="converted">Converted to Job</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
+        {(searchTerm || statusFilter !== 'all') && <Button variant="ghost" size="xs" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }}><IconX aria-hidden="true" />Clear filters</Button>}
+      </div>
+
+      <TableCard footer={paged.pager}>
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow>
+              <SortHead paged={paged} by="requestNumber" className="px-3">Request</SortHead>
+              <SortHead paged={paged} by="customer.name" className="px-3">Customer / Site</SortHead>
+              <TableHead className="hidden md:table-cell px-3">Problem</TableHead>
+              <SortHead paged={paged} by="priority" className="px-3">Priority</SortHead>
+              <SortHead paged={paged} by="status" className="hidden md:table-cell px-3">Status</SortHead>
+              <SortHead paged={paged} by="createdAt" className="hidden lg:table-cell px-3">Logged</SortHead>
+              <TableHead className="px-3 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paged.rows.map((req) => {
+              const cust = customerById.get(req.customerId);
+              const loc = cust?.serviceLocations.find((l) => l.id === req.locationId);
+              const eq = equipment.find((e) => e.id === req.equipmentId);
+              const booked = req.convertedJobId ? jobs.find((j) => j.id === req.convertedJobId) : undefined;
+              return (
+                <TableRow key={req.id}>
+                  <TableCell className="px-3 py-3 align-top">
+                    <span className="block font-semibold tabular-nums">{req.requestNumber}</span>
+                    <span className="block text-[11px] text-muted-foreground capitalize">Slot: {req.preferredSlot.replace('_', ' ')}</span>
+                  </TableCell>
+                  <TableCell className="px-3 py-3 align-top max-w-[220px]">
+                    <span className="block font-bold truncate">{cust?.name}</span>
+                    <Tip label={loc ? `${loc.addressLine1}, ${loc.city} ${loc.postcode}` : undefined}><span className="block text-[11px] text-muted-foreground truncate">{loc ? `${loc.addressLine1}, ${loc.city} (${loc.postcode})` : 'No site on file'}</span></Tip>
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell px-3 py-3 align-top max-w-[320px]">
+                    <Tip label={req.reportedProblem}><span className="block line-clamp-2">{req.reportedProblem}</span></Tip>
+                    {eq && <span className="block text-[11px] text-sky-800">Asset: {eq.brand} {eq.model}</span>}
+                  </TableCell>
+                  <TableCell className="px-3 py-3 align-top">
+                    <Badge variant="outline" className={`text-[10px] uppercase ${priorityBadges[req.priority]}`}>{req.priority}</Badge>
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell px-3 py-3 align-top">
+                    {req.status === 'converted' ? (
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200"><IconCircleCheck aria-hidden="true" />Job{booked ? ` ${booked.jobNumber}` : ' booked'}</Badge>
+                    ) : <Badge variant="secondary" className="capitalize">{req.status.replace('_', ' ')}</Badge>}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell px-3 py-3 align-top tabular-nums text-muted-foreground">{formatDateUK(req.createdAt)}</TableCell>
+                  <TableCell className="px-3 py-3 align-top">
+                    <RowActions subject={req.requestNumber} actions={[
+                      { icon: IconCalendarPlus, label: 'Schedule job', tone: 'info', hidden: req.status === 'converted' || req.status === 'cancelled', onClick: () => handleOpenConvert(req) },
+                      { icon: IconTrash, label: 'Delete', destructive: true, hidden: req.status === 'converted' || currentUser?.role !== 'admin',
+                        onClick: () => confirmToast(`Delete request ${req.requestNumber}?`, () => void deleteRecord('requests', req.id, 'Request')) },
+                    ]} />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {paged.rows.length === 0 && !paged.loading && (
+              <TableRow><TableCell colSpan={7} className="py-6"><EmptyState icon={IconInbox}>No service requests match your filters.</EmptyState></TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableCard>
+
+      {convertingRequest && (
+        <DetailDrawer onClose={() => setConvertingRequest(null)} title={`Convert ${convertingRequest.requestNumber} to Job`} description="Assign appointment slot and technician"
+          footer={<>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setConvertingRequest(null)}>Cancel</Button>
+            <Button type="submit" form="convert-form" size="sm" disabled={busy}>{busy ? 'Scheduling…' : 'Confirm & Schedule'}</Button>
+          </>}>
+          <form id="convert-form" onSubmit={handleConfirmConvert} className="space-y-4 text-xs">
+            {conflictWarning && (
+              <Alert variant="destructive" className="bg-rose-50 border-rose-300 text-rose-900">
+                <IconAlertTriangle aria-hidden="true" />
+                <AlertTitle>Technician Conflict!</AlertTitle>
+                <AlertDescription className="text-rose-900">{conflictWarning}</AlertDescription>
+              </Alert>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="sr-tech" className="text-xs">Assign Qualified Technician *</Label>
+              <Select value={assignTechId} onValueChange={(v) => { setAssignTechId(v); setConflictWarning(null); }}>
+                <SelectTrigger id="sr-tech" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {technicians.map((t) => <SelectItem key={t.id} value={t.id}>{t.name} ({t.skills.join(', ')})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sr-date" className="text-xs">Appointment Date *</Label>
+              <div><DatePicker id="sr-date" min={getTodayISO()} value={assignDate} onChange={(v) => { setAssignDate(v); setConflictWarning(null); }} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sr-start" className="text-xs">Start Time *</Label>
+                <Input type="time" required id="sr-start" name="start" value={assignStartTime} onChange={(e) => { setAssignStartTime(e.target.value); setConflictWarning(null); }} className="tabular-nums" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sr-end" className="text-xs">End Time *</Label>
+                <Input type="time" required id="sr-end" name="end" value={assignEndTime} onChange={(e) => { setAssignEndTime(e.target.value); setConflictWarning(null); }} className="tabular-nums" />
+              </div>
+            </div>
+          </form>
+        </DetailDrawer>
+      )}
     </div>
   );
 };

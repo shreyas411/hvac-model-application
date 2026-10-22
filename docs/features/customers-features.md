@@ -82,3 +82,9 @@ Adding a service site has a postcode lookup (`frontend/src/services/postcode.ts`
 ## Updates: job details from the 360 drawer
 
 Rows under **Job history & visits** are now buttons that open the read-only job record (`JobDetailDrawer`, see [dispatch-features.md](dispatch-features.md)) with PDF/Print.
+
+## Updates: landlords, validation, delete
+- New customer type **Landlord / Agent** (filter option "Landlord"; first site is labelled "Rental Property"). Reverse charge and CIS are only offered to commercial customers (the API refuses them otherwise).
+- The add/edit form is now `CustomerFormDrawer`; the list uses server paging, sorting by type and an inactive filter. See [ui-conventions-features.md](ui-conventions-features.md). Address lines autocomplete when Google Places is configured.
+- UK postcode and phone are validated and the postcode is normalised (`LS1 4AB`). Email is lower-cased and unique among active customers (`409 DUPLICATE_CUSTOMER`, also when restoring an archived customer).
+- Admins can delete a customer (soft delete); refused while it has jobs, quotes, invoices, requests or equipment. Removed sites vanish from the drawer.

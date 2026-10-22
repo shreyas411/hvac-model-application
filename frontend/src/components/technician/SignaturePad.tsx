@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { IconEraser } from '@tabler/icons-react';
+import { Button } from '@/src/components/ui/button';
 
 /** Touch/mouse signature canvas. `onChange` gets a PNG data URL, or null while empty. */
 export const SignaturePad: React.FC<{ onChange: (dataUrl: string | null) => void }> = ({ onChange }) => {
@@ -72,11 +73,11 @@ export const SignaturePad: React.FC<{ onChange: (dataUrl: string | null) => void
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={up}
-        className="w-full h-32 bg-slate-50 border border-dashed border-slate-300 rounded-lg touch-none cursor-crosshair"
+        className="w-full h-32 bg-muted/50 border border-dashed border-input rounded-lg touch-none cursor-crosshair"
       />
-      <div className="flex justify-between mt-1 text-[10px] text-slate-400">
+      <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
         <span aria-live="polite">{inked ? 'Signature captured' : 'Sign above with finger or mouse'}</span>
-        <button type="button" onClick={clear} className="px-3 py-2 -my-2 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 inline-flex items-center gap-1"><IconEraser className="w-3.5 h-3.5" aria-hidden="true" /> Clear</button>
+        <Button type="button" variant="ghost" size="xs" onClick={clear} className="-my-2"><IconEraser aria-hidden="true" /> Clear</Button>
       </div>
     </div>
   );

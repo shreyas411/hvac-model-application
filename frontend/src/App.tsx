@@ -37,6 +37,7 @@ const AppContent: React.FC = () => {
   const [quickActionModal, setQuickActionModal] = useState<
     'customer' | 'job' | 'request' | 'quote' | 'invoice' | null
   >(null);
+  const [quickCustomerId, setQuickCustomerId] = useState(''); // set when a create flow starts from a customer's 360 view
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
   const toggleSidebar = () => setSidebarCollapsed((c) => { localStorage.setItem('sidebarCollapsed', c ? '0' : '1'); return !c; });
@@ -51,6 +52,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 selection:bg-sky-500 selection:text-white">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[110] focus:px-3 focus:py-2 focus:bg-white focus:text-sky-700 focus:font-semibold focus:rounded-md focus:shadow-lg">Skip to main content</a>
       {/* Top Navbar */}
       <Navbar
         currentTab={currentTab}
@@ -69,7 +71,7 @@ const AppContent: React.FC = () => {
       {toastMessage && <Toast {...toastMessage} onDismiss={() => showToast('')} />}
 
       {/* Main Content Viewport */}
-      <main className="flex-1 pb-16">
+      <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
         {currentTab === 'dashboard' && (
           <DashboardView
             onNavigateTab={setCurrentTab}
@@ -95,7 +97,7 @@ const AppContent: React.FC = () => {
 
         {currentTab === 'customers' && (
           <CustomersView
-            onOpenQuickAction={(action) => setQuickActionModal(action as any)}
+            onOpenQuickAction={(action, customerId) => { setQuickCustomerId(customerId ?? ''); setQuickActionModal(action as any); }}
             onNavigateTab={setCurrentTab}
           />
         )}
@@ -147,28 +149,31 @@ const AppContent: React.FC = () => {
       {/* Quick Action Modal */}
       <QuickCreateModals
         activeModal={quickActionModal}
-        onClose={() => setQuickActionModal(null)}
+        initialCustomerId={quickCustomerId}
+        onClose={() => { setQuickActionModal(null); setQuickCustomerId(''); }}
         onNavigateTab={setCurrentTab}
       />
 
       {/* Interactive Workflow Guide Modal (Workflows A, B, C, D) */}
       <WorkflowGuideModal
-        isOpen={workflowGuideOpen && !realAuth}
+        isOpen={workflowGuideOpen}
         onClose={() => setWorkflowGuideOpen(false)}
         onNavigateTab={setCurrentTab}
         onOpenQuickAction={(action) => setQuickActionModal(action)}
       />
 
       {/* Quiet Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 text-xs text-slate-500 no-print">
+      {/* <footer className="border-t border-slate-200 bg-white py-6 text-xs text-slate-500 no-print">
         <div className="w-full px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <IconFlame className="w-4 h-4 text-sky-700" />
             <span className="font-semibold text-slate-800">{settings.companyName}</span>
             <span aria-hidden="true">·</span>
             <span>UK Field Service Management</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono">Gas Safe: #{settings.gasSafeRegisterNo}</span>
+            {settings.gasSafeRegisterNo && <>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">Gas Safe: #{settings.gasSafeRegisterNo}</span>
+            </>}
           </div>
 
           {!realAuth && (
@@ -184,7 +189,7 @@ const AppContent: React.FC = () => {
             </div>
           )}
         </div>
-      </footer>
+      </footer> */}
       </div>
     </div>
   );

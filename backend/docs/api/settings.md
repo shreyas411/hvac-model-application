@@ -10,3 +10,5 @@ Base path `/api/v1`. Roles: **A** admin, **D** dispatcher, **T** technician, **C
 ## Updates: auto-send emails
 
 `PATCH /settings` accepts `autoSendEmails` (boolean, default `false`). When true, status-triggered customer emails (invoice issued, quotation sent, booking confirmed, engineer dispatched) are sent immediately instead of waiting as drafts for approval. See [notifications.md](notifications.md).
+
+Company `postcode` must be a valid UK postcode (or empty).

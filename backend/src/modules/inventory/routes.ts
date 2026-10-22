@@ -12,7 +12,7 @@ import * as svc from './service.js';
 const part = z.object({
   name: z.string().min(1), sku: z.string().min(1), description: z.string().default(''), category: z.string().min(1),
   unitCost: money, sellingPrice: money, stockQuantity: z.number().int().nonnegative().default(0),
-  minStockLevel: z.number().int().nonnegative().default(0), location: z.string().default(''),
+  minStockLevel: z.number().int().nonnegative().default(0), location: z.string().default(''), inactive: z.boolean().optional(),
 });
 const adjust = z.object({
   delta: z.number().int(), type: z.enum(['used_on_job', 'stock_adjustment', 'restock_purchase']),

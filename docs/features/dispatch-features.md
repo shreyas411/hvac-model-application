@@ -94,3 +94,8 @@ Job cards on board, list and reschedule views show a red **SLA breached** badge 
 - **Job detail drawer** (`JobDetailDrawer.tsx`): clicking a card or **View** in the list opens a read-only record (customer and site, technician, work performed, equipment, checklist, parts, refrigerant log, charges, photos, sign-off, linked invoices/quotes, history) with PDF/Print. **Edit / Reassign** opens the modal. The Dashboard "Manage" button now opens the job's drawer (`selectedJobId`).
 - **List view filters**: search, status, from/to date (server-side), plus **Clear**.
 - Work-day hours now drive the board axis and capacity; they are still not used by the conflict check.
+
+## Updates: delete, site details, certifications
+- Admins can delete jobs that have not started (new, awaiting approval, scheduled, cancelled) and have no invoice. Job detail now carries site address, access notes and customer phone.
+- Required Gas Safe / F-Gas skills are also inferred from gas or refrigerant words in the title and description; assigning a technician without the matching licence is refused. Technician licence fields are admin-only.
+- The completion signature must contain real ink; blank pads are rejected by the API.

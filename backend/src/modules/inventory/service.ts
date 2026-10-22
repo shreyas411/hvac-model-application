@@ -43,7 +43,7 @@ export const adjustStock = (...a: Parameters<typeof adjustStockIn> extends [Tx, 
   prisma.$transaction((tx) => adjustStockIn(tx, ...a));
 
 export async function createPart(data: Omit<PartItem, 'id' | 'createdAt'>, who: Actor) {
-  if (await prisma.part.findUnique({ where: { sku: data.sku } })) throw new ApiError(409, 'DUPLICATE_SKU', `SKU ${data.sku} already exists`);
+  if (await prisma.part.findUnique({ where: { sku: data.sku, isDeleted: undefined } }) /* a deleted part still holds its SKU */) throw new ApiError(409, 'DUPLICATE_SKU', `SKU ${data.sku} already exists`);
   const { stockQuantity, ...rest } = data;
   return prisma.$transaction(async (tx) => {
     const part = toPart(await tx.part.create({ data: { ...rest, stockQuantity: 0 } }));

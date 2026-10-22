@@ -12,11 +12,12 @@ const equipment = z.object({
   customerId: z.string().min(1), locationId: z.string().min(1),
   type: z.enum(['combi_boiler', 'system_boiler', 'heat_pump', 'air_conditioning', 'ventilation', 'chiller']),
   brand: z.string().min(1), model: z.string().min(1), serialNumber: z.string().min(1),
+  refrigerantType: z.string().trim().min(1).nullable().optional(), refrigerantChargeKg: z.number().positive().max(10_000).nullable().optional(),
   installationDate: isoDate, warrantyExpiryDate: isoDate,
   maintenanceFrequency: z.enum(['quarterly', 'biannual', 'annual']),
   lastServiceDate: isoDate.optional(), nextServiceDueDate: isoDate.optional(),
   status: z.enum(['operational', 'requires_attention', 'decommissioned']).default('operational'),
-  locationNotes: z.string().optional(),
+  locationNotes: z.string().optional(), inactive: z.boolean().optional(),
 });
 const record = z.object({
   date: isoDate, jobId: z.string().min(1), technicianName: z.string().min(1), serviceType: z.string().min(1),

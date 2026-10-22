@@ -8,6 +8,8 @@ const q = z.object({
   cursor: z.string().optional(),
   q: z.string().optional(),
   status: z.string().optional(),
+  sort: z.string().optional(),
+  dir: z.enum(['asc', 'desc']).default('asc'),
 });
 
 /** `?limit&page|cursor&q&status` over an already-ordered list. Cursor = id of the last row of the previous page. */
@@ -25,24 +27,27 @@ export function paginate<T extends { id: string }>(rows: T[], query: unknown) {
  * Database-side paging for big tables: `?limit&page|cursor&q&status`. Fetches limit+1 rows, so only one page is ever loaded.
  * With `page` (1-based) it uses an offset and also returns `total` for the filtered listing; with `cursor` it continues after that id.
  * `q` is a case-insensitive "contains" over `searchFields` (plain columns of the model, or `relation.column` through a to-one relation);
+ * `?sort=<column>&dir=asc|desc` orders by one of `sorts` or a plain `searchFields` column (`relation.column` goes through a to-one relation), then newest first.
  * `filters` are query params matched by equality (`true`/`false` become booleans); `where` scopes the whole listing (e.g. one technician).
  */
 export async function pageFrom<R extends { id: string }, T>(
   query: unknown, model: { findMany(args: any): Promise<unknown[]>; count(args: any): Promise<number> },
-  o: { where?: object; include?: object; searchFields: string[]; filters?: string[] }, map: (r: R) => T,
+  o: { where?: object; include?: object; searchFields: string[]; filters?: string[]; sorts?: string[] }, map: (r: R) => T,
 ) {
-  const { limit, page, cursor, q: text, status } = q.parse(query);
+  const { limit, page, cursor, q: text, status, sort, dir } = q.parse(query);
   const raw = (query ?? {}) as Record<string, unknown>;
   const equal = Object.fromEntries((o.filters ?? []).flatMap((f) => {
     const v = raw[f];
     if (typeof v !== 'string' || (f.endsWith('Id') && !isUuid(v))) return [];
     return [[f, v === 'true' ? true : v === 'false' ? false : v]];
   }));
-  const match = (field: string) => field.split('.').reduceRight<unknown>((inner, key) => ({ [key]: inner }), { contains: text, mode: 'insensitive' });
+  const nest = (field: string, leaf: unknown) => field.split('.').reduceRight<unknown>((inner, key) => ({ [key]: inner }), leaf);
+  const match = (field: string) => nest(field, { contains: text, mode: 'insensitive' });
+  const sortable = [...(o.sorts ?? []), ...o.searchFields.filter((f) => !f.includes('.some.'))];
   const where = { ...o.where, ...equal, ...(status && { status }), ...(text && { OR: o.searchFields.map(match) }) };
   const [rows, total] = await Promise.all([
     model.findMany({
-      where, include: o.include, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+      where, include: o.include, orderBy: [...(sort && sortable.includes(sort) ? [nest(sort, dir)] : []), { createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
       ...(page ? { skip: (page - 1) * limit } : cursor && isUuid(cursor) && { cursor: { id: cursor }, skip: 1 }),
     }) as Promise<R[]>,
     page ? model.count({ where }) : undefined,

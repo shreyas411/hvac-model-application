@@ -84,3 +84,7 @@ Issuing an invoice drafts (or, with auto-send on, sends) an email with a server-
 - Invoice detail shows "VAT (domestic reverse charge)", "Less CIS deduction (x% of labour)" and "Retention held (x%)" with a **Release** button (`POST /invoices/:id/release-retention`). The same lines print on the PDF.
 - Stage invoices (made from an accepted quote, see [quotations-features.md](quotations-features.md)) show a grey badge on the list and detail: label and percent of quotation.
 - Limitations: credit notes do not scale CIS or retention.
+
+## Updates: VAT on job invoices, credit notes, overdue
+- Generating an invoice from a job asks for the VAT rate (0-100%) and sends it as `vatRatePercent`.
+- Credit notes are raised from the invoice screen (`creditInvoice`). An invoice turns `overdue` the moment its due date passes with a balance. Admins can delete draft or void invoices without payments.

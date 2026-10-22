@@ -1,6 +1,7 @@
 export type UserRole = 'admin' | 'dispatcher' | 'technician' | 'accountant';
 
 export interface User {
+  inactive?: boolean;
   id: string;
   name: string;
   email: string;
@@ -11,6 +12,7 @@ export interface User {
 }
 
 export interface TechnicianProfile {
+  expired?: boolean; // Gas Safe / F-Gas licence has lapsed
   id: string;
   name: string;
   phone: string;
@@ -25,9 +27,10 @@ export interface TechnicianProfile {
   vanRegistration?: string;
 }
 
-export type CustomerType = 'residential' | 'commercial';
+export type CustomerType = 'residential' | 'commercial' | 'landlord';
 
 export interface ServiceLocation {
+  inactive?: boolean;
   id: string;
   label: string; // e.g., 'Primary Residence', 'Branch Office', 'Plant Room'
   addressLine1: string;
@@ -92,6 +95,8 @@ export interface EquipmentServiceRecord {
 }
 
 export interface Equipment {
+  inactive?: boolean;
+  expired?: boolean; // warranty has run out
   id: string;
   customerId: string;
   locationId: string;
@@ -99,6 +104,8 @@ export interface Equipment {
   brand: string;
   model: string;
   serialNumber: string;
+  refrigerantType?: string | null;
+  refrigerantChargeKg?: number | null;
   installationDate: string;
   warrantyExpiryDate: string;
   maintenanceFrequency: 'quarterly' | 'biannual' | 'annual';
@@ -173,8 +180,16 @@ export interface JobChecklistItem {
   notes?: string;
 }
 
+/** Name, phone and address the API attaches to every job; technicians can't read /customers, so this is all they get. */
+export interface JobSite {
+  customerName: string; customerPhone: string;
+  addressLine1: string; addressLine2?: string | null; city: string; postcode: string;
+  accessNotes?: string | null; contactName?: string | null; contactPhone?: string | null;
+}
+
 export interface Job {
   id: string;
+  site?: JobSite;
   slaDueAt?: string;
   slaBreached?: boolean; // contract response time passed while the job is still `new`
   jobNumber: string;
@@ -230,6 +245,7 @@ export interface LineItem {
 }
 
 export interface Quotation {
+  expired?: boolean; // past its expiry date without being accepted
   id: string;
   quoteNumber: string;
   customerId: string;
@@ -297,6 +313,7 @@ export interface Invoice {
 }
 
 export interface PartItem {
+  inactive?: boolean;
   id: string;
   name: string;
   sku: string;
@@ -369,6 +386,7 @@ export interface CompanySettings {
 }
 
 export interface ChecklistTemplate {
+  inactive?: boolean;
   id: string;
   jobType: JobType;
   label: string;

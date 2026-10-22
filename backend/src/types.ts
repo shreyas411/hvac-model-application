@@ -22,10 +22,11 @@ export interface TechnicianProfile {
   skills: string[]; // e.g. ['Domestic Gas', 'Commercial Gas', 'F-Gas Heat Pumps', 'VRF Air Conditioning']
   color: string; // for calendar display
   active: boolean;
+  expired?: boolean; // Gas Safe / F-Gas licence has lapsed
   vanRegistration?: string;
 }
 
-export type CustomerType = 'residential' | 'commercial';
+export type CustomerType = 'residential' | 'commercial' | 'landlord';
 
 export interface ServiceLocation {
   id: string;

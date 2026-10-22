@@ -161,3 +161,6 @@ Fictional UK company "Apex Climate Solutions Ltd" (trading "Apex HVAC Engineerin
 ## Updates
 
 Data now lives in Postgres behind the API (see `backend/`), not browser `localStorage`. The frontend keeps a zustand store (`useDataStore`) that loads from the API, and the service worker caches reads and queues writes while offline ([offline-and-pwa-features.md](offline-and-pwa-features.md)). Sessions are httpOnly cookies ([security-and-auth-features.md](security-and-auth-features.md)). Treat the localStorage sections above as legacy where they conflict. `POST /import` now needs `?confirm=wipe`.
+
+## Updates: soft delete
+- Deleted records are hidden server-side (`isDeleted`/`deletedAt`) and the stores reload after `deleteRecord`. `useDataStore` tracks the current role; `AppContext` ignores the dev stand-in admin when real auth is off so the role switcher still works.

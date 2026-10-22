@@ -1,3 +1,4 @@
+import { isPast } from '../../common/dates.js';
 import { z } from 'zod';
 import { audit } from '../../common/audit.js';
 import type { Actor } from '../../common/auth.js';
@@ -32,7 +33,7 @@ export const certificateInput = z.object({
 });
 export type CertificateInput = z.infer<typeof certificateInput>;
 
-const out = (r: object) => plain(r, [], ['issueDate', 'expiryDate']) as any;
+const out = (r: any) => ({ ...plain(r, [], ['issueDate', 'expiryDate']), expired: isPast(r.expiryDate) }) as any;
 const addYear = (d: string) => { const x = new Date(d); x.setUTCFullYear(x.getUTCFullYear() + 1); return x; };
 
 export async function getCertificate(id: string) {
@@ -43,7 +44,7 @@ export async function getCertificate(id: string) {
 
 /** Newest first; `?customerId&jobId&type` filter, `?q` searches the number, engineer and Gas Safe number. */
 export const pageCertificates = (query: unknown) =>
-  pageFrom(query, prisma.certificate, { searchFields: ['certNumber', 'engineerName', 'gasSafeNumber'], filters: ['customerId', 'jobId', 'type'] }, out);
+  pageFrom(query, prisma.certificate, { searchFields: ['certNumber', 'engineerName', 'gasSafeNumber'], sorts: ['type', 'issueDate', 'expiryDate'], filters: ['customerId', 'jobId', 'type'] }, out);
 
 /** Certificates still valid but expiring within `days` (CP12 renewals). Latest per location only. */
 export async function expiringCertificates(days = 60) {

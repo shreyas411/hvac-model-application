@@ -12,7 +12,7 @@ export interface JobPhoto { id: string; jobId: string; caption: string; takenBy:
 export type CertificateType = 'cp12' | 'service_record' | 'commissioning';
 export interface Certificate {
   id: string; certNumber: string; type: CertificateType; jobId?: string; customerId: string; locationId: string; technicianId: string;
-  engineerName: string; gasSafeNumber: string; issueDate: string; expiryDate?: string; data: Record<string, any>;
+  engineerName: string; gasSafeNumber: string; issueDate: string; expiryDate?: string; expired?: boolean; data: Record<string, any>;
 }
 
 /** Follows nextCursor so a list is never silently cut at one page. */
@@ -31,6 +31,8 @@ const resource = <T extends { id: string }>(path: string) => ({
   get: (id: string) => api<T>('GET', `${path}/${id}`),
   create: (body: Partial<T>) => api<T>('POST', path, body),
   update: (id: string, body: Partial<T>) => api<T>('PATCH', `${path}/${id}`, body),
+  /** Soft delete: the server hides the record and refuses (409 IN_USE) while it is still referenced. */
+  remove: (id: string) => api<void>('DELETE', `${path}/${id}`),
 });
 const post = <T,>(path: string, body?: unknown) => api<T>('POST', path, body ?? {});
 
@@ -40,6 +42,7 @@ export const services = {
     expiring: (days = 60) => api<Certificate[]>('GET', `/certificates/expiring?days=${days}`),
     issue: (body: object) => api<Certificate>('POST', '/certificates', body),
     pdf: (id: string) => apiBlob(`/certificates/${id}/pdf`),
+    remove: (id: string) => api<void>('DELETE', `/certificates/${id}`),
   },
   technicians: resource<TechnicianProfile>('/technicians'),
   customers: {
@@ -61,7 +64,7 @@ export const services = {
   jobs: {
     ...resource<Job>('/jobs'),
     setStatus: (id: string, status: JobStatus, note?: string, override?: boolean) => post<Job>(`/jobs/${id}/status`, { status, note, override }),
-    invoice: (id: string) => post<Invoice>(`/jobs/${id}/invoice`),
+    invoice: (id: string, vatRatePercent: number) => post<Invoice>(`/jobs/${id}/invoice`, { vatRatePercent }),
     addPart: (id: string, partId: string, quantity: number) => post<Job>(`/jobs/${id}/parts`, { partId, quantity }),
     addRefrigerant: (id: string, body: object) => post<Job>(`/jobs/${id}/refrigerant`, body),
     photos: (id: string) => api<JobPhoto[]>('GET', `/jobs/${id}/photos`),
@@ -88,7 +91,6 @@ export const services = {
   },
   parts: {
     ...resource<PartItem>('/parts'),
-    remove: (id: string) => api('DELETE', `/parts/${id}`),
   adjust: (id: string, body: object) => post<{ part: PartItem; movement: InventoryMovement }>(`/parts/${id}/adjust`, body),
   },
   movements: { list: () => listAll<InventoryMovement>('/movements') },
@@ -96,13 +98,9 @@ export const services = {
     ...resource<CustomerNotification>('/notifications'),
     approveSend: (id: string) => post<CustomerNotification>(`/notifications/${id}/approve-send`),
   },
-  maintenance: {
-    ...resource<MaintenanceAgreement>('/maintenance-agreements'),
-    remove: (id: string) => api<void>('DELETE', `/maintenance-agreements/${id}`),
-  },
+  maintenance: resource<MaintenanceAgreement>('/maintenance-agreements'),
   checklistTemplates: {
     ...resource<ChecklistTemplate>('/checklist-templates'),
-    remove: (id: string) => api<void>('DELETE', `/checklist-templates/${id}`),
     reorder: (ids: string[]) => post<void>('/checklist-templates/reorder', { ids }),
   },
   settings: {

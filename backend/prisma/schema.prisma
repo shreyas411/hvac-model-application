@@ -20,6 +20,7 @@ enum UserRole {
 enum CustomerType {
   residential
   commercial
+  landlord
 }
 
 enum CommunicationPreference {
@@ -177,6 +178,9 @@ model User {
   technicianId String?     @unique @map("technician_id") @db.Uuid
   technician   Technician? @relation(fields: [technicianId], references: [id])
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  inactive   Boolean   @default(false)
   updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("users")
@@ -197,6 +201,8 @@ model Technician {
   active          Boolean  @default(true)
   vanRegistration String?  @map("van_registration")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   user User?
@@ -263,6 +269,8 @@ model Customer {
   gdprConsent             Boolean                 @default(false) @map("gdpr_consent")
   archived                Boolean                 @default(false)
   createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt               DateTime                @updatedAt @map("updated_at") @db.Timestamptz
 
   locations     ServiceLocation[]
@@ -290,6 +298,9 @@ model ServiceLocation {
   contactName  String?  @map("contact_name")
   contactPhone String?  @map("contact_phone")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  inactive   Boolean   @default(false)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   equipment  Equipment[]
@@ -313,6 +324,8 @@ model Equipment {
   brand                String
   model                String
   serialNumber         String               @default("") @map("serial_number")
+  refrigerantType      String?              @map("refrigerant_type")
+  refrigerantChargeKg  Float?               @map("refrigerant_charge_kg")
   installationDate     DateTime?            @map("installation_date") @db.Date
   warrantyExpiryDate   DateTime?            @map("warranty_expiry_date") @db.Date
   maintenanceFrequency MaintenanceFrequency @map("maintenance_frequency")
@@ -321,6 +334,9 @@ model Equipment {
   status               EquipmentStatus      @default(operational)
   locationNotes        String?              @map("location_notes")
   createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  inactive   Boolean   @default(false)
   updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz
 
   serviceRecords EquipmentServiceRecord[]
@@ -372,6 +388,8 @@ model ServiceRequest {
   convertedJobId  String?              @unique @map("converted_job_id") @db.Uuid
   convertedJob    Job?                 @relation("RequestConvertedJob", fields: [convertedJobId], references: [id])
   createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz
 
   jobs Job[] @relation("JobRequest")
@@ -416,6 +434,8 @@ model Job {
   completionTime           DateTime?       @map("completion_time") @db.Timestamptz
   slaDueAt                 DateTime?       @map("sla_due_at") @db.Timestamptz // response deadline from the site's contract; breached while still `new` after it
   createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   equipment        JobEquipment[]
@@ -537,6 +557,8 @@ model Quotation {
   convertedToJob       Job?            @relation("QuotationConvertedJob", fields: [convertedToJobId], references: [id])
   convertedToInvoiceId String?         @unique @map("converted_to_invoice_id") @db.Uuid
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   items            LineItem[]
@@ -578,6 +600,8 @@ model Invoice {
   stageLabel       String?         @map("stage_label") // deposit / stage / final invoice raised from a quote
   stagePercent     Decimal?        @map("stage_percent") @db.Decimal(5, 2) // share of the quote this stage bills
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   items     LineItem[]
@@ -658,6 +682,9 @@ model Part {
   minStockLevel Int      @default(0) @map("min_stock_level")
   location      String   @default("")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  inactive   Boolean   @default(false)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   movements InventoryMovement[]
@@ -728,6 +755,9 @@ model ChecklistTemplate {
   category  ChecklistCategory @default(general)
   position  Int               @default(0)
   createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  inactive   Boolean   @default(false)
 
   @@index([jobType])
   @@map("checklist_templates")
@@ -764,6 +794,8 @@ model MaintenanceAgreement {
   autoInvoice      Boolean  @default(false) @map("auto_invoice")
   autoRenew        Boolean  @default(false) @map("auto_renew") // past endDate, extend the term 12 months instead of deactivating
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@index([active, nextDueDate])
@@ -785,6 +817,8 @@ model Certificate {
   expiryDate     DateTime?       @map("expiry_date") @db.Date
   data           Json
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
 
   @@index([customerId])
   @@index([jobId])

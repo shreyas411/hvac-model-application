@@ -8,7 +8,7 @@ const user = z.object({
   id: z.string().uuid().describe('Supabase auth.users.id'),
   name: z.string().min(1), email: z.string().email(), phone: z.string().default(''),
   role: z.enum(['admin', 'dispatcher', 'technician', 'accountant']),
-  avatar: z.string().optional(), technicianId: z.string().uuid().optional(),
+  avatar: z.string().optional(), technicianId: z.string().uuid().optional(), inactive: z.boolean().optional(),
 });
 
 const repo = prismaRepo<User>(prisma.user, ['createdAt', 'updatedAt']);

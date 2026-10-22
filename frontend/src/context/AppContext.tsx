@@ -1,6 +1,7 @@
+import type { ConfirmOptions } from '../components/common/ConfirmDialog';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { services } from '../services';
-import { REAL_AUTH, setDevUser } from '../services/api';
+import { REAL_AUTH, setDevUser, wasQueued } from '../services/api';
 import { useAuth } from '../components/auth/AuthGate';
 import { useDataStore } from '../store/useDataStore';
 import {
@@ -47,6 +48,7 @@ interface AppContextType {
   technicians: TechnicianProfile[];
   addTechnician: (tech: Omit<TechnicianProfile, 'id'>) => Promise<TechnicianProfile | undefined>;
   updateTechnician: (id: string, updates: Partial<TechnicianProfile>) => Promise<boolean>;
+  removeTechnician: (id: string) => Promise<boolean>;
 
   // Customers
   customers: Customer[];
@@ -93,14 +95,17 @@ interface AppContextType {
   updateInvoice: (id: string, updates: Partial<Invoice>) => Promise<void>;
   recordPayment: (invoiceId: string, payment: Omit<PaymentRecord, 'id' | 'recordedBy'>) => Promise<boolean>;
   releaseRetention: (invoiceId: string) => Promise<boolean>;
+  creditInvoice: (invoiceId: string, amount: number, reason: string) => Promise<boolean>;
   addStageInvoice: (quoteId: string, percent: number | 'final', label?: string) => Promise<boolean>;
-  generateInvoiceFromJob: (jobId: string) => Promise<Invoice | undefined>;
+  generateInvoiceFromJob: (jobId: string, vatRatePercent: number) => Promise<Invoice | undefined>;
 
   // Parts & Inventory
   parts: PartItem[];
   addPart: (part: Omit<PartItem, 'id' | 'createdAt'>) => Promise<PartItem | undefined>;
   updatePart: (id: string, updates: Partial<PartItem>) => Promise<void>;
   deletePart: (id: string) => Promise<void>;
+  /** Soft-deletes a record; the server refuses (409) while it is still in use. */
+  deleteRecord: (key: 'customers' | 'requests' | 'jobs' | 'quotations' | 'invoices' | 'equipment', id: string, label: string) => Promise<void>;
   adjustStock: (partId: string, delta: number, type: 'used_on_job' | 'stock_adjustment' | 'restock_purchase', notes: string, jobId?: string) => Promise<boolean>;
   inventoryMovements: InventoryMovement[];
 
@@ -113,7 +118,7 @@ interface AppContextType {
   toastMessage: { text: string; type: 'success' | 'error' | 'info'; onConfirm?: () => void } | null;
   showToast: (text: string, type?: 'success' | 'error' | 'info') => void;
   // Toast with Confirm/Cancel buttons; replaces native window.confirm.
-  confirmToast: (text: string, onConfirm: () => void) => void;
+  confirmToast: (text: string, onConfirm: () => void, confirm?: ConfirmOptions) => void;
 }
 
 const STORAGE_KEY = 'apexhvac_app_data_v1';
@@ -134,7 +139,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const { user: signedIn, logout } = useAuth();
+  const { user: authUser, logout } = useAuth();
+  const signedIn = REAL_AUTH ? authUser : undefined; // dev mode's stand-in admin is not a sign-in: keep the role switcher working
   const [users] = useState<User[]>(() => (signedIn ? [signedIn] : INITIAL_USERS));
   const [currentUser, setCurrentUser] = useState<User>(() => {
     if (signedIn) return signedIn; // real account: the server decides who this is
@@ -143,6 +149,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return u;
   });
   const [settings, setSettings] = useState<CompanySettings>(INITIAL_SETTINGS);
+  useEffect(() => { useDataStore.setState({ role: currentUser.role }); }, [currentUser.role]); // declared before the load effects below, which read it
   useEffect(() => { services.settings.get().then(setSettings).catch(() => {}); }, []);
   const technicians = useDataStore((st) => st.data.technicians);
   useEffect(() => { useDataStore.getState().load('technicians'); }, []);
@@ -165,16 +172,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const notifications = useDataStore((st) => st.data.notifications);
   useEffect(() => { useDataStore.getState().load('notifications'); }, []);
 
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info'; onConfirm?: () => void } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info'; onConfirm?: () => void; confirm?: ConfirmOptions } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success', onConfirm?: () => void) => {
+  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success', onConfirm?: () => void, confirm?: ConfirmOptions) => {
     clearTimeout(toastTimer.current);
     if (!text) return setToastMessage(null); // empty text dismisses
-    setToastMessage({ text, type, onConfirm });
-    toastTimer.current = setTimeout(() => setToastMessage(null), onConfirm ? 8000 : 4000);
+    setToastMessage({ text, type, onConfirm, confirm });
+    if (!onConfirm) toastTimer.current = setTimeout(() => setToastMessage(null), 4000); // confirm dialogs wait for an answer
   };
-  const confirmToast = (text: string, onConfirm: () => void) => showToast(text, 'info', onConfirm);
+  const confirmToast = (text: string, onConfirm: () => void, confirm?: ConfirmOptions) => showToast(text, 'info', onConfirm, confirm);
 
   // Persist the active profile; everything else lives on the server.
   useEffect(() => {
@@ -188,6 +195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (userForRole) {
       setDevUser(`dev-${role}`);
       setCurrentUser(userForRole);
+      useDataStore.setState({ role });
       useDataStore.getState().loadAll();
       services.settings.get().then(setSettings).catch(() => {});
       showToast(`Switched active profile to ${userForRole.name} (${role.toUpperCase()})`, 'info');
@@ -210,7 +218,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const apiCall = async <R,>(key: Parameters<ReturnType<typeof useDataStore.getState>['run']>[0], call: () => Promise<R>, ok: string): Promise<R | undefined> => {
     try {
       const r = await useDataStore.getState().run(key, call as any);
-      showToast(ok);
+      if (wasQueued()) showToast('No signal: saved on this phone, it will send automatically when you are back online', 'info');
+      else showToast(ok);
       return r as R;
     } catch (e) {
       showToast((e as Error).message, 'error');
@@ -224,6 +233,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateTechnician: AppContextType['updateTechnician'] = async (id, updates) => {
     return !!(await apiCall('technicians', () => services.technicians.update(id, updates), 'Technician profile updated'));
   };
+
+  const removeTechnician: AppContextType['removeTechnician'] = async (id) =>
+    (await apiCall('technicians', async () => { await services.technicians.remove(id); return true; }, 'Technician deleted')) === true;
 
   // Customers
   const addCustomer: AppContextType['addCustomer'] = (cust) =>
@@ -331,14 +343,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const { status, ...rest } = updates;
     const patch = jobBody(rest);
     return !!(await apiCall('jobs', async () => {
-      let job = Object.keys(patch).length ? await services.jobs.update(id, patch) : jobs.find((j) => j.id === id)!;
-      if (status && status !== job.status) job = await services.jobs.setStatus(id, status, auditAction);
+      const cur = jobs.find((j) => j.id === id)!;
+      // No signal: the worker queues each write and answers with nothing. Keep going (the status call queues behind the edit,
+      // in order) and show the result locally; the lists reload from the server once the queue syncs.
+      let job = (Object.keys(patch).length ? await services.jobs.update(id, patch) : cur) ?? { ...cur, ...patch };
+      if (status && status !== job.status) job = (await services.jobs.setStatus(id, status, auditAction)) ?? { ...job, status };
       return job;
     }, 'Job updated'));
   };
 
   const updateJobStatus: AppContextType['updateJobStatus'] = async (id, newStatus, note, override) => {
-    await apiCall('jobs', () => services.jobs.setStatus(id, newStatus, note, override), `Job marked as ${newStatus.replace('_', ' ')}`);
+    await apiCall('jobs', async () => (await services.jobs.setStatus(id, newStatus, note, override)) ?? { ...jobs.find((j) => j.id === id)!, status: newStatus }, `Job marked as ${newStatus.replace('_', ' ')}`);
   };
 
   // Server records the part and writes the stock movement when inventory is enabled.
@@ -419,8 +434,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const releaseRetention: AppContextType['releaseRetention'] = async (invoiceId) =>
     !!(await apiCall('invoices', () => services.invoices.releaseRetention(invoiceId), 'Retention released'));
 
-  const generateInvoiceFromJob: AppContextType['generateInvoiceFromJob'] = (jobId) =>
-    apiCall('invoices', () => services.jobs.invoice(jobId), 'Invoice generated from job');
+  const creditInvoice: AppContextType['creditInvoice'] = async (invoiceId, amount, reason) =>
+    !!(await apiCall('invoices', () => services.invoices.credit(invoiceId, amount, reason).then((r) => r.invoice), `Credit note of £${amount.toFixed(2)} raised`));
+
+  const generateInvoiceFromJob: AppContextType['generateInvoiceFromJob'] = (jobId, vatRatePercent) =>
+    apiCall('invoices', () => services.jobs.invoice(jobId, vatRatePercent), 'Invoice generated from job');
 
   // Parts & Inventory
   const reloadStock = () => Promise.all([useDataStore.getState().load('parts'), useDataStore.getState().load('movements')]);
@@ -439,6 +457,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Parts with stock history are refused by the server (422).
     await apiCall('parts', () => services.parts.remove(id), 'Part deleted');
     await useDataStore.getState().load('parts');
+  };
+
+  const deleteRecord: AppContextType['deleteRecord'] = async (key, id, label) => {
+    await apiCall(key, async () => { await services[key].remove(id); }, `${label} deleted`);
+    await useDataStore.getState().load(key);
   };
 
   // Server applies the delta, rejects negative stock, and appends the ledger entry.
@@ -487,6 +510,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     technicians,
     addTechnician,
     updateTechnician,
+    removeTechnician,
     customers,
     customerById,
     addCustomer,
@@ -521,12 +545,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateInvoice,
     recordPayment,
     releaseRetention,
+    creditInvoice,
     addStageInvoice,
     generateInvoiceFromJob,
     parts,
     addPart,
     updatePart,
     deletePart,
+    deleteRecord,
     adjustStock,
     inventoryMovements,
     notifications,

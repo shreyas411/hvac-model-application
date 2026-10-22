@@ -13,3 +13,5 @@ All routes A only. The `id` is the Supabase `auth.users.id`.
 | DELETE | `/users/:id` | |
 
 The last admin cannot be deleted (`409 LAST_ADMIN`).
+
+Soft delete applies (`isDeleted`); the `inactive` flag blocks sign-in with `401`.

@@ -11,7 +11,7 @@ import { getSettings } from '../settings/service.js';
 import { createJob } from '../jobs/service.js';
 
 export const requestsRepo = prismaRepo<ServiceRequest>(prisma.serviceRequest, ['legacyId']);
-export const pageRequests = (query: unknown) => requestsRepo.page(query, ['requestNumber', 'reportedProblem']);
+export const pageRequests = (query: unknown) => requestsRepo.page(query, ['requestNumber', 'reportedProblem'], ['priority', 'status', 'customer.name']);
 
 export async function getRequest(id: string, c: Tx = prisma) {
   const r = isUuid(id) ? await c.serviceRequest.findUnique({ where: { id } }) : null;

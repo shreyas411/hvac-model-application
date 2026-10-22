@@ -3,10 +3,20 @@ import { EmptyState } from '../common/EmptyState';
 import { downloadSheet, printSheet } from '../../utils/pdf';
 import { useApp } from '../../context/AppContext';
 import { Quotation, LineItem, QuotationStatus } from '../../types';
-import { formatGBP, formatDateUK, tierPrices, getTodayISO } from '../../utils/formatters';
-import { useEscape } from '../../utils/useEscape';
-import { IconDownload, IconFileText, IconPlus, IconPrinter, IconReceipt, IconX } from '@tabler/icons-react';
-import { useServerPaged } from '../common/Pager';
+import { formatGBP, formatDateUK, tierPrices, getTodayISO, joinParts, regLine } from '../../utils/formatters';
+import { IconBriefcase, IconCircleCheck, IconDownload, IconEye, IconFileInvoice, IconFileText, IconPlus, IconPrinter, IconReceipt, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { DatePicker } from '../common/DatePicker';
+import { DetailDrawer } from '../common/DetailDrawer';
+import { RowActions } from '../common/RowActions';
+import { TableCard } from '../common/TableCard';
+import { Badge } from '@/src/components/ui/badge';
+import { Button } from '@/src/components/ui/button';
+import { Card } from '@/src/components/ui/card';
+import { Input } from '@/src/components/ui/input';
+import { Label } from '@/src/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
+import { SortHead, useServerPaged } from '../common/Pager';
 
 interface QuotationsViewProps {
   onOpenQuickAction: (action: 'quote') => void;
@@ -30,9 +40,13 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
     addQuotation,
     updateQuotation,
     customerById,
-  } = useApp(['quotations', 'invoices', 'customers', 'settings', 'technicians', 'acceptQuotation', 'convertQuotationToJob', 'convertQuotationToInvoice', 'addStageInvoice', 'addQuotation', 'updateQuotation', 'customerById']);
+    checkScheduleConflict,
+    deleteRecord,
+    confirmToast,
+  } = useApp(['quotations', 'invoices', 'customers', 'settings', 'technicians', 'acceptQuotation', 'convertQuotationToJob', 'convertQuotationToInvoice', 'addStageInvoice', 'addQuotation', 'updateQuotation', 'customerById', 'checkScheduleConflict', 'deleteRecord', 'confirmToast']);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
   const [busy, setBusy] = useState(false); // guards double-submit (would create duplicate jobs/invoices)
 
@@ -53,6 +67,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
   // Convert to Job Modal State
   const [convertingQuoteId, setConvertingQuoteId] = useState<string | null>(null);
+  const [conflictMsg, setConflictMsg] = useState('');
   const [jobDate, setJobDate] = useState(getTodayISO());
   const [jobStartTime, setJobStartTime] = useState('08:30');
   const [jobEndTime, setJobEndTime] = useState('16:30');
@@ -64,9 +79,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
   const [acceptOption, setAcceptOption] = useState('');
   const acceptTiers = [...new Set((quotations.find((q) => q.id === acceptingQuoteId)?.items ?? []).flatMap((i) => (i.option ? [i.option] : [])))];
 
-  const paged = useServerPaged<Quotation>('/quotations', { status: statusFilter === 'all' ? undefined : statusFilter }, quotations);
-
-  useEscape(!!(selectedQuote || acceptingQuoteId || stageQuote || convertingQuoteId), () => { setSelectedQuote(null); setAcceptingQuoteId(null); setStageQuote(null); setConvertingQuoteId(null); });
+  const paged = useServerPaged<Quotation>('/quotations', { q: searchTerm.trim() || undefined, status: statusFilter === 'all' ? undefined : statusFilter }, quotations);
 
   const handleRecordAcceptance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,6 +93,9 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
   const handleExecuteConvertToJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!convertingQuoteId) return;
+    const clash = checkScheduleConflict(jobTechId, jobDate, jobStartTime, jobEndTime);
+    const msg = clash && `Technician already has ${clash.jobNumber} (${clash.startTime}–${clash.endTime}) on ${jobDate}. Press Book again to double-book anyway.`;
+    if (msg && conflictMsg !== msg) return setConflictMsg(msg);
     setBusy(true);
     const job = await convertQuotationToJob(convertingQuoteId, jobDate, jobStartTime, jobEndTime, jobTechId);
     setBusy(false);
@@ -96,221 +112,146 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
   };
 
   const statusBadgeMap: Record<QuotationStatus, { bg: string; text: string }> = {
-    draft: { bg: 'bg-slate-100', text: 'text-slate-700' },
+    draft: { bg: 'bg-muted', text: 'text-foreground' },
     sent: { bg: 'bg-sky-50 border-sky-200 border', text: 'text-sky-800' },
     viewed: { bg: 'bg-purple-50 border-purple-200 border', text: 'text-purple-800' },
     accepted: { bg: 'bg-emerald-50 border-emerald-200 border', text: 'text-emerald-800' },
     rejected: { bg: 'bg-rose-50 border-rose-200 border', text: 'text-rose-800' },
-    expired: { bg: 'bg-slate-50 border-slate-200 border', text: 'text-slate-400' },
+    expired: { bg: 'bg-muted/50 border-border border', text: 'text-muted-foreground' },
   };
-
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
-      
+
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-slate-900">
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-lg font-bold tracking-tight">
             Quotations & Estimates
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
+            <Badge variant="secondary" className="text-base tabular-nums" aria-live="polite" aria-label={`${paged.total} ${paged.total === 1 ? 'quotation' : 'quotations'}`}>{paged.total}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Create professional HVAC installation proposals, track approvals, and convert directly to jobs or invoices
           </p>
         </div>
 
-        <button
-          onClick={() => onOpenQuickAction('quote')}
-          className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center gap-1.5 shrink-0"
-        >
-          <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
+        <Button size="sm" onClick={() => onOpenQuickAction('quote')} className="shrink-0">
+          <IconPlus aria-hidden="true" />
           <span>New Quotation</span>
-        </button>
+        </Button>
       </div>
 
-      {/* Filter Tabs */}
-      <div role="group" aria-label="Filter by status" className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2 text-xs">
-        {['all', 'draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired'].map((st) => (
-          <button
-            key={st}
-            onClick={() => setStatusFilter(st)}
-            aria-pressed={statusFilter === st}
-            className={`px-3 py-1.5 rounded-md font-medium transition-colors capitalize ${
-              statusFilter === st
-                ? 'bg-slate-900 text-white font-semibold'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            {st} ({st === 'all' ? quotations.length : quotations.filter((q) => q.status === st).length})
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-80">
+          <IconSearch className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-2.5" aria-hidden="true" />
+          <Input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} aria-label="Search quotations" name="search" autoComplete="off" placeholder="Search quote number or notes…" className="pl-9 h-8 text-xs" />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger size="sm" aria-label="Quotation status" className="w-40 text-xs capitalize"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {['all', 'draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired'].map((st) => <SelectItem key={st} value={st} className="capitalize">{st === 'all' ? 'All statuses' : st}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {(searchTerm || statusFilter !== 'all') && <Button variant="ghost" size="xs" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }}><IconX aria-hidden="true" />Clear filters</Button>}
       </div>
 
       {/* Quotations Table */}
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
-              <tr>
-                <th scope="col" className="py-2.5 px-3">Quote Number</th>
-                <th scope="col" className="py-2.5 px-3">Customer / Site</th>
-                <th scope="col" className="py-2.5 px-3">Issued Date</th>
-                <th scope="col" className="py-2.5 px-3">Expiry Date</th>
-                <th scope="col" className="py-2.5 px-3">Total Amount</th>
-                <th scope="col" className="py-2.5 px-3">Status</th>
-                <th scope="col" className="py-2.5 px-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {paged.rows.map((quote) => {
-                const cust = customerById.get(quote.customerId);
-                const loc = cust?.serviceLocations.find((l) => l.id === quote.locationId);
-                const st = statusBadgeMap[quote.status];
+      <div style={{ '--table-offset': '19.5rem' } as React.CSSProperties}><TableCard footer={paged.pager}>
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow>
+              <SortHead paged={paged} by="quoteNumber">Quote Number</SortHead>
+              <SortHead paged={paged} by="customer.name" className="hidden md:table-cell">Customer / Site</SortHead>
+              <SortHead paged={paged} by="issueDate" className="hidden md:table-cell">Issued Date</SortHead>
+              <SortHead paged={paged} by="expiryDate" className="hidden md:table-cell">Expiry Date</SortHead>
+              <SortHead paged={paged} by="total">Total Amount</SortHead>
+              <SortHead paged={paged} by="status" className="hidden md:table-cell">Status</SortHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paged.rows.map((quote) => {
+              const cust = customerById.get(quote.customerId);
+              const loc = cust?.serviceLocations.find((l) => l.id === quote.locationId);
+              const st = statusBadgeMap[quote.status];
 
-                return (
-                  <tr key={quote.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3 px-3 font-mono font-bold text-slate-900">
-                      {quote.quoteNumber}
-                    </td>
+              return (
+                <TableRow key={quote.id}>
+                  <TableCell className="tabular-nums font-semibold">
+                    {quote.quoteNumber}
+                    <span className="block max-w-[110px] truncate text-[11px] font-normal text-muted-foreground md:hidden">{cust?.name}</span>
+                    <Badge variant="outline" className={`mt-1 flex w-fit capitalize md:hidden ${st.bg} ${st.text}`}>{quote.status}</Badge>
+                  </TableCell>
 
-                    <td className="py-3 px-3 max-w-[220px]">
-                      <span className="font-semibold text-slate-900 block truncate">{cust?.name}</span>
-                      <span className="text-[11px] text-slate-500 block truncate">{loc?.city}, {loc?.postcode}</span>
-                    </td>
+                  <TableCell className="hidden md:table-cell max-w-[220px]">
+                    <span className="font-semibold block truncate">{cust?.name}</span>
+                    <span className="text-[11px] text-muted-foreground block truncate">{loc?.city}, {loc?.postcode}</span>
+                  </TableCell>
 
-                    <td className="py-3 px-3 text-slate-700 whitespace-nowrap">
-                      {formatDateUK(quote.issueDate)}
-                    </td>
+                  <TableCell className="hidden md:table-cell">{formatDateUK(quote.issueDate)}</TableCell>
 
-                    <td className="py-3 px-3 text-slate-500 whitespace-nowrap">
-                      {formatDateUK(quote.expiryDate)}
-                    </td>
+                  <TableCell className="hidden md:table-cell text-muted-foreground">{formatDateUK(quote.expiryDate)}</TableCell>
 
-                    <td className="py-3 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                      {formatGBP(quote.total)}
-                      <span className="text-[10px] text-slate-400 block font-normal">
-                        ex VAT {formatGBP(quote.subtotal)}
-                      </span>
-                    </td>
+                  <TableCell className="tabular-nums font-semibold">
+                    {formatGBP(quote.total)}
+                    <span className="text-[10px] text-muted-foreground block font-normal">
+                      ex VAT {formatGBP(quote.subtotal)}
+                    </span>
+                  </TableCell>
 
-                    <td className="py-3 px-3 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold capitalize ${st.bg} ${st.text}`}>
-                        {quote.status}
-                      </span>
-                    </td>
+                  <TableCell className="hidden md:table-cell">
+                    <Badge variant="outline" className={`capitalize ${st.bg} ${st.text}`}>{quote.status}</Badge>
+                    {quote.expired && quote.status !== 'expired' && <Badge variant="outline" className="ml-1 bg-amber-50 text-amber-700 border-amber-200">Expired</Badge>}
+                  </TableCell>
 
-                    <td className="py-3 px-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                        <button
-                          onClick={() => setSelectedQuote(quote)}
-                          aria-label={`Preview ${quote.quoteNumber}`} className="px-2 py-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                        >
-                          Preview
-                        </button>
+                  <TableCell>
+                    <RowActions subject={quote.quoteNumber} actions={[
+                      { icon: IconEye, label: 'Preview', onClick: () => setSelectedQuote(quote) },
+                      { icon: IconCircleCheck, label: 'Record acceptance', tone: 'success', hidden: quote.status !== 'sent', onClick: () => { setAcceptingQuoteId(quote.id); setAcceptedByName(cust?.name || ''); } },
+                      { icon: IconBriefcase, label: 'Convert to job', tone: 'info', hidden: quote.status !== 'accepted' || !!quote.convertedToJobId, onClick: () => setConvertingQuoteId(quote.id) },
+                      { icon: IconReceipt, label: 'Deposit / stage invoice', hidden: quote.status !== 'accepted' || !!quote.convertedToInvoiceId, onClick: () => openStage(quote) },
+                      { icon: IconFileInvoice, label: 'Convert to invoice', tone: 'info', hidden: quote.status !== 'accepted' || !!quote.convertedToInvoiceId || stagesOf(quote.id).length > 0 || busy, onClick: () => void handleExecuteConvertToInvoice(quote.id) },
+                      { icon: IconTrash, label: 'Delete', destructive: true, hidden: quote.status === 'accepted' || !!quote.convertedToJobId || !!quote.convertedToInvoiceId,
+                        onClick: () => confirmToast(`Delete ${quote.quoteNumber}?`, () => void deleteRecord('quotations', quote.id, 'Quotation')) },
+                    ]} />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
 
-                        {quote.status === 'sent' && (
-                          <button
-                            onClick={() => {
-                              setAcceptingQuoteId(quote.id);
-                              setAcceptedByName(cust?.name || '');
-                            }}
-                            aria-label={`Record acceptance of ${quote.quoteNumber}`} className="px-2 py-1 text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                          >
-                            Accept
-                          </button>
-                        )}
+            {paged.rows.length === 0 && !paged.loading && (
+              <TableRow>
+                <TableCell colSpan={7} className="py-6"><EmptyState icon={IconFileText}>No quotations found for this filter.</EmptyState></TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableCard></div>
 
-                        {quote.status === 'accepted' && !quote.convertedToJobId && (
-                          <button
-                            onClick={() => setConvertingQuoteId(quote.id)}
-                            aria-label={`Convert ${quote.quoteNumber} to job`} className="px-2 py-1 text-sky-700 hover:text-sky-800 bg-sky-50 border border-sky-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                            title="Workflow B: Convert to Scheduled Job"
-                          >
-                            Convert to Job
-                          </button>
-                        )}
-
-                        {quote.status === 'accepted' && !quote.convertedToInvoiceId && (
-                          <button
-                            onClick={() => openStage(quote)}
-                            aria-label={`Create stage invoice for ${quote.quoteNumber}`} className="px-2 py-1 text-slate-700 hover:text-slate-800 bg-slate-50 border border-slate-200 rounded font-semibold text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                            title="Deposit / stage payment: its own invoice"
-                          >
-                            Stage
-                          </button>
-                        )}
-
-                        {quote.status === 'accepted' && !quote.convertedToInvoiceId && !stagesOf(quote.id).length && (
-                          <button
-                            onClick={() => handleExecuteConvertToInvoice(quote.id)}
-                            disabled={busy} aria-label={`Invoice ${quote.quoteNumber}`} className="px-2 py-1 text-amber-700 hover:text-amber-800 bg-amber-50 border border-amber-200 rounded font-semibold text-xs disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                          >
-                            Invoice
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {paged.rows.length === 0 && !paged.loading && (
-                <tr>
-                  <td colSpan={7} className="py-6"><EmptyState icon={IconFileText}>No quotations found for this filter.</EmptyState></td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {paged.pager}
-      </div>
-
-      {/* Quotation Detail / Printable Document Modal */}
+      {/* Quotation Detail / Printable Document Drawer */}
       {selectedQuote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Quotation preview">
-          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <span className="font-bold text-slate-900 text-sm">
-                Quotation Preview - {selectedQuote.quoteNumber}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => downloadSheet(e.currentTarget, `${selectedQuote.quoteNumber}.pdf`)}
-                  className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1"
-                >
-                  <IconDownload className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Download PDF</span>
-                </button>
-                <button
-                  onClick={(e) => printSheet(e.currentTarget)}
-                  className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1"
-                >
-                  <IconPrinter className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Print Quote</span>
-                </button>
-                <button
-                  onClick={() => setSelectedQuote(null)}
-                  aria-label="Close preview" className="p-1 text-slate-400 hover:text-slate-600"
-                >
-                  <span aria-hidden="true">✕</span>
-                </button>
-              </div>
-            </div>
-
+        <DetailDrawer size="detail" onClose={() => setSelectedQuote(null)} title={`Quotation Preview - ${selectedQuote.quoteNumber}`} description="Printable quotation"
+          footer={<>
+            <span className="mr-auto text-[11px] text-muted-foreground tabular-nums">Valid until {formatDateUK(selectedQuote.expiryDate)}</span>
+            <Button variant="outline" size="sm" onClick={(e) => downloadSheet(e.currentTarget, `${selectedQuote.quoteNumber}.pdf`)}><IconDownload aria-hidden="true" /><span>Download PDF</span></Button>
+            <Button size="sm" onClick={(e) => printSheet(e.currentTarget)}><IconPrinter aria-hidden="true" /><span>Print Quote</span></Button>
+          </>}>
             {/* Printable Document Sheet */}
-            <div data-pdf-sheet className="p-8 overflow-y-auto space-y-6 text-xs font-sans">
+            <div data-pdf-sheet className="-m-5 p-8 space-y-6 text-xs font-sans">
               
               {/* Header block with Company Branding */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-5">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">{settings.companyName}</h2>
                   <p className="text-slate-600 mt-1">{settings.addressLine1}</p>
-                  <p className="text-slate-600">{settings.city}, {settings.postcode}</p>
-                  <p className="text-slate-500 font-mono mt-1">
-                    VAT Reg: {settings.vatNumber} · Gas Safe: #{settings.gasSafeRegisterNo}
+                  <p className="text-slate-600">{joinParts([settings.city, settings.postcode], ', ')}</p>
+                  <p className="text-slate-500 tabular-nums mt-1">
+                    {regLine(settings)}
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className="text-lg font-bold font-mono text-slate-900 block">
+                  <span className="text-lg font-semibold tabular-nums text-slate-900 block">
                     {selectedQuote.quoteNumber}
                   </span>
                   <span className="text-slate-500 block">Date: {formatDateUK(selectedQuote.issueDate)}</span>
@@ -355,9 +296,9 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                       <tr key={item.id}>
                         <td className="py-2.5 px-3 font-medium text-slate-900">{item.option && <span className="mr-1.5 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold">{item.option}</span>}{item.description}</td>
                         <td className="py-2.5 px-3 text-center capitalize text-slate-500 text-[11px]">{item.type}</td>
-                        <td className="py-2.5 px-3 text-right font-mono">{item.quantity}</td>
-                        <td className="py-2.5 px-3 text-right font-mono">{formatGBP(item.unitPrice)}</td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">{formatGBP(item.amount)}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums">{item.quantity}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums">{formatGBP(item.unitPrice)}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-slate-900">{formatGBP(item.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -371,21 +312,21 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                     <div className="mb-2 p-2 bg-sky-50 border border-sky-200 rounded text-xs">
                       <div className="font-semibold text-sky-900 mb-1">Price per option (inc. VAT)</div>
                       {tierPrices(selectedQuote.items, selectedQuote.vatRatePercent).map((t) => (
-                        <div key={t.name} className="flex justify-between"><span>{t.name}</span><span className="font-mono font-bold">{formatGBP(t.total)}</span></div>
+                        <div key={t.name} className="flex justify-between"><span>{t.name}</span><span className="tabular-nums font-semibold">{formatGBP(t.total)}</span></div>
                       ))}
                     </div>
                   )}
                   <div className="flex justify-between text-slate-600">
                     <span>Subtotal (Net):</span>
-                    <span className="font-mono font-medium">{formatGBP(selectedQuote.subtotal)}</span>
+                    <span className="tabular-nums font-medium">{formatGBP(selectedQuote.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>UK VAT ({selectedQuote.vatRatePercent}%):</span>
-                    <span className="font-mono font-medium">{formatGBP(selectedQuote.vatAmount)}</span>
+                    <span className="tabular-nums font-medium">{formatGBP(selectedQuote.vatAmount)}</span>
                   </div>
                   <div className="border-t border-slate-200 pt-2 flex justify-between text-sm font-bold text-slate-900">
                     <span>Total (Inc VAT):</span>
-                    <span className="font-mono text-sky-900">{formatGBP(selectedQuote.total)}</span>
+                    <span className="tabular-nums text-sky-900">{formatGBP(selectedQuote.total)}</span>
                   </div>
                 </div>
               </div>
@@ -402,176 +343,96 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               </div>
             </div>
 
-            <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-              <span className="text-[11px] text-slate-500 font-mono">
-                Valid until {formatDateUK(selectedQuote.expiryDate)}
-              </span>
-              <button
-                onClick={() => setSelectedQuote(null)}
-                className="px-4 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        </DetailDrawer>
       )}
 
       {/* Record Acceptance Modal */}
       {acceptingQuoteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Record customer acceptance">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full border border-slate-200 p-5 space-y-4 text-xs">
-            <h3 className="font-bold text-sm text-slate-900">Record Customer Acceptance</h3>
-            <p className="text-slate-600">
-              Confirm that the customer authorized work according to the quotation terms.
-            </p>
-            <form onSubmit={handleRecordAcceptance} className="space-y-3">
-              <div>
-                <label htmlFor="q-acc-name" className="block font-semibold text-slate-700 mb-1">
-                  Authorized Signatory Name \*
-                </label>
-                <input
-                  type="text"
-                  required
-                  id="q-acc-name" autoComplete="name" value={acceptedByName}
-                  onChange={(e) => setAcceptedByName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                />
+        <DetailDrawer onClose={() => setAcceptingQuoteId(null)} title="Record Customer Acceptance" description="Confirm that the customer authorized work according to the quotation terms."
+          footer={<>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setAcceptingQuoteId(null)}>Cancel</Button>
+            <Button type="submit" form="accept-form" size="sm" disabled={busy || (acceptTiers.length > 0 && !acceptOption)} className="bg-emerald-700 hover:bg-emerald-800">{busy ? 'Saving…' : 'Confirm Acceptance'}</Button>
+          </>}>
+          <form id="accept-form" onSubmit={handleRecordAcceptance} className="space-y-3 text-xs">
+            <div className="space-y-1.5">
+              <Label htmlFor="q-acc-name" className="text-xs">Authorized Signatory Name *</Label>
+              <Input type="text" required id="q-acc-name" autoComplete="name" value={acceptedByName} onChange={(e) => setAcceptedByName(e.target.value)} />
+            </div>
+            {acceptTiers.length > 0 && (
+              <div className="space-y-1.5">
+                <Label htmlFor="q-acc-opt" className="text-xs">Option chosen *</Label>
+                <Select value={acceptOption} onValueChange={setAcceptOption} required>
+                  <SelectTrigger id="q-acc-opt" className="w-full"><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectContent>
+                    {acceptTiers.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              {acceptTiers.length > 0 && (
-                <div>
-                  <label htmlFor="q-acc-opt" className="block font-semibold text-slate-700 mb-1">Option chosen *</label>
-                  <select id="q-acc-opt" required value={acceptOption} onChange={(e) => setAcceptOption(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs">
-                    <option value="">Select…</option>
-                    {acceptTiers.map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setAcceptingQuoteId(null)}
-                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg disabled:opacity-60"
-                >
-                  {busy ? 'Saving…' : 'Confirm Acceptance'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            )}
+          </form>
+        </DetailDrawer>
       )}
 
+      {/* Deposit / stage invoice drawer */}
       {stageQuote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Deposit or stage invoice">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4 text-xs">
-            <div>
-              <h3 className="font-bold text-sm text-slate-900">Deposit / stage invoice - {stageQuote.quoteNumber}</h3>
-              <p className="text-slate-500 mt-0.5">{billedPercent(stageQuote.id)}% already invoiced, {100 - billedPercent(stageQuote.id)}% left</p>
+        <DetailDrawer onClose={() => setStageQuote(null)} title={`Deposit / stage invoice - ${stageQuote.quoteNumber}`} description={`${billedPercent(stageQuote.id)}% already invoiced, ${100 - billedPercent(stageQuote.id)}% left`}
+          footer={<>
+            <Button variant="ghost" size="sm" onClick={() => setStageQuote(null)}>Cancel</Button>
+            <Button variant="outline" size="sm" disabled={busy || billedPercent(stageQuote.id) >= 100} onClick={() => submitStage(true)} title="Remaining percent, with earlier stages deducted"><IconReceipt aria-hidden="true" /> Final invoice</Button>
+            <Button size="sm" disabled={busy || !(Number(stagePercent) > 0)} onClick={() => submitStage(false)}><IconPlus aria-hidden="true" /> Create stage invoice</Button>
+          </>}>
+          <div className="space-y-3 text-xs">
+            <div className="space-y-1.5">
+              <Label htmlFor="q-st-pct" className="text-xs">Percent of quote</Label>
+              <Input id="q-st-pct" inputMode="numeric" type="number" min="1" max={100 - billedPercent(stageQuote.id)} value={stagePercent} onChange={(e) => setStagePercent(e.target.value)} />
             </div>
-            <div>
-              <label htmlFor="q-st-pct" className="block font-semibold text-slate-700 mb-1">Percent of quote</label>
-              <input id="q-st-pct" inputMode="numeric" type="number" min="1" max={100 - billedPercent(stageQuote.id)} value={stagePercent} onChange={(e) => setStagePercent(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs" />
-            </div>
-            <div>
-              <label htmlFor="q-st-lbl" className="block font-semibold text-slate-700 mb-1">Label (optional)</label>
-              <input id="q-st-lbl" name="label" autoComplete="off" value={stageLabel} onChange={(e) => setStageLabel(e.target.value)} placeholder="Deposit" className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs" />
-            </div>
-            <div className="flex justify-between gap-2 pt-1">
-              <button onClick={() => setStageQuote(null)} className="px-3 py-2 border border-slate-300 rounded-md font-semibold inline-flex items-center gap-1.5"><IconX className="w-4 h-4" aria-hidden="true" /> Cancel</button>
-              <div className="flex gap-2">
-                <button disabled={busy || billedPercent(stageQuote.id) >= 100} onClick={() => submitStage(true)} className="px-3 py-2 border border-slate-300 rounded-md font-semibold disabled:opacity-40 inline-flex items-center gap-1.5" title="Remaining percent, with earlier stages deducted"><IconReceipt className="w-4 h-4" aria-hidden="true" /> Final invoice</button>
-                <button disabled={busy || !(Number(stagePercent) > 0)} onClick={() => submitStage(false)} className="px-3 py-2 bg-sky-600 text-white rounded-md font-semibold disabled:opacity-40 inline-flex items-center gap-1.5"><IconPlus className="w-4 h-4" aria-hidden="true" /> Create stage invoice</button>
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="q-st-lbl" className="text-xs">Label (optional)</Label>
+              <Input id="q-st-lbl" name="label" autoComplete="off" value={stageLabel} onChange={(e) => setStageLabel(e.target.value)} placeholder="Deposit" />
             </div>
           </div>
-        </div>
+        </DetailDrawer>
       )}
 
       {/* Convert to Job Modal (Workflow B) */}
       {convertingQuoteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label="Convert quote to job">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 p-5 space-y-4 text-xs">
-            <div>
-              <h3 className="font-bold text-sm text-slate-900">
-                Convert Accepted Quote into Scheduled Job
-              </h3>
-              <p className="text-slate-500 mt-0.5">
-                Automatically transfers quote details and books engineering team
-              </p>
+        <DetailDrawer onClose={() => setConvertingQuoteId(null)} title="Convert Accepted Quote into Scheduled Job" description="Automatically transfers quote details and books engineering team"
+          footer={<>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setConvertingQuoteId(null)}>Cancel</Button>
+            <Button type="submit" form="convert-quote-form" size="sm" disabled={busy}>{busy ? 'Booking…' : 'Book Installation Job'}</Button>
+          </>}>
+          <form id="convert-quote-form" onSubmit={handleExecuteConvertToJob} className="space-y-3 text-xs">
+            <div className="space-y-1.5">
+              <Label htmlFor="q-j-tech" className="text-xs">Lead Technician *</Label>
+              <Select value={jobTechId} onValueChange={setJobTechId}>
+                <SelectTrigger id="q-j-tech" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {technicians.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name} ({t.skills[0]})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            <form onSubmit={handleExecuteConvertToJob} className="space-y-3">
-              <div>
-                <label htmlFor="q-j-tech" className="block font-semibold text-slate-700 mb-1">Lead Technician *</label>
-                <select
-                  id="q-j-tech" value={jobTechId}
-                  onChange={(e) => setJobTechId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
-                >
-                  {technicians.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name} ({t.skills[0]})</option>
-                  ))}
-                </select>
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="q-j-date" className="text-xs">Installation Date *</Label>
+              <div><DatePicker id="q-j-date" min={getTodayISO()} value={jobDate} onChange={setJobDate} /></div>
+            </div>
 
-              <div>
-                <label htmlFor="q-j-date" className="block font-semibold text-slate-700 mb-1">Installation Date *</label>
-                <input
-                  type="date"
-                  required
-                  id="q-j-date" min={getTodayISO()} value={jobDate}
-                  onChange={(e) => setJobDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
-                />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="q-j-start" className="text-xs">Start Time</Label>
+                <Input type="time" required id="q-j-start" value={jobStartTime} onChange={(e) => setJobStartTime(e.target.value)} className="tabular-nums" />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="q-j-end" className="text-xs">End Time</Label>
+                <Input type="time" required id="q-j-end" value={jobEndTime} onChange={(e) => setJobEndTime(e.target.value)} className="tabular-nums" />
+              </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="q-j-start" className="block font-semibold text-slate-700 mb-1">Start Time</label>
-                  <input
-                    type="time"
-                    required
-                    id="q-j-start" value={jobStartTime}
-                    onChange={(e) => setJobStartTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="q-j-end" className="block font-semibold text-slate-700 mb-1">End Time</label>
-                  <input
-                    type="time"
-                    required
-                    id="q-j-end" value={jobEndTime}
-                    onChange={(e) => setJobEndTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setConvertingQuoteId(null)}
-                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy} className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60"
-                >
-                  {busy ? 'Booking…' : 'Book Installation Job'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            {conflictMsg && <p role="alert" className="p-2 rounded bg-amber-50 border border-amber-200 text-amber-800 font-semibold">{conflictMsg}</p>}
+          </form>
+        </DetailDrawer>
       )}
 
     </div>
