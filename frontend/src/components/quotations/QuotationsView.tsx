@@ -179,7 +179,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               return (
                 <TableRow key={quote.id}>
                   <TableCell className="tabular-nums font-semibold">
-                    {quote.quoteNumber}
+                    <button type="button" onClick={() => setSelectedQuote(quote)} className="rounded hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{quote.quoteNumber}</button>
                     <span className="block max-w-[110px] truncate text-[11px] font-normal text-muted-foreground md:hidden">{cust?.name}</span>
                     <Badge variant="outline" className={`mt-1 flex w-fit capitalize md:hidden ${st.bg} ${st.text}`}>{quote.status}</Badge>
                   </TableCell>

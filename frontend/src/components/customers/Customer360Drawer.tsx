@@ -68,14 +68,13 @@ export const Customer360Drawer: React.FC<{ customerId: string; onClose: () => vo
   const setF = (patch: Partial<NonNullable<typeof siteForm>>) => setSiteForm((f) => f && { ...f, ...patch });
 
   return (
-    <DetailDrawer size="detail" onClose={onClose}
+    <DetailDrawer size="wide" onClose={onClose}
       title={<span className="flex items-center gap-2">{c.name}<Badge variant="secondary" className="uppercase text-[10px]">{c.type}</Badge></span>}
       description={c.companyName || 'Customer account'}
       footer={<><Button variant="outline" size="sm" onClick={() => onEdit(c.id)}>Edit Customer</Button><Button size="sm" onClick={onClose}>Close</Button></>}>
       <Tabs value={tab} onValueChange={setTab} className="text-xs">
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="sites">Sites{count(c.serviceLocations.length)}</TabsTrigger>
           <TabsTrigger value="requests">Requests{count(reqs.length)}</TabsTrigger>
           <TabsTrigger value="quotes">Quotes{count(quotes.length)}</TabsTrigger>
           <TabsTrigger value="jobs">Jobs{count(js.length)}</TabsTrigger>
@@ -109,10 +108,8 @@ export const Customer360Drawer: React.FC<{ customerId: string; onClose: () => vo
             <div className="rounded-lg border border-border bg-muted/50 p-3"><span className="block text-[11px] font-semibold text-muted-foreground">Outstanding balance</span><span className={`text-base font-semibold tabular-nums ${balance > 0 ? 'text-destructive' : ''}`}>{formatGBP(balance)}</span></div>
           </div>
           {c.notes && <p className="rounded-lg border border-border p-3 text-muted-foreground">{c.notes}</p>}
-        </TabsContent>
-
-        <TabsContent value="sites" className="space-y-3 pt-3">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold">Sites{count(c.serviceLocations.length)}</span>
             <Button size="xs" variant="outline" onClick={() => setSiteForm(siteForm ? null : { id: null, label: '', addressLine1: '', city: '', postcode: '', accessNotes: '' })}>
               {siteForm ? 'Cancel' : <><IconPlus aria-hidden="true" />Add location</>}
             </Button>

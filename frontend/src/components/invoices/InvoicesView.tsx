@@ -178,7 +178,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               return (
                 <TableRow key={inv.id}>
                   <TableCell className="tabular-nums font-semibold">
-                    {inv.invoiceNumber}
+                    <button type="button" onClick={() => setSelectedInvoice(inv)} className="rounded hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{inv.invoiceNumber}</button>
                     {inv.stageLabel && <Badge variant="secondary" className="text-[10px] max-md:mt-1 max-md:flex max-md:w-fit md:ml-1.5">{inv.stageLabel} {inv.stagePercent}%</Badge>}
                     <span className="block max-w-[110px] truncate text-[11px] font-normal text-muted-foreground md:hidden">{cust?.name}</span>
                     <Badge variant="outline" className={`mt-1 flex w-fit capitalize md:hidden ${st.bg} ${st.text}`}>{inv.status.replace('_', ' ')}</Badge>

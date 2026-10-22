@@ -334,7 +334,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                 return (
                   <TableRow key={job.id}>
                     <TableCell className="tabular-nums font-semibold">
-                      {job.jobNumber}
+                      <button type="button" onClick={() => setViewingJob(job)} className="rounded hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{job.jobNumber}</button>
                       <span className="block text-[11px] font-sans font-medium truncate max-w-[220px]">{job.title}</span>
                     </TableCell>
                     <TableCell>
