@@ -1,8 +1,9 @@
 import type { TechnicianProfile } from '../../types.js';
+import { isPast } from '../../common/dates.js';
 import { notFound } from '../../common/errors.js';
 import { prisma, prismaRepo } from '../../common/prisma.js';
 
-export const techniciansRepo = prismaRepo<TechnicianProfile>(prisma.technician, ['legacyId', 'createdAt', 'updatedAt']);
+export const techniciansRepo = prismaRepo<TechnicianProfile>(prisma.technician, ['legacyId', 'createdAt', 'updatedAt'], (t) => ({ expired: isPast(t.gasSafeExpiry) || isPast(t.fGasExpiry) }));
 
 export async function getTechnician(id: string) {
   const t = await techniciansRepo.find(id);

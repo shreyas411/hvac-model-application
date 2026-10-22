@@ -77,3 +77,6 @@ Sending a quotation drafts (or, with auto-send on, sends) an email with a server
 - Quote lines can carry an `option` label (Good, Better, Best). Unlabelled lines are shared. Detail view tags labelled lines and shows "Price per option (inc. VAT)"; stored totals are shared lines plus the cheapest option. Accepting a quote with options asks for the **Option chosen**; the other tiers are dropped. Pricebook is Parts `sellingPrice`.
 - **Customer approval page** `/quote/<token>` (`frontend/src/components/public/QuoteApprovalPage.tsx`, no login): shows the quote, an option radio if tiers exist, typed name and drawn signature, **Accept** or **Decline**. Link is created when the quote is sent and emailed. Token is stored hashed and expires. Backend: [quotations.md](../../backend/docs/api/quotations.md).
 - Limitation: the drawn signature is stored but not yet on the PDF.
+
+## Updates: delete, expiry, picker
+- Admins and dispatchers can delete quotes that are not accepted or converted. Expired quotes are flagged by the API (`expired`). Customer acceptance and conversion to a job are audited. Lines use the Parts/Services picker; list columns sort server-side.

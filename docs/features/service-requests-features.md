@@ -66,3 +66,6 @@ On "Confirm & Schedule":
 - Conflict check covers only the chosen technician and exact date, not travel time.
 - `contactPerson`, `contactPhone` and `internalNotes` are not displayed.
 - No role restriction beyond tab visibility.
+
+## Updates: delete
+- Admins can delete a service request (soft delete); converted requests are protected because they belong to their job's history.

@@ -29,7 +29,7 @@ authRouter.post('/login', (req, res, next) => void Promise.resolve().then(async 
   const { email, password } = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
   if (devAuth) {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!checkPassword(password, user?.password ?? DUMMY_HASH) || !user) throw new ApiError(401, 'UNAUTHENTICATED', 'Invalid email or password');
+    if (!checkPassword(password, user?.password ?? DUMMY_HASH) || !user || user.inactive) throw new ApiError(401, 'UNAUTHENTICATED', 'Invalid email or password');
     return start(res, { accessToken: await generateLocalToken(user), refreshToken: await generateLocalToken(user, 'refresh'), expiresIn: 3600 });
   }
   return start(res, session(await gotrue('token?grant_type=password', { method: 'POST', body: JSON.stringify({ email, password }) })));

@@ -52,3 +52,10 @@ Jobs carry `slaDueAt` when the site has an active maintenance agreement with `sl
 |---|---|
 | `from`, `to` | `YYYY-MM-DD`, inclusive bounds on `appointmentDate`. Malformed values are ignored |
 | `technicianId` | A D only: narrow to one technician (UUID; invalid ignored). Technicians are always scoped to their own jobs and cannot override it |
+
+## Changes
+- `POST /jobs/:id/invoice` now needs `{ vatRatePercent }` (0-100) in the body.
+- `DELETE /jobs/:id` (admin) soft-deletes; only jobs in `new`, `awaiting_approval`, `scheduled` or `cancelled`, and without an invoice (`409 IN_USE`).
+- Each job carries `site` (`customerName`, `customerPhone`, address lines, city, postcode, `accessNotes`, contact) so technicians, who cannot read `/customers`, can find and enter the property.
+- Required Gas Safe / F-Gas skills are also inferred from keywords in `title` + `description` (gas, boiler, flue; refrigerant, heat pump, air con, chiller…), not just from attached equipment. Re-checked against the assigned technician when title or description changes.
+- Completion signature must be a genuine inked PNG (`422` for empty or stub images). List `?sort=appointmentDate|type|priority|status…`.

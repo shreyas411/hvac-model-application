@@ -22,6 +22,12 @@ export const navLinks: { id: string; label: string; icon: Icon; allowedRoles: Us
   { id: 'settings', icon: IconSettings, label: 'Settings', allowedRoles: ['admin'] },
 ];
 
+/** Who the API lets create each quick-create item (matches the backend write roles). */
+export const quickCreateRoles: Record<'request' | 'job' | 'customer' | 'quote' | 'invoice', UserRole[]> = {
+  request: ['admin', 'dispatcher'], job: ['admin', 'dispatcher'], customer: ['admin', 'dispatcher'],
+  quote: ['admin', 'dispatcher', 'accountant'], invoice: ['admin', 'accountant'],
+};
+
 const readPath = () => window.location.pathname.replace(/^\/|\/$/g, '') || 'dashboard';
 
 /**

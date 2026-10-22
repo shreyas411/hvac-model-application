@@ -25,7 +25,7 @@ const key = config.jwksUrl ? createRemoteJWKSet(new URL(config.jwksUrl)) : new T
 const profile = async (where: { id: string } | { email: string }) => {
   const u = await prisma.user.findUnique({ where });
   // We cast to 'any' then 'User' to satisfy TS when database nulls map to optional properties
-  return u ? (plain(u, ['createdAt', 'updatedAt', 'password']) as any as User) : undefined;
+  return u && !u.inactive ? (plain(u, ['createdAt', 'updatedAt', 'password']) as any as User) : undefined;
 };
 
 /** Local-login password storage: `salt:scrypt(password, salt)` hex. Never store the plain password. */

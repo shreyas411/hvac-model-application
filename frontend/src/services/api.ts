@@ -52,6 +52,10 @@ export function refresh(): Promise<Refresh> {
   return refreshing;
 }
 
+// True when the worker's write queue (not the server) answered the latest write, so the UI can say "saved on this phone" instead of "saved".
+let queued = false;
+export const wasQueued = () => queued;
+
 /** The single place that talks HTTP to the backend. */
 export async function api<T = void>(method: string, path: string, body?: unknown): Promise<T> {
   let res = await send(method, path, body);
@@ -63,6 +67,7 @@ export async function api<T = void>(method: string, path: string, body?: unknown
     }
   }
   // 202 {queued:true}: the service worker's write queue holds it (offline); it syncs later and the lists reload
+  if (method !== 'GET') queued = res.status === 202;
   if (res.status === 204 || res.status === 202) return undefined as T;
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, json.code ?? 'ERROR', json.detail ?? res.statusText, json.issues);

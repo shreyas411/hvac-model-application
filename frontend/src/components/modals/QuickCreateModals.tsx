@@ -1,40 +1,40 @@
-import { CustomerFormModal } from '../customers/CustomerFormModal';
+import { CustomerFormDrawer } from '../customers/CustomerFormDrawer';
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Priority, JobType, LineItem } from '../../types';
 import { formatGBP, tierPrices, getTodayISO } from '../../utils/formatters';
 import { useChecklistTemplates, toChecklistItems } from '../../data/checklistTemplates';
-import { useEscape } from '../../utils/useEscape';
-import { IconAlertTriangle, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconPlus, IconTrash } from '@tabler/icons-react';
+import { Alert, AlertDescription } from '@/src/components/ui/alert';
+import { Button } from '@/src/components/ui/button';
+import { Checkbox } from '@/src/components/ui/checkbox';
+import { DetailDrawer } from '../common/DetailDrawer';
+import { DatePicker } from '../common/DatePicker';
+import { Combobox } from '../common/Combobox';
+import { LineItemPicker } from '../common/LineItemPicker';
+import { Input } from '@/src/components/ui/input';
+import { Label } from '@/src/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
+import { Textarea } from '@/src/components/ui/textarea';
 
-// Starting lines for a new quote / invoice.
-const defaultLines = (hourlyRate: number, travelCharge: number): LineItem[] => [
-  {
-    id: 'li-1',
-    type: 'labour',
-    description: 'Standard HVAC Diagnostic & Service Labour (2 hrs)',
-    quantity: 2,
-    unitPrice: hourlyRate,
-    amount: hourlyRate * 2,
-  },
-  {
-    id: 'li-2',
-    type: 'travel',
-    description: 'Depot Van Travel & Callout Fee',
-    quantity: 1,
-    unitPrice: travelCharge,
-    amount: travelCharge,
-  },
-];
+// Lines the user adds on purpose (rates come from Settings); a new quote / invoice starts with none.
+const newLine = (kind: 'labour' | 'travel' | 'part', rates: { hourly: number; travel: number }): LineItem => {
+  const base = { id: `li-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, quantity: 1 };
+  if (kind === 'labour') return { ...base, type: 'labour', description: 'Labour', quantity: 1, unitPrice: rates.hourly, amount: rates.hourly };
+  if (kind === 'travel') return { ...base, type: 'travel', description: 'Travel / call-out', unitPrice: rates.travel, amount: rates.travel };
+  return { ...base, type: 'part', description: '', unitPrice: 0, amount: 0 };
+};
 
 interface QuickCreateModalsProps {
   activeModal: 'customer' | 'job' | 'request' | 'quote' | 'invoice' | null;
+  initialCustomerId?: string; // pre-selects the customer when started from their 360 view
   onClose: () => void;
   onNavigateTab: (tab: string) => void;
 }
 
 export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   activeModal,
+  initialCustomerId,
   onClose,
   onNavigateTab,
 }) => {
@@ -53,12 +53,12 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   } = useApp(['customers', 'equipment', 'technicians', 'addServiceRequest', 'addJob', 'addQuotation', 'addInvoice', 'checkScheduleConflict', 'settings', 'parts', 'customerById']);
 
   // Common customer selector
-  // Customers load async after login; this component mounts earlier, so default at render time, not in useState.
+  // No default customer: a document must never go to someone nobody chose. Site is pre-selected only when there is just one.
   const [pickedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [pickedLocationId, setPickedLocationId] = useState('');
-  const selectedCustomer = customerById.get(pickedCustomerId) ?? customers[0];
+  const selectedCustomer = customerById.get(pickedCustomerId);
   const selectedCustomerId = selectedCustomer?.id ?? '';
-  const selectedLocation = selectedCustomer?.serviceLocations.find((l) => l.id === pickedLocationId) ?? selectedCustomer?.serviceLocations[0];
+  const selectedLocation = selectedCustomer?.serviceLocations.find((l) => l.id === pickedLocationId) ?? (selectedCustomer?.serviceLocations.length === 1 ? selectedCustomer.serviceLocations[0] : undefined);
 
   // Request state
   const [reqProblem, setReqProblem] = useState('');
@@ -73,12 +73,12 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   const [jobDate, setJobDate] = useState(getTodayISO());
   const [jobStartTime, setJobStartTime] = useState('09:00');
   const [jobEndTime, setJobEndTime] = useState('11:30');
-  const [jobTechId, setJobTechId] = useState(technicians[0]?.id || '');
+  const [jobTechId, setJobTechId] = useState(''); // unassigned until the dispatcher picks someone
   const [jobTitle, setJobTitle] = useState('');
   const [jobDesc, setJobDesc] = useState('');
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
   // Quote / Invoice line items state
-  const [lineItems, setLineItems] = useState<LineItem[]>(() => defaultLines(settings.defaultHourlyRate, settings.defaultTravelCharge));
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [vatRate, setVatRate] = useState<number>(settings.defaultVatRate);
   const [reverseCharge, setReverseCharge] = useState(false);
   const [cisRate, setCisRate] = useState(0);
@@ -86,33 +86,19 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   const [terms, setTerms] = useState(settings.termsAndConditions);
 
   const [busy, setBusy] = useState(false); // guards double-submit (would create duplicates)
-  useEscape(!!activeModal, onClose);
   // This component stays mounted, so every open starts clean: today's date, current settings, nothing left from the last form.
   useEffect(() => {
     if (!activeModal) return;
     setJobDate(getTodayISO()); setReqProblem(''); setReqEquipmentId(''); setJobTitle(''); setJobDesc(''); setConflictWarning(null); setPickedLocationId('');
-    setLineItems(defaultLines(settings.defaultHourlyRate, settings.defaultTravelCharge)); setReverseCharge(false); setCisRate(0); setRetentionPct(0);
+    setSelectedCustomerId(initialCustomerId ?? ''); setJobTechId(''); setLineItems([]); setReverseCharge(false); setCisRate(0); setRetentionPct(0);
     setVatRate(settings.defaultVatRate); setTerms(settings.termsAndConditions);
-  }, [activeModal]);
+  }, [activeModal, initialCustomerId]);
 
   if (!activeModal) return null;
 
-  if (activeModal === 'customer') return <CustomerFormModal customer={null} onClose={onClose} />;
+  if (activeModal === 'customer') return <CustomerFormDrawer customer={null} onClose={onClose} />;
 
-  // Add line item
-  const handleAddLineItem = () => {
-    setLineItems([
-      ...lineItems,
-      {
-        id: `li-${Date.now()}`,
-        type: 'part',
-        description: 'HVAC Part / Material Item',
-        quantity: 1,
-        unitPrice: 50.00,
-        amount: 50.00,
-      },
-    ]);
-  };
+  const addLine = (kind: 'labour' | 'travel' | 'part') => setLineItems([...lineItems, newLine(kind, { hourly: settings.defaultHourlyRate, travel: settings.defaultTravelCharge })]);
 
   const handleUpdateLine = (id: string, updates: Partial<LineItem>) => {
     setLineItems(
@@ -133,7 +119,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   // Quote tiers are alternatives: price shared lines plus the cheapest tier, as the server does.
   const tierTotals = Object.values(Object.groupBy(lineItems.filter((li) => li.option), (li) => li.option!)).map((ls) => sumOf(ls!));
   const subtotal = sumOf(lineItems.filter((li) => !li.option)) + (tierTotals.length ? Math.min(...tierTotals) : 0);
-  const vatAmount = reverseCharge && activeModal === 'invoice' ? 0 : subtotal * (vatRate / 100);
+  const vatAmount = reverseCharge && selectedCustomer?.type === 'commercial' && activeModal === 'invoice' ? 0 : subtotal * (vatRate / 100);
   const total = subtotal + vatAmount;
 
   const guard = (h: (e: React.FormEvent) => Promise<void>) => async (e: React.FormEvent) => {
@@ -207,7 +193,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       hourlyRate: settings.defaultHourlyRate,
       travelTimeMinutes: 30,
       travelCharge: settings.defaultTravelCharge,
-      checklist: toChecklistItems(templates.filter((t) => t.jobType === jobType)),
+      checklist: toChecklistItems(templates.filter((t) => t.jobType === jobType && !t.inactive)),
     });
     if (!created) return;
 
@@ -266,8 +252,8 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       balanceDue: total,
       paymentTermsDays: 14,
       notes: terms,
-      reverseCharge,
-      cisRatePercent: cisRate,
+      reverseCharge: reverseCharge && selectedCustomer.type === 'commercial',
+      cisRatePercent: selectedCustomer.type === 'commercial' ? cisRate : 0,
       retentionPercent: retentionPct,
     });
     if (!created) return;
@@ -277,312 +263,264 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-label={`Create new ${activeModal}`}>
-      <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-        
-        {/* Header */}
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-          <h3 className="font-bold text-sm text-slate-900 capitalize">
-            Create New {activeModal.replace('_', ' ')}
-          </h3>
-          <button onClick={onClose} aria-label="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-            <IconX className="w-4 h-4" aria-hidden="true" />
-          </button>
-        </div>
-
+    <DetailDrawer footer={<>
+<Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+{activeModal === 'request' && (<Button type="submit" form="qc-form" size="sm" disabled={busy}>
+                  Log Service Request
+                </Button>)}
+{activeModal === 'job' && (<Button type="submit" form="qc-form" size="sm" disabled={busy}>
+                  Schedule Job
+                </Button>)}
+{(activeModal === 'quote' || activeModal === 'invoice') && (<Button type="submit" form="qc-form" size="sm" disabled={busy || lineItems.length === 0 || lineItems.some((li) => !li.description.trim() || !li.unitPrice)}>
+                  {activeModal === 'quote' ? 'Generate Quotation' : 'Issue Invoice'}
+                </Button>)}
+</>} onClose={onClose} dirty={!busy && !!(pickedCustomerId || reqProblem || jobTitle || lineItems.length)} title={`Create New ${activeModal.replace('_', ' ')}`} description="Fill in the details and submit to create it">
         {/* Modal Content */}
-        <div className="p-5 overflow-y-auto space-y-4 text-xs">
+        <div className="space-y-4 text-xs">
           
           {/* Customer selector (common) */}
           <div>
-            <label htmlFor="qc-cust" className="block font-semibold text-slate-700 mb-1">Customer Client *</label>
-            <select
-              id="qc-cust" value={selectedCustomerId}
-              onChange={(e) => { setSelectedCustomerId(e.target.value); setPickedLocationId(''); setReqEquipmentId(''); }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
-            >
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.type})
-                </option>
-              ))}
-            </select>
+            <Label htmlFor="qc-cust" className="text-xs mb-1">Customer *</Label>
+            <Combobox id="qc-cust" value={selectedCustomerId} onChange={(v) => { setSelectedCustomerId(v); setPickedLocationId(''); setReqEquipmentId(''); }}
+              options={customers.filter((c) => !c.archived).map((c) => ({ value: c.id, label: c.name, hint: c.type }))} placeholder="Select a customer…" searchPlaceholder="Search customers…" />
             {selectedCustomer && selectedCustomer.serviceLocations.length > 1 && (
               <div className="mt-2">
-                <label htmlFor="qc-site" className="block font-semibold text-slate-700 mb-1">Service Location *</label>
-                <select id="qc-site" value={selectedLocation?.id ?? ''} onChange={(e) => { setPickedLocationId(e.target.value); setReqEquipmentId(''); }} className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs">
-                  {selectedCustomer.serviceLocations.map((l) => <option key={l.id} value={l.id}>{l.label} - {l.addressLine1}</option>)}
-                </select>
+                <Label htmlFor="qc-site" className="text-xs mb-1">Service Location *</Label>
+                <Select required value={selectedLocation?.id ?? ''} onValueChange={(v) => { setPickedLocationId(v); setReqEquipmentId(''); }}>
+<SelectTrigger id="qc-site" size="sm" className="w-full text-xs"><SelectValue placeholder="Select a site…" /></SelectTrigger>
+<SelectContent>
+                  
+                  {selectedCustomer.serviceLocations.map((l) => <SelectItem key={l.id} value={l.id}>{l.label} - {l.addressLine1}</SelectItem>)}
+                </SelectContent>
+</Select>
               </div>
             )}
             {selectedCustomer && !selectedLocation && (
-              <p className="mt-1 text-red-600">This customer has no service location. Add a site in Customers first.</p>
+              <p className="mt-1 text-destructive">This customer has no service location. Add a site in Customers first.</p>
             )}
           </div>
 
           {/* SERVICE REQUEST FORM */}
           {activeModal === 'request' && (
-            <form onSubmit={guard(handleSubmitRequest)} className="space-y-3">
+            <form id="qc-form" onSubmit={guard(handleSubmitRequest)} className="space-y-3">
               <div>
-                <label htmlFor="qc-problem" className="block font-semibold text-slate-700 mb-1">Reported Problem / Fault *</label>
-                <textarea
+                <Label htmlFor="qc-problem" className="text-xs mb-1">Reported Problem / Fault *</Label>
+                <Textarea
                   rows={3}
                   required
                   id="qc-problem" name="problem" value={reqProblem}
                   onChange={(e) => setReqProblem(e.target.value)}
                   placeholder="e.g. No heating or hot water, boiler displaying F75 pressure fault…"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                  className="text-xs"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="qc-pri" className="block font-semibold text-slate-700 mb-1">Priority</label>
-                  <select
-                    id="qc-pri" value={reqPriority}
-                    onChange={(e) => setReqPriority(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs capitalize"
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="emergency">Emergency Callout</option>
-                  </select>
+                  <Label htmlFor="qc-pri" className="text-xs mb-1">Priority</Label>
+                  <Select value={reqPriority} onValueChange={(v) => setReqPriority(v as any)}>
+<SelectTrigger id="qc-pri" size="sm" className="w-full text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="emergency">Emergency Callout</SelectItem>
+                  </SelectContent>
+</Select>
                 </div>
 
                 <div>
-                  <label htmlFor="qc-slot" className="block font-semibold text-slate-700 mb-1">Preferred Time Slot</label>
-                  <select
-                    id="qc-slot" value={reqSlot}
-                    onChange={(e) => setReqSlot(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs capitalize"
-                  >
-                    <option value="morning">Morning (08:00 - 12:00)</option>
-                    <option value="afternoon">Afternoon (12:00 - 17:00)</option>
-                    <option value="all_day">All Day</option>
-                    <option value="urgent">Urgent / Immediate</option>
-                  </select>
+                  <Label htmlFor="qc-slot" className="text-xs mb-1">Preferred Time Slot</Label>
+                  <Select value={reqSlot} onValueChange={(v) => setReqSlot(v as any)}>
+<SelectTrigger id="qc-slot" size="sm" className="w-full text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                    <SelectItem value="morning">Morning (08:00 - 12:00)</SelectItem>
+                    <SelectItem value="afternoon">Afternoon (12:00 - 17:00)</SelectItem>
+                    <SelectItem value="all_day">All Day</SelectItem>
+                    <SelectItem value="urgent">Urgent / Immediate</SelectItem>
+                  </SelectContent>
+</Select>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="qc-eq" className="block font-semibold text-slate-700 mb-1">Customer Equipment</label>
-                <select
-                  id="qc-eq" value={reqEquipmentId}
-                  onChange={(e) => setReqEquipmentId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
-                >
-                  <option value="">-- General / Not Specified --</option>
+                <Label htmlFor="qc-eq" className="text-xs mb-1">Customer Equipment</Label>
+                <Select value={reqEquipmentId || 'none'} onValueChange={(raw) => { const v = raw === 'none' ? '' : raw; setReqEquipmentId(v); }}>
+<SelectTrigger id="qc-eq" size="sm" className="w-full text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                  <SelectItem value="none">-- General / Not Specified --</SelectItem>
                   {equipment
                     .filter((e) => e.customerId === selectedCustomerId && (!selectedLocation || e.locationId === selectedLocation.id))
                     .map((eq) => (
-                      <option key={eq.id} value={eq.id}>
+                      <SelectItem key={eq.id} value={eq.id}>
                         {eq.brand} {eq.model} (S/N: {eq.serialNumber})
-                      </option>
+                      </SelectItem>
                     ))}
-                </select>
+                </SelectContent>
+</Select>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-                <button type="button" onClick={onClose} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-                  Cancel
-                </button>
-                <button type="submit" disabled={busy} className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-                  Log Service Request
-                </button>
-              </div>
             </form>
           )}
 
           {/* BOOK JOB FORM */}
           {activeModal === 'job' && (
-            <form onSubmit={guard(handleSubmitJob)} className="space-y-3">
+            <form id="qc-form" onSubmit={guard(handleSubmitJob)} className="space-y-3">
               <div>
-                <label htmlFor="qc-jtitle" className="block font-semibold text-slate-700 mb-1">Job Title</label>
-                <input
+                <Label htmlFor="qc-jtitle" className="text-xs mb-1">Job Title</Label>
+                <Input
                   required maxLength={200} autoComplete="off"
                   id="qc-jtitle" name="title" value={jobTitle}
                   onChange={(e) => setJobTitle(e.target.value)}
                   placeholder="e.g. Annual boiler service"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                  className="text-xs"
                 />
               </div>
 
               {conflictWarning && (
-                <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 flex items-start gap-2">
-                  <IconAlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" aria-hidden="true" />
-                  <p className="text-xs font-semibold">{conflictWarning}</p>
-                </div>
+                <Alert className="border-rose-300 bg-rose-50 text-rose-900"><IconAlertTriangle className="text-rose-600" aria-hidden="true" /><AlertDescription className="text-xs font-semibold text-rose-900">{conflictWarning}</AlertDescription></Alert>
               )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="qc-jtype" className="block font-semibold text-slate-700 mb-1">Job Type</label>
-                  <select
-                    id="qc-jtype" value={jobType}
-                    onChange={(e) => setJobType(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs capitalize"
-                  >
-                    <option value="repair">Repair</option>
-                    <option value="installation">Installation</option>
-                    <option value="preventive_maintenance">Preventive Maintenance</option>
-                    <option value="inspection">Inspection / CP12 Gas Check</option>
-                    <option value="emergency_callout">Emergency Callout</option>
-                  </select>
+                  <Label htmlFor="qc-jtype" className="text-xs mb-1">Job Type</Label>
+                  <Select value={jobType} onValueChange={(v) => setJobType(v as any)}>
+<SelectTrigger id="qc-jtype" size="sm" className="w-full text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                    <SelectItem value="repair">Repair</SelectItem>
+                    <SelectItem value="installation">Installation</SelectItem>
+                    <SelectItem value="preventive_maintenance">Preventive Maintenance</SelectItem>
+                    <SelectItem value="inspection">Inspection / CP12 Gas Check</SelectItem>
+                    <SelectItem value="emergency_callout">Emergency Callout</SelectItem>
+                  </SelectContent>
+</Select>
                 </div>
 
                 <div>
-                  <label htmlFor="qc-jtech" className="block font-semibold text-slate-700 mb-1">Assign Engineer</label>
-                  <select
-                    id="qc-jtech" value={jobTechId}
-                    onChange={(e) => {
-                      setJobTechId(e.target.value);
+                  <Label htmlFor="qc-jtech" className="text-xs mb-1">Assign Engineer</Label>
+                  <Select value={jobTechId || 'none'} onValueChange={(raw) => { const v = raw === 'none' ? '' : raw; 
+                      setJobTechId(v);
                       setConflictWarning(null);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-xs"
-                  >
-                    <option value="">-- Unassigned --</option>
+                     }}>
+<SelectTrigger id="qc-jtech" size="sm" className="w-full text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                    <SelectItem value="none">-- Unassigned --</SelectItem>
                     {technicians.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name} ({t.skills[0]})</option>
+                      <SelectItem key={t.id} value={t.id} style={{ color: t.color }}>● {t.name}{t.skills[0] ? ` (${t.skills[0]})` : ''}</SelectItem>
                     ))}
-                  </select>
+                  </SelectContent>
+</Select>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="qc-jdate" className="block font-semibold text-slate-700 mb-1">Appointment Date</label>
-                <input
-                  type="date"
-                  required
-                  id="qc-jdate" value={jobDate}
-                  onChange={(e) => {
-                    setJobDate(e.target.value);
-                    setConflictWarning(null);
-                  }}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
-                />
+                <Label htmlFor="qc-jdate" className="text-xs mb-1">Appointment Date</Label>
+                <DatePicker id="qc-jdate" min={getTodayISO()} value={jobDate} onChange={(v) => { setJobDate(v); setConflictWarning(null); }} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="qc-jstart" className="block font-semibold text-slate-700 mb-1">Start Time</label>
-                  <input
+                  <Label htmlFor="qc-jstart" className="text-xs mb-1">Start Time</Label>
+                  <Input
                     type="time"
                     required
                     id="qc-jstart" value={jobStartTime}
                     onChange={(e) => setJobStartTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
+                    className="tabular-nums text-xs"
                   />
                 </div>
                 <div>
-                  <label htmlFor="qc-jend" className="block font-semibold text-slate-700 mb-1">End Time</label>
-                  <input
+                  <Label htmlFor="qc-jend" className="text-xs mb-1">End Time</Label>
+                  <Input
                     type="time"
                     required
                     id="qc-jend" value={jobEndTime}
                     onChange={(e) => setJobEndTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs font-mono"
+                    className="tabular-nums text-xs"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="qc-jdesc" className="block font-semibold text-slate-700 mb-1">Instructions / Description</label>
-                <textarea
+                <Label htmlFor="qc-jdesc" className="text-xs mb-1">Instructions / Description</Label>
+                <Textarea
                   rows={2}
                   required
                   id="qc-jdesc" name="description" value={jobDesc}
                   onChange={(e) => setJobDesc(e.target.value)}
                   placeholder="e.g. Annual Gas Safety check on Worcester Bosch combi boiler."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                  className="text-xs"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-                <button type="button" onClick={onClose} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-                  Cancel
-                </button>
-                <button type="submit" disabled={busy} className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-                  Schedule Job
-                </button>
-              </div>
             </form>
           )}
 
           {/* QUOTE OR INVOICE FORM */}
           {(activeModal === 'quote' || activeModal === 'invoice') && (
-            <form onSubmit={guard(activeModal === 'quote' ? handleSubmitQuote : handleSubmitInvoice)} className="space-y-4">
+            <form id="qc-form" onSubmit={guard(activeModal === 'quote' ? handleSubmitQuote : handleSubmitInvoice)} className="space-y-4">
               
               <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-800">Line Items & Materials</span>
-                <button
-                  type="button"
-                  onClick={handleAddLineItem}
-                  className="text-xs text-sky-700 font-semibold hover:underline flex items-center gap-1"
-                >
-                  <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Add Line</span>
-                </button>
+                <span className="font-bold text-foreground">Line Items & Materials</span>
+                <div className="flex items-center gap-3">
+                  {([['labour', 'Labour'], ['travel', 'Travel'], ['part', 'Part / other']] as const).map(([kind, label]) => (
+                    <Button key={kind} type="button" variant="ghost" size="xs" onClick={() => addLine(kind)} className="text-primary"><IconPlus aria-hidden="true" /><span>{label}</span></Button>
+                  ))}
+                </div>
               </div>
+              {lineItems.length === 0 && <p className="p-3 text-center text-muted-foreground bg-muted/50 border border-dashed border-input rounded-lg">No lines yet. Add labour, travel or a part above.</p>}
 
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-2">
                 {lineItems.map((li) => (
-                  <div key={li.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                  <div key={li.id} className="p-2.5 bg-muted/50 border border-border rounded-lg space-y-2">
                     <div className="flex gap-2">
-                      <input
+                      <LineItemPicker onPick={(p) => handleUpdateLine(li.id, p)} />
+                      <Input
                         type="text"
-                        aria-label="Line description" name="description" autoComplete="off" value={li.description}
+                        aria-label="Line description" name="description" autoComplete="off" required value={li.description}
                         onChange={(e) => handleUpdateLine(li.id, { description: e.target.value })}
-                        className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-xs"
+                        className="flex-1 h-8 text-xs"
                         placeholder="Description"
                       />
                       {activeModal === 'quote' && (
-                        <select
-                          aria-label="Quote option" value={li.option ?? ''}
-                          onChange={(e) => handleUpdateLine(li.id, { option: e.target.value || undefined })}
-                          className="w-24 px-1 py-1 bg-white border border-slate-300 rounded text-xs"
-                        >
-                          <option value="">All tiers</option>
-                          <option>Good</option>
-                          <option>Better</option>
-                          <option>Best</option>
-                        </select>
+                        <Select value={li.option || 'all'} onValueChange={(raw) => { const v = raw === 'all' ? '' : raw; handleUpdateLine(li.id, { option: v || undefined }); }}>
+<SelectTrigger aria-label="Quote option" size="sm" className="w-24 text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                          <SelectItem value="all">All tiers</SelectItem>
+                          <SelectItem value="Good">Good</SelectItem>
+                          <SelectItem value="Better">Better</SelectItem>
+                          <SelectItem value="Best">Best</SelectItem>
+                        </SelectContent>
+</Select>
                       )}
-                      <button
-                        type="button"
-                        aria-label={`Remove line: ${li.description}`}
-                        onClick={() => handleRemoveLine(li.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600"
-                      >
-                        <IconTrash className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
+                      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove line: ${li.description}`} onClick={() => handleRemoveLine(li.id)} className="text-destructive hover:text-destructive"><IconTrash aria-hidden="true" /></Button>
                     </div>
 
                     <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <label htmlFor={`qty-${li.id}`} className="text-[10px] text-slate-500 block">Qty</label>
-                        <input
+                        <Label htmlFor={`qty-${li.id}`} className="text-[10px] text-muted-foreground mb-0">Qty</Label>
+                        <Input
                           type="number"
                           step="0.5"
                           min="0.5"
                           id={`qty-${li.id}`} inputMode="decimal" value={li.quantity}
                           onChange={(e) => handleUpdateLine(li.id, { quantity: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                          className="h-8 tabular-nums text-xs"
                         />
                       </div>
                       <div>
-                        <label htmlFor={`price-${li.id}`} className="text-[10px] text-slate-500 block">Unit Price (£)</label>
-                        <input
+                        <Label htmlFor={`price-${li.id}`} className="text-[10px] text-muted-foreground mb-0">Unit Price (£)</Label>
+                        <Input
                           type="number"
                           step="0.01"
                           id={`price-${li.id}`} inputMode="decimal" value={li.unitPrice}
                           onChange={(e) => handleUpdateLine(li.id, { unitPrice: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                          className="h-8 tabular-nums text-xs"
                         />
                       </div>
                       <div className="text-right">
-                        <label className="text-[10px] text-slate-500 block">Line Total</label>
-                        <span className="font-mono font-bold text-slate-900 block mt-1">
+                        <span className="text-[10px] text-muted-foreground block">Line Total</span>
+                        <span className="tabular-nums font-semibold text-foreground block mt-1">
                           {formatGBP(li.amount)}
                         </span>
                       </div>
@@ -595,65 +533,65 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
                 <div className="p-2.5 bg-sky-50 border border-sky-200 rounded-lg text-xs space-y-1">
                   <span className="font-semibold text-sky-900">Price per option (inc. VAT)</span>
                   {tierPrices(lineItems, vatRate).map((t) => (
-                    <div key={t.name} className="flex justify-between"><span>{t.name}</span><span className="font-mono font-bold">{formatGBP(t.total)}</span></div>
+                    <div key={t.name} className="flex justify-between"><span>{t.name}</span><span className="tabular-nums font-semibold">{formatGBP(t.total)}</span></div>
                   ))}
                 </div>
               )}
               {/* VAT & Totals */}
-              <div className="border-t border-slate-200 pt-3 space-y-1.5 text-xs">
+              <div className="border-t border-border pt-3 space-y-1.5 text-xs">
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600">Applicable UK VAT:</span>
-                  <select
-                    aria-label="VAT rate" value={vatRate}
-                    onChange={(e) => setVatRate(Number(e.target.value))}
-                    className="px-2 py-1 border border-slate-300 rounded text-xs font-mono bg-white"
-                  >
-                    <option value={20}>20% (Standard)</option>
-                    <option value={5}>5% (Reduced)</option>
-                    <option value={0}>0% (Zero)</option>
-                  </select>
+                  <span className="text-muted-foreground">Applicable UK VAT:</span>
+                  <Select value={String(vatRate)} onValueChange={(v) => setVatRate(Number(v))}>
+<SelectTrigger aria-label="VAT rate" size="sm" className="tabular-nums text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                    <SelectItem value="20">20% (Standard)</SelectItem>
+                    <SelectItem value="5">5% (Reduced)</SelectItem>
+                    <SelectItem value="0">0% (Zero)</SelectItem>
+                  </SelectContent>
+</Select>
                 </div>
 
                 {activeModal === 'invoice' && (
                   <>
-                    <label className="flex justify-between items-center text-slate-600">
+                    {selectedCustomer && selectedCustomer.type !== 'commercial' && (
+                      <p className="text-muted-foreground">Reverse charge and CIS are only for commercial customers (VAT-registered contractors), so they are switched off for {selectedCustomer.name}.</p>
+                    )}
+                    <Label className="flex justify-between items-center text-xs font-normal text-muted-foreground">
                       <span>Domestic reverse charge (no VAT charged):</span>
-                      <input type="checkbox" checked={reverseCharge} onChange={(e) => setReverseCharge(e.target.checked)} />
-                    </label>
+                      <Checkbox disabled={selectedCustomer?.type !== 'commercial'} checked={reverseCharge && selectedCustomer?.type === 'commercial'} onCheckedChange={(v) => setReverseCharge(v === true)} />
+                    </Label>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-600">CIS deduction (labour only):</span>
-                      <select aria-label="CIS deduction" value={cisRate} onChange={(e) => setCisRate(Number(e.target.value))} className="px-2 py-1 border border-slate-300 rounded text-xs font-mono bg-white">
-                        <option value={0}>None</option>
-                        <option value={20}>20%</option>
-                        <option value={30}>30%</option>
-                      </select>
+                      <span className="text-muted-foreground">CIS deduction (labour only):</span>
+                      <Select disabled={selectedCustomer?.type !== 'commercial'} value={String(selectedCustomer?.type === 'commercial' ? cisRate : 0)} onValueChange={(v) => setCisRate(Number(v))}>
+<SelectTrigger aria-label="CIS deduction" size="sm" className="tabular-nums text-xs"><SelectValue /></SelectTrigger>
+<SelectContent>
+                        <SelectItem value="0">None</SelectItem>
+                        <SelectItem value="20">20%</SelectItem>
+                        <SelectItem value="30">30%</SelectItem>
+                      </SelectContent>
+</Select>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-600">Retention held (%):</span>
-                      <input aria-label="Retention percent" type="number" min={0} max={100} step={0.5} value={retentionPct} onChange={(e) => setRetentionPct(Number(e.target.value))} className="w-20 px-2 py-1 border border-slate-300 rounded text-xs font-mono text-right" />
+                      <span className="text-muted-foreground">Retention held (%):</span>
+                      <Input aria-label="Retention percent" type="number" min={0} max={100} step={0.5} value={retentionPct} onChange={(e) => setRetentionPct(Number(e.target.value))} className="w-20 h-8 tabular-nums text-xs text-right" />
                     </div>
                   </>
                 )}
 
-                <div className="flex justify-between font-bold text-sm text-slate-900 pt-2 border-t border-slate-100">
+                <div className="flex justify-between font-bold text-sm text-foreground pt-2 border-t border-border">
                   <span>Grand Total:</span>
-                  <span className="font-mono text-sky-900">{formatGBP(total)}</span>
+                  <span className="tabular-nums text-sky-900">{formatGBP(total)}</span>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-                <button type="button" onClick={onClose} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-                  Cancel
-                </button>
-                <button type="submit" disabled={busy || lineItems.length === 0} className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-                  {activeModal === 'quote' ? 'Generate Quotation' : 'Issue Invoice'}
-                </button>
-              </div>
+              {lineItems.length > 0 && lineItems.some((li) => !li.description.trim() || !li.unitPrice) && (
+                <p role="status" className="text-amber-700">Every line needs a description and a price before you can {activeModal === 'quote' ? 'generate the quotation' : 'issue the invoice'}.</p>
+              )}
+
             </form>
           )}
 
         </div>
-      </div>
-    </div>
+    </DetailDrawer>
   );
 };

@@ -5,7 +5,8 @@ import { emailBookingConfirmed, emailQuotationReady } from '../notifications/tem
 import type { Quotation } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
 import { conflict, notFound } from '../../common/errors.js';
-import { toMinutes, today } from '../../common/dates.js';
+import { audit } from '../../common/audit.js';
+import { isPast, toMinutes, today } from '../../common/dates.js';
 import { pageFrom } from '../../common/paginate.js';
 import { totals } from '../../common/money.js';
 import { nextNumber } from '../../common/numbering.js';
@@ -20,6 +21,7 @@ type Row = Prisma.QuotationGetPayload<{ include: typeof include }>;
 
 const toQuotation = ({ legacyId, items, acceptedSignature, approvalTokenHash, ...q }: Row) => ({
   ...plain(q, [], ['issueDate', 'expiryDate']),
+  expired: q.status === 'expired' || (['draft', 'sent', 'viewed'].includes(q.status) && isPast(q.expiryDate)),
   items: items.map(({ quotationId, invoiceId, position, ...x }) => plain(x)),
 }) as unknown as Quotation;
 
@@ -28,7 +30,7 @@ export async function getQuotation(id: string, c: Tx = prisma) {
   if (!row) throw notFound('Quotation');
   return toQuotation(row);
 }
-export const pageQuotations = (query: unknown) => pageFrom(query, prisma.quotation, { include, searchFields: ['quoteNumber', 'notes'] }, toQuotation);
+export const pageQuotations = (query: unknown) => pageFrom(query, prisma.quotation, { include, searchFields: ['quoteNumber', 'notes'], sorts: ['issueDate', 'expiryDate', 'total', 'status', 'customer.name'] }, toQuotation);
 export const listQuotations = async () => (await prisma.quotation.findMany({ include, orderBy: { createdAt: 'desc' } })).map(toQuotation);
 
 type Input = {
@@ -107,6 +109,7 @@ export function accept(id: string, acceptedBy: string, acceptedSignature?: strin
     const names = new Set(q.items.flatMap((i) => (i.option ? [i.option] : [])));
     if (names.size && !(option && names.has(option))) throw conflict('OPTION_REQUIRED', `Choose one of: ${[...names].join(', ')}`);
     const chosen = names.size ? await priced(q.items.filter((i) => !i.option || i.option === option), q.vatRatePercent) : undefined;
+    await audit(tx, 'quotation', id, { id: 'customer', name: `${acceptedBy} (customer)` } as Actor, 'accepted', `${q.quoteNumber}${option ? `, option ${option}` : ''}`);
     return toQuotation(await tx.quotation.update({
       where: { id }, include,
       data: {
@@ -140,6 +143,7 @@ export async function convertToJob(id: string, slot: { appointmentDate: string; 
       auditAction: 'Created from Quotation', auditDetails: `Generated from accepted quote ${q.quoteNumber}`,
     }, who, tx);
     await tx.quotation.update({ where: { id }, data: { convertedToJobId: job.id } });
+    await audit(tx, 'quotation', id, who, 'converted to job', `${q.quoteNumber} → ${job.jobNumber}`);
     return { job, quotation: await getQuotation(id, tx) };
   });
   if (result.job.status === 'scheduled') await emailBookingConfirmed(result.job);

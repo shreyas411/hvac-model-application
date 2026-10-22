@@ -92,3 +92,6 @@ The active job has a **Photos** panel (`frontend/src/components/technician/JobPh
 ## Updates: job history
 
 A **Job history** card (`TechJobHistory.tsx`) lists every job of the active technician, completed ones included, paged from the server. Filters: search (job no. or notes), status, from/to date, **Clear**. A row opens the read-only job record (`JobDetailDrawer`). The service report PDF button label now reads "Download PDF".
+
+## Updates: site details and offline
+- Each job shows the property address, access notes and customer phone (from `job.site`, since technicians cannot open Customers). "No signal: saved on this phone" appears when a write was queued; see [offline-and-pwa-features.md](offline-and-pwa-features.md). The old `TechJobHistory` component was removed.

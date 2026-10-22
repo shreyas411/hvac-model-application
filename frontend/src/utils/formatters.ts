@@ -75,3 +75,8 @@ export const tierPrices = (items: { amount: number; option?: string; vatRatePerc
   return [...new Set(items.flatMap((i) => (i.option ? [i.option] : [])))]
     .map((name) => ({ name, total: gross([...shared, ...items.filter((i) => i.option === name)]) }));
 };
+
+/** Joins only the non-empty parts, so blank company settings don't leave "#", "," or "·" debris. */
+export const joinParts = (parts: (string | false | undefined | null)[], sep: string) => parts.filter(Boolean).join(sep);
+export const regLine = (s: { vatNumber?: string; companyNumber?: string; gasSafeRegisterNo?: string; fGasCertNo?: string }, withCompany = false) =>
+  joinParts([s.vatNumber && `VAT Reg: ${s.vatNumber}`, withCompany && s.companyNumber && `Company: ${s.companyNumber}`, s.gasSafeRegisterNo && `Gas Safe: #${s.gasSafeRegisterNo}`, s.fGasCertNo && `F-Gas: #${s.fGasCertNo}`], ' · ');

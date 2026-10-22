@@ -2,12 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
-import { isUuid } from '../../common/prisma.js';
+import { isUuid, prisma, removeRecord } from '../../common/prisma.js';
 import { hhmm, isoDate, money, priority } from '../../common/zod.js';
 import { getSettings } from '../settings/service.js';
 import { generateFromJob } from '../invoices/service.js';
 import * as svc from './service.js';
 import * as photos from './photos.js';
+import { isInkedPng } from '../../common/signature.js';
 
 const jobType = z.enum(['installation', 'repair', 'inspection', 'emergency_callout', 'preventive_maintenance']);
 const jobStatus = z.enum(['new', 'awaiting_approval', 'scheduled', 'dispatched', 'in_progress', 'on_hold', 'completed', 'cancelled']);
@@ -15,7 +16,7 @@ const checklist = z.array(z.object({
   id: z.string().default(() => svc.newId()), label: z.string().min(1),
   category: z.enum(['gas_safety', 'electrical', 'refrigerant', 'general']), checked: z.boolean().default(false), notes: z.string().optional(),
 }));
-const signature = z.object({ name: z.string().min(1), dataUrl: z.string().max(1_000_000).regex(/^data:image\/(png|jpeg|svg\+xml)[;,]/), signedAt: z.string() });
+const signature = z.object({ name: z.string().min(1), dataUrl: z.string().max(1_000_000).refine(isInkedPng, 'Signature is empty or not a valid PNG'), signedAt: z.string() });
 
 const job = z.object({
   requestId: z.string().optional(),
@@ -77,6 +78,9 @@ jobsRouter.patch('/:id', field, h(async (req) => {
   return svc.updateJob(j.id, dispatchPatch.parse(req.body) as any, actor(req));
 }));
 
+jobsRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.job, req.params.id, 'Job', async (j) =>
+  !['new', 'awaiting_approval', 'scheduled', 'cancelled'].includes(j.status) ? 'Only a job that has not started can be deleted'
+    : (await prisma.invoice.count({ where: { jobId: j.id } })) > 0 && 'Job has an invoice')));
 jobsRouter.post('/:id/status', field, h(async (req) => {
   const b = z.object({ status: jobStatus, note: z.string().optional(), override: z.boolean().default(false) }).parse(req.body);
   const j = await svc.getJob(req.params.id);
@@ -126,4 +130,6 @@ jobsRouter.get('/:id/photos/:photoId', field, async (req, res, next) => {
 });
 jobsRouter.delete('/:id/photos/:photoId', field, h(async (req) => photos.removePhoto((await ownJob(req)).id, req.params.photoId)));
 
-jobsRouter.post('/:id/invoice', allow('admin', 'accountant'), h(async (req) => generateFromJob(req.params.id, actor(req)), 201));
+// The VAT rate is required, not defaulted: the Settings default (often 5%) is wrong for most labour and nobody sees it being applied here.
+const invoiceJob = z.object({ vatRatePercent: z.number().min(0).max(100) });
+jobsRouter.post('/:id/invoice', allow('admin', 'accountant'), h(async (req) => generateFromJob(req.params.id, invoiceJob.parse(req.body).vatRatePercent, actor(req)), 201));

@@ -78,3 +78,7 @@ It then navigates to the `dispatch` tab. There is no conflict check, no duplicat
 - No filter buttons for ventilation or chiller.
 - Book Service can create repeated jobs for the same asset, and the job's date may be in the past for overdue assets.
 - No role-based restriction on actions beyond tab visibility; `onOpenQuickAction` is accepted but unused.
+
+## Updates: refrigerant, inactive, delete
+- Heat pumps, air conditioning and chillers capture **refrigerant type** and **charge (kg)**. The detail drawer shows the CO2e tonnage and the F-Gas leak-check interval (`utils/fgas.ts`).
+- Equipment can be marked inactive, soft-deleted, sorted by type / warranty / next service, and the register uses server paging. Warranty status comes from the API `expired` flag instead of a hard-coded date.

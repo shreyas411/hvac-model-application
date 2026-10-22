@@ -18,11 +18,15 @@ const include = {
   checklist: { orderBy: { position: 'asc' } },
   auditLog: { orderBy: { createdAt: 'asc' } },
   refrigerantLogs: { orderBy: { createdAt: 'asc' } },
+  customer: { select: { name: true, phone: true } },
+  location: { select: { addressLine1: true, addressLine2: true, city: true, postcode: true, accessNotes: true, contactName: true, contactPhone: true } },
 } satisfies Prisma.JobInclude;
 type Row = Prisma.JobGetPayload<{ include: typeof include }>;
 
-const toJob = ({ legacyId, equipment, partsUsed, checklist, auditLog, refrigerantLogs, ...j }: Row) => ({
+// `site` is the minimum an engineer needs to find and enter the property; technicians can't read /customers.
+const toJob = ({ legacyId, equipment, partsUsed, checklist, auditLog, refrigerantLogs, customer, location, ...j }: Row) => ({
   ...plain(j, [], ['appointmentDate']),
+  site: { customerName: customer.name, customerPhone: customer.phone, ...location },
   slaBreached: !!j.slaDueAt && j.slaDueAt < new Date() && j.status === 'new',
   technicianId: j.technicianId, // null is meaningful here: unassigned
   equipmentIds: equipment.map((e) => e.equipmentId),
@@ -51,7 +55,7 @@ export async function pageJobs(query: unknown, only?: { technicianId?: string | 
   const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)) ? new Date(v) : undefined);
   const { from, to } = (query ?? {}) as Record<string, unknown>;
   const range = day(from) || day(to) ? { appointmentDate: { gte: day(from), lte: day(to) } } : {};
-  return pageFrom(query, prisma.job, { where: { ...(only && { technicianId: only.technicianId }), ...range }, include, searchFields: ['jobNumber', 'title', 'description', 'internalNotes', 'workPerformed'] }, toJob);
+  return pageFrom(query, prisma.job, { where: { ...(only && { technicianId: only.technicianId }), ...range }, include, searchFields: ['jobNumber', 'title', 'description', 'internalNotes', 'workPerformed'], sorts: ['appointmentDate', 'type', 'priority', 'status', 'customer.name', 'technician.name'] }, toJob);
 }
 
 // DECIDE (spec 6.2): default transition map, admins may override with `override: true`.
@@ -147,9 +151,12 @@ async function assertCertifications(tx: Tx, technicianId: string, requiredSkills
 /** Equipment decides the certification: refrigerant systems need F-Gas, gas boilers Gas Safe. Merged into whatever skills the caller listed. */
 const GAS_BOILERS = ['combi_boiler', 'system_boiler'];
 const REFRIGERANT = ['heat_pump', 'air_conditioning', 'chiller'];
-async function withEquipmentSkills(tx: Tx, equipmentIds: string[], skills: string[] = []) {
+// ponytail: keyword guess so a "boiler lockout" job with no equipment attached still needs Gas Safe; upgrade to a gas/refrigerant job-type field if false hits matter.
+const GAS_WORDS = /\b(gas|boilers?|cp12|flue|hob|cooker|gas fire|carbon monoxide)\b/i;
+const FRIDGE_WORDS = /\b(refrigerants?|heat pumps?|air.?con(ditioning)?|chillers?|vrf|f-?gas|cold room)\b/i;
+async function withEquipmentSkills(tx: Tx, equipmentIds: string[], skills: string[] = [], text = '') {
   const types = equipmentIds.length ? (await tx.equipment.findMany({ where: { id: { in: equipmentIds } }, select: { type: true } })).map((e) => e.type as string) : [];
-  return [...new Set([...skills, ...(types.some((t) => GAS_BOILERS.includes(t)) ? ['GAS_SAFE'] : []), ...(types.some((t) => REFRIGERANT.includes(t)) ? ['F_GAS'] : [])])];
+  return [...new Set([...skills, ...(types.some((t) => GAS_BOILERS.includes(t)) ? ['GAS_SAFE'] : []), ...(types.some((t) => REFRIGERANT.includes(t)) ? ['F_GAS'] : []), ...(GAS_WORDS.test(text) ? ['GAS_SAFE'] : []), ...(FRIDGE_WORDS.test(text) ? ['F_GAS'] : [])])];
 }
 
 async function assertTechnician(tx: Tx, id: string) {
@@ -179,7 +186,7 @@ export async function createJob(input: JobInput, who: Actor, tx?: Tx): Promise<J
   const { auditAction, auditDetails, equipmentIds, checklist, appointmentDate, status, ...i } = input;
   await assertLocation(i.customerId, i.locationId, tx!);
   const equipment = await assertEquipment(equipmentIds, tx!);
-  i.requiredSkills = await withEquipmentSkills(tx!, equipment, i.requiredSkills);
+  i.requiredSkills = await withEquipmentSkills(tx!, equipment, i.requiredSkills, `${i.title} ${i.description}`);
   if (i.technicianId) {
     await assertTechnician(tx!, i.technicianId);
     await assertCertifications(tx!, i.technicianId, i.requiredSkills);
@@ -215,13 +222,13 @@ export function updateJob(id: string, patch: Partial<Job>, who: Actor, action = 
     if ((cur.status === 'completed' || cur.status === 'cancelled') && who.role !== 'admin') throw conflict('JOB_CLOSED', `A ${cur.status} job is read-only`);
     if (who.role === 'technician' && cur.status !== 'dispatched' && cur.status !== 'in_progress') throw conflict('JOB_NOT_ACTIVE', 'Work record can only be edited while the job is dispatched or in progress');
     const equipment = patch.equipmentIds && (await assertEquipment(patch.equipmentIds, tx));
-    const next = { ...cur, ...patch, requiredSkills: await withEquipmentSkills(tx, equipment ?? cur.equipmentIds, patch.requiredSkills ?? cur.requiredSkills) };
-    if (equipment || patch.requiredSkills) patch = { ...patch, requiredSkills: next.requiredSkills };
+    const next = { ...cur, ...patch, requiredSkills: await withEquipmentSkills(tx, equipment ?? cur.equipmentIds, patch.requiredSkills ?? cur.requiredSkills, `${patch.title ?? cur.title} ${patch.description ?? cur.description}`) };
+    if (equipment || patch.requiredSkills || patch.title || patch.description) patch = { ...patch, requiredSkills: next.requiredSkills };
     if (patch.technicianId !== undefined || patch.appointmentDate || patch.startTime || patch.endTime) await assertSlot(tx, next, id);
     if (patch.technicianId) {
       await assertTechnician(tx, patch.technicianId);
       await assertCertifications(tx, patch.technicianId, next.requiredSkills);
-    } else if (equipment && cur.technicianId) await assertCertifications(tx, cur.technicianId, next.requiredSkills);
+    } else if ((equipment || patch.title || patch.description) && cur.technicianId) await assertCertifications(tx, cur.technicianId, next.requiredSkills);
     if (patch.customerId || patch.locationId) await assertLocation(next.customerId, next.locationId, tx);
 
     return toJob(await tx.job.update({

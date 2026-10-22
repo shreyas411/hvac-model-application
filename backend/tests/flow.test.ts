@@ -3,6 +3,22 @@ import { beforeAll, expect, test } from 'vitest';
 import { createApp } from '../src/app.js';
 import { seedDevUsers } from '../src/common/auth.js';
 import { prisma } from '../src/common/prisma.js';
+import { crc32, deflateSync } from 'node:zlib';
+
+// Real RGBA PNG like the signature pad's: transparent canvas, optional opaque "ink" pixels.
+function pngUrl(w = 60, h = 30, ink = true) {
+  const chunk = (type: string, body: Buffer) => {
+    const head = Buffer.alloc(4); head.writeUInt32BE(body.length);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type), body])));
+    return Buffer.concat([head, Buffer.from(type), body, crc]);
+  };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr.set([8, 6, 0, 0, 0], 8);
+  const rows = Buffer.alloc(h * (1 + w * 4)); // filter 0 + zeros = transparent
+  if (ink) for (let x = 1; x < w - 1; x++) rows.set([15, 23, 42, 255], (h >> 1) * (1 + w * 4) + 1 + x * 4); // a stroke across the middle row
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+  return `data:image/png;base64,${png.toString('base64')}`;
+}
+const SIG_PNG = pngUrl();
 
 let base = '';
 beforeAll(async () => {
@@ -36,10 +52,10 @@ const call = async (method: string, path: string, body?: unknown, as = 'admin') 
 
 test('request → job → conflict → status → parts → invoice → payment', async () => {
   const cust = (await call('POST', '/customers', {
-    type: 'residential', name: 'A', phone: '1', email: 'a@x.co', gdprConsent: true,
-    billingAddress: { line1: '1', city: 'c', postcode: 'p' },
+    type: 'residential', name: 'A', phone: '01234 567890', email: 'a@x.co', gdprConsent: true,
+    billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' },
   })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0];
   const tech = (await call('POST', '/technicians', { name: 'T', phone: '1', email: 't@x.co' })).body;
   const part = (await call('POST', '/parts', { name: 'Valve', sku: 'V1', category: 'x', unitCost: 5, sellingPrice: 10, stockQuantity: 3 })).body;
   expect(part.stockQuantity).toBe(3);
@@ -65,14 +81,15 @@ test('request → job → conflict → status → parts → invoice → payment'
   expect((await call('GET', `/movements?partId=${part.id}`)).body.data).toHaveLength(2);
 
   // invoicing needs a completed job, and completing needs the compliance record
-  expect((await call('POST', `/jobs/${job.id}/invoice`, undefined, 'accountant')).body.code).toBe('JOB_NOT_COMPLETED');
+  expect((await call('POST', `/jobs/${job.id}/invoice`, { vatRatePercent: 20 }, 'accountant')).body.code).toBe('JOB_NOT_COMPLETED');
   expect((await call('POST', `/jobs/${job.id}/status`, { status: 'completed' })).body.code).toBe('NOT_COMPLETABLE');
-  const sig = { name: 'Cust', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', signedAt: '2026-11-02T10:00:00Z' };
+  const sig = { name: 'Cust', dataUrl: SIG_PNG, signedAt: '2026-11-02T10:00:00Z' };
   await call('PATCH', `/jobs/${job.id}`, { workPerformed: 'Replaced valve', customerSignature: sig });
   expect((await call('POST', `/jobs/${job.id}/status`, { status: 'completed' })).body.status).toBe('completed');
   expect((await call('POST', `/jobs/${job.id}/parts`, { partId: part.id, quantity: 1 })).body.code).toBe('JOB_CLOSED');
   expect((await call('PATCH', `/jobs/${job.id}`, { workPerformed: 'x' }, 'technician')).status).toBeGreaterThanOrEqual(403);
-  const inv = (await call('POST', `/jobs/${job.id}/invoice`, undefined, 'accountant')).body;
+  expect((await call('POST', `/jobs/${job.id}/invoice`, undefined, 'accountant')).status).toBe(400); // rate must be stated, never defaulted
+  const inv = (await call('POST', `/jobs/${job.id}/invoice`, { vatRatePercent: 20 }, 'accountant')).body;
   // 1.5h * 85 + 35 travel + 2 * 10 = 182.5 net, 20% VAT
   expect(inv).toMatchObject({ subtotal: 182.5, vatAmount: 36.5, total: 219, status: 'issued' });
   expect((await call('POST', `/invoices/${inv.id}/payments`, { date: '2026-11-03', amount: 300, method: 'bacs' }, 'accountant')).body.code).toBe('OVERPAYMENT');
@@ -100,8 +117,8 @@ test('rbac and technician scoping', async () => {
 });
 
 test('quote options: cheapest priced, customer must pick one, others dropped', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'O', phone: '1', email: 'o@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'O', phone: '01234 567890', email: 'o@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0];
   const line = (option: string | undefined, unitPrice: number) => ({ type: 'equipment', description: 'boiler', quantity: 1, unitPrice, vatRatePercent: 0, option });
   const q = (await call('POST', '/quotations', { customerId: cust.id, locationId: loc.id, issueDate: '2026-10-01', expiryDate: '2026-12-01', vatRatePercent: 0, items: [line(undefined, 100), line('Good', 1000), line('Best', 2000)] })).body;
   expect(q.subtotal).toBe(1100);
@@ -126,8 +143,8 @@ test('quotation must be accepted before conversion; sweeps', async () => {
 });
 
 const old = {
-  customers: [{ id: 'cust-1', type: 'residential', name: 'Old', phone: '1', email: 'o@x.co', billingAddress: { line1: '1', city: 'c', postcode: 'p' },
-    serviceLocations: [{ id: 'loc-1', label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' }] }],
+  customers: [{ id: 'cust-1', type: 'residential', name: 'Old', phone: '01234 567890', email: 'o@x.co', billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' },
+    serviceLocations: [{ id: 'loc-1', label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' }] }],
   technicians: [{ id: 'tech-1', name: 'Imported', phone: '1', email: 't@x.co', skills: ['Gas'], color: '#000', active: true }],
   parts: [{ id: 'part-1', name: 'Valve', sku: 'IMP-1', category: 'x', unitCost: 5, sellingPrice: 10, stockQuantity: 4, minStockLevel: 1 }],
   equipment: [{ id: 'eq-1', customerId: 'cust-1', locationId: 'loc-1', type: 'heat_pump', brand: 'B', model: 'M', serialNumber: 'S', installationDate: '2024-01-01',
@@ -259,7 +276,7 @@ test('concurrent payments cannot overpay; concurrent conversions make one invoic
 
 test('one invoice per job even when requested twice at once', async () => {
   const [job] = (await call('GET', '/jobs')).body.data;
-  const res = await Promise.all([1, 2, 3].map(() => call('POST', `/jobs/${job.id}/invoice`, undefined, 'accountant')));
+  const res = await Promise.all([1, 2, 3].map(() => call('POST', `/jobs/${job.id}/invoice`, { vatRatePercent: 20 }, 'accountant')));
   expect(res.filter((r) => r.status === 201).length + res.filter((r) => ['ALREADY_CONVERTED', 'JOB_NOT_COMPLETED'].includes(r.body.code)).length).toBe(3);
   expect(res.filter((r) => r.status === 201).length).toBeLessThanOrEqual(1); // the imported invoice already covers it, so normally 0
 });
@@ -304,7 +321,7 @@ test('hardening: technician stock scope, body limits, signature, headers', async
   const jobId = (await call('GET', '/jobs')).body.data[0].id;
   const sig = (dataUrl: string) => call('PATCH', `/jobs/${jobId}`, { customerSignature: { name: 'A', dataUrl, signedAt: '2026-01-01T00:00:00Z' } });
   expect((await sig('javascript:alert(1)')).status).toBe(400);
-  expect((await sig('data:image/png;base64,iVBORw0KGgo=')).status).toBe(200);
+  expect((await sig(SIG_PNG)).status).toBe(200);
 
   const res = await fetch(base + '/healthz'.replace('/api/v1', ''), { headers: { 'x-request-id': 'bad id\t!' } });
   expect(res.headers.get('x-content-type-options')).toBe('nosniff');
@@ -312,7 +329,7 @@ test('hardening: technician stock scope, body limits, signature, headers', async
 });
 
 test('same x-idempotency-key creates once and replays the stored response', async () => {
-  const post = () => fetch(base + '/customers', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dev-user': 'dev-admin', 'x-idempotency-key': 'idem-1' }, body: JSON.stringify({ type: 'residential', name: 'Idem', phone: '1', email: 'idem@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } }) });
+  const post = () => fetch(base + '/customers', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dev-user': 'dev-admin', 'x-idempotency-key': 'idem-1' }, body: JSON.stringify({ type: 'residential', name: 'Idem', phone: '01234 567890', email: 'idem@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } }) });
   const a = await post(), b = await post();
   expect(a.status).toBe(201);
   expect(b.status).toBe(201);
@@ -332,8 +349,8 @@ test('local passwords are stored salted+scrypt and verified', async () => {
 });
 
 test('credit notes, refunds, void reason, idempotency binding', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'CN', phone: '1', email: 'cn@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'CN', phone: '01234 567890', email: 'cn@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: loc, items: [{ type: 'fee', description: 'f', quantity: 1, unitPrice: 100 }], vatRatePercent: 0 }, 'accountant')).body;
   const pay = (await call('POST', `/invoices/${inv.id}/payments`, { date: '2026-11-03', amount: 60, method: 'bacs', reference: 'R1' }, 'accountant')).body;
   expect((await call('POST', `/invoices/${inv.id}/payments`, { date: '2026-11-03', amount: 1, method: 'bacs', reference: 'R1' }, 'accountant')).status).toBe(409);
@@ -359,14 +376,14 @@ test('credit notes, refunds, void reason, idempotency binding', async () => {
 
   // idempotency key is bound to its request
   const withKey = (path: string, body: object) => fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dev-user': 'dev-admin', 'x-idempotency-key': 'bind-1' }, body: JSON.stringify(body) });
-  const c = { type: 'residential', name: 'K', phone: '1', email: 'k@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } };
+  const c = { type: 'residential', name: 'K', phone: '01234 567890', email: 'k@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } };
   expect((await withKey('/customers', c)).status).toBe(201);
   expect((await withKey('/customers', { ...c, name: 'Other' })).status).toBe(422);
 });
 
 test('licence expiry, equipment-derived skills, refrigerant log gate, rate card, technician privacy', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'RF', phone: '1', email: 'rf@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'RF', phone: '01234 567890', email: 'rf@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const eq = (await call('POST', '/equipment', { customerId: cust.id, locationId: loc, type: 'heat_pump', brand: 'b', model: 'm', serialNumber: 's1', installationDate: '2025-01-01', warrantyExpiryDate: '2030-01-01', maintenanceFrequency: 'annual' })).body;
   const expired = (await call('POST', '/technicians', { name: 'Old', phone: '1', email: 'old@x.co', fGasLicense: 'FG1', fGasExpiry: '2020-01-01' })).body;
   const valid = (await call('POST', '/technicians', { name: 'New', phone: '1', email: 'new@x.co', fGasLicense: 'FG2', fGasExpiry: '2099-01-01' })).body;
@@ -375,13 +392,17 @@ test('licence expiry, equipment-derived skills, refrigerant log gate, rate card,
   const bad = await call('POST', '/jobs', { ...base, technicianId: expired.id });
   expect(bad.status).toBe(403);
   expect(bad.body.detail).toMatch(/expired/);
-  const job = (await call('POST', '/jobs', { ...base, technicianId: valid.id })).body;
+  // no equipment attached: the wording alone must still demand Gas Safe
+  const noGas = await call('POST', '/jobs', { ...base, equipmentIds: [], title: 'Boiler lockout', description: 'no hot water', technicianId: valid.id, startTime: '12:00', endTime: '13:00' });
+  expect(noGas.status).toBe(403);
+  expect(noGas.body.detail).toMatch(/Gas Safe/);
+  const job =(await call('POST', '/jobs', { ...base, technicianId: valid.id })).body;
   expect(job.requiredSkills).toContain('F_GAS');
   expect(job.hourlyRate).toBe(85); // rate card default
 
   await call('POST', `/jobs/${job.id}/status`, { status: 'dispatched' });
   await call('POST', `/jobs/${job.id}/status`, { status: 'in_progress' });
-  const sig = { name: 'C', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', signedAt: '2027-02-01T10:00:00Z' };
+  const sig = { name: 'C', dataUrl: SIG_PNG, signedAt: '2027-02-01T10:00:00Z' };
   await call('PATCH', `/jobs/${job.id}`, { workPerformed: 'Fixed leak', customerSignature: sig });
   expect((await call('POST', `/jobs/${job.id}/status`, { status: 'completed' })).body.detail).toMatch(/refrigerant log/);
   const log = await call('POST', `/jobs/${job.id}/refrigerant`, { refrigerant: 'R410A', action: 'charge', amountKg: 0.4, cylinderId: 'CYL-9', certNumber: 'FG2' });
@@ -396,8 +417,8 @@ test('licence expiry, equipment-derived skills, refrigerant log gate, rate card,
 });
 
 test('lists page in the database: limit, cursor, search, status', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'PG', phone: '1', email: 'pg@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'PG', phone: '01234 567890', email: 'pg@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   for (const d of ['alpha', 'beta', 'gamma']) await call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', title: 't', description: `pg-${d}`, appointmentDate: '2027-03-01', startTime: '09:00', endTime: '10:00' });
   const p1 = (await call('GET', '/jobs?limit=2&q=pg-')).body;
   expect(p1.data).toHaveLength(2);
@@ -426,8 +447,8 @@ test('lists page in the database: limit, cursor, search, status', async () => {
 });
 
 test('database refuses overlapping jobs for one technician even if the app check is bypassed', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'EX', phone: '1', email: 'ex@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'EX', phone: '01234 567890', email: 'ex@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const tech = (await call('POST', '/technicians', { name: 'Ex', phone: '1', email: 'ex-t@x.co' })).body;
   const mk = (startTime: string, endTime: string) => call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', title: 't', description: 'x', appointmentDate: '2027-04-01', startTime, endTime, technicianId: tech.id });
   await mk('08:00', '09:00');
@@ -436,8 +457,8 @@ test('database refuses overlapping jobs for one technician even if the app check
 });
 
 test('per-line VAT, credit-note VAT share, and paged customers/parts/equipment/requests', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'VATCo', phone: '1', email: 'vat@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'VATCo', phone: '01234 567890', email: 'vat@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: loc, vatRatePercent: 20, items: [
     { type: 'labour', description: 'std', quantity: 1, unitPrice: 100 },
     { type: 'part', description: 'zero-rated', quantity: 1, unitPrice: 100, vatRatePercent: 0 },
@@ -454,8 +475,8 @@ test('per-line VAT, credit-note VAT share, and paged customers/parts/equipment/r
 
 test('maintenance agreement raises one preventive job per due date and advances', async () => {
   const { raiseMaintenanceJobs } = await import('../src/modules/maintenance/service.js');
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'MA', phone: '1', email: 'ma@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'MA', phone: '01234 567890', email: 'ma@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const ag = await call('POST', '/maintenance-agreements', { customerId: cust.id, locationId: loc, frequency: 'quarterly', nextDueDate: '2027-06-01' });
   expect(ag.status).toBe(201);
   expect(await raiseMaintenanceJobs('2027-01-01')).toBe(0); // not within the lead window
@@ -470,8 +491,8 @@ test('maintenance agreement raises one preventive job per due date and advances'
 test('service contract: auto-invoices each visit, rejects bad terms, deactivates past the end date', async () => {
   const { raiseMaintenanceJobs } = await import('../src/modules/maintenance/service.js');
   await prisma.maintenanceAgreement.deleteMany(); // earlier tests' agreements would also fall due
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'SC', phone: '1', email: 'sc@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'SC', phone: '01234 567890', email: 'sc@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const base = { customerId: cust.id, locationId: loc, frequency: 'quarterly', nextDueDate: '2028-06-01' };
   expect((await call('POST', '/maintenance-agreements', { ...base, autoInvoice: true })).status).toBe(422); // no price
   expect((await call('POST', '/maintenance-agreements', { ...base, endDate: '2028-01-01' })).status).toBe(422); // ends before first visit
@@ -579,8 +600,8 @@ test('autoSendEmails toggle: draft by default, sent at once when on; quote PDF',
 });
 
 test('gas safe certificates: engineer must be registered; CP12 expires in a year; PDF renders', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Cert', phone: '1', email: 'c@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = cust.serviceLocations?.[0] ?? (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Cert', phone: '01234 567890', email: 'c@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = cust.serviceLocations?.[0] ?? (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0];
   const mk = async (extra: object) => (await call('POST', '/technicians', { name: 'Eng', phone: '1', email: 'e@x.co', ...extra })).body;
   const [none, expired, ok] = [await mk({}), await mk({ gasSafeLicense: '111', gasSafeExpiry: '2020-01-01' }), await mk({ gasSafeLicense: '222', gasSafeExpiry: '2099-01-01' })];
   const today = new Date().toISOString().slice(0, 10), nextYear = `${Number(today.slice(0, 4)) + 1}${today.slice(4)}`;
@@ -599,8 +620,8 @@ test('gas safe certificates: engineer must be registered; CP12 expires in a year
 });
 
 test('job photos: webp only, validated by content, technician limited to own job, bytes round-trip', async () => {
-  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Ph', phone: '1', email: 'p@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0];
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Ph', phone: '01234 567890', email: 'p@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0];
   const job = (await call('POST', '/jobs', { customerId: cust.id, locationId: loc.id, type: 'repair', title: 't', description: 'x', appointmentDate: '2026-12-01', startTime: '09:00', endTime: '10:00' })).body;
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==', 'base64');
   const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBPVP8L'), Buffer.alloc(30)]);
@@ -630,7 +651,7 @@ test('customer approves a quote through the emailed link without logging in', as
     return `/public/quotes/${n.messageBody.match(/\/quote\/([\w-]+)/)[1]}`;
   };
   const anon = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
-  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  const png = SIG_PNG;
 
   const q = await mk();
   const link = await sendAndLink(q);
@@ -658,10 +679,87 @@ test('customer approves a quote through the emailed link without logging in', as
   expect((await (await anon('POST', `${elink}/accept`, { name: 'Cust' })).json()).code).toBe('EXPIRED');
 });
 
+test('technician site details come with the job; only an admin can set licences', async () => {
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Site Probe', phone: '01234 567890', email: 'sp@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '7 Acacia Rd', city: 'Leeds', postcode: 'LS1 4AB', accessNotes: 'Key safe 1234' })).body.serviceLocations[0].id;
+  const t = (await call('POST', '/technicians', { name: 'Sited', phone: '1', email: 'sited@x.co' })).body;
+  const j = (await call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', title: 'Visit', description: 'd', technicianId: t.id, appointmentDate: '2027-03-01', startTime: '09:00', endTime: '10:00' })).body;
+  expect(j.site).toMatchObject({ customerName: 'Site Probe', addressLine1: '7 Acacia Rd', postcode: 'LS1 4AB', accessNotes: 'Key safe 1234' });
+  expect(j.site.email).toBeUndefined();
+  // dispatcher: may edit a technician, not their licence
+  expect((await call('PATCH', `/technicians/${t.id}`, { vanRegistration: 'AB12 CDE' }, 'dispatcher')).status).toBe(200);
+  const lic = await call('PATCH', `/technicians/${t.id}`, { gasSafeLicense: '123456', gasSafeExpiry: '2099-01-01' }, 'dispatcher');
+  expect(lic.status).toBe(403);
+  expect((await call('POST', '/technicians', { name: 'New', phone: '1', email: 'n2@x.co', fGasLicense: 'FG' }, 'dispatcher')).status).toBe(403);
+  expect((await call('PATCH', `/technicians/${t.id}`, { gasSafeLicense: '123456', gasSafeExpiry: '2099-01-01' })).status).toBe(200);
+});
+
+test('signatures must be a real inked PNG; stubs and blank pads are refused', async () => {
+  const job = (await call('GET', '/jobs')).body.data[0].id;
+  const sign = (dataUrl: string) => call('PATCH', `/jobs/${job}`, { customerSignature: { name: 'A', dataUrl, signedAt: '2026-01-01T00:00:00Z' } });
+  expect((await sign('data:image/png;base64,iVBORw0KGgo=')).status).toBe(400); // header only
+  expect((await sign(pngUrl(60, 30, false))).status).toBe(400); // transparent, nothing drawn
+  expect((await sign(pngUrl(10, 5))).status).toBe(400); // too small to be a signature
+  expect((await sign('data:image/svg+xml;base64,PHN2Zy8+')).status).toBe(400); // pad only produces PNG
+  expect((await sign(pngUrl())).status).toBe(200);
+});
+
+test('one active customer per email: create, edit and restore are refused; archived emails can return', async () => {
+  const body = (name: string, email: string) => ({ type: 'residential', name, phone: '01234 567890', email, gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } });
+  const a = await call('POST', '/customers', body('Alice', 'Alice.Smith@Example.com'));
+  expect(a.status).toBe(201);
+  expect(a.body.email).toBe('alice.smith@example.com'); // stored trimmed and lower-case
+  const dup = await call('POST', '/customers', body('Alice Again', '  ALICE.SMITH@example.com '));
+  expect(dup.status).toBe(409);
+  expect(dup.body.code).toBe('DUPLICATE_CUSTOMER');
+  expect(dup.body.detail).toMatch(/Alice already uses alice.smith@example.com/);
+  const b = (await call('POST', '/customers', body('Bob', 'bob@example.com'))).body;
+  expect((await call('PATCH', `/customers/${b.id}`, { email: 'alice.smith@example.com' })).body.code).toBe('DUPLICATE_CUSTOMER');
+  expect((await call('PATCH', `/customers/${b.id}`, { name: 'Robert', email: 'BOB@example.com' })).status).toBe(200); // own email, other case: fine
+  // archived customers free their email; restoring one that was since re-used is refused
+  expect((await call('POST', `/customers/${a.body.id}/archive`)).status).toBe(200);
+  const again = await call('POST', '/customers', body('Alice Returns', 'alice.smith@example.com'));
+  expect(again.status).toBe(201);
+  expect((await call('POST', `/customers/${a.body.id}/unarchive`)).body.code).toBe('DUPLICATE_CUSTOMER');
+});
+
+test('postcodes must be real UK postcodes and are stored tidy', async () => {
+  const mk = (postcode: string) => call('POST', '/customers', { type: 'residential', name: 'PC', phone: '01234 567890', email: `pc${Math.random().toString(36).slice(2)}@x.co`, gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode } });
+  for (const bad of ['ZZZZ 999', 'p', '123 132', 'TEST 232', 'QV1 1AA', 'AA1 1CC', 'LS1', '']) expect((await mk(bad)).status, bad).toBe(400);
+  for (const [good, stored] of [['SW1A 1AA', 'SW1A 1AA'], ['ls14ab', 'LS1 4AB'], ['  m1   1ae ', 'M1 1AE'], ['B33 8TH', 'B33 8TH'], ['DN551PT', 'DN55 1PT'], ['EC1A 1BB', 'EC1A 1BB'], ['W1A 0AX', 'W1A 0AX']]) {
+    const r = await mk(good);
+    expect(r.status, good).toBe(201);
+    expect(r.body.billingAddress.postcode).toBe(stored);
+  }
+  const c = (await mk('LS1 4AB')).body;
+  const site = { label: 'Site', addressLine1: '1', city: 'c' };
+  expect((await call('POST', `/customers/${c.id}/locations`, { ...site, postcode: 'nope' })).status).toBe(400);
+  expect((await call('POST', `/customers/${c.id}/locations`, { ...site, postcode: 'cr2 6xh' })).body.serviceLocations[0].postcode).toBe('CR2 6XH');
+  expect((await call('PATCH', '/settings', { postcode: 'bad' })).status).toBe(400);
+  expect((await call('PATCH', '/settings', { postcode: '' })).status).toBe(200); // not filled in yet is allowed
+});
+
+test('landlord customers: own type and filter, no reverse charge; refrigerant charge stored on equipment', async () => {
+  const body = { phone: '01234 567890', email: 'll@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } };
+  const ll = (await call('POST', '/customers', { ...body, type: 'landlord', name: 'Letting Agent' })).body;
+  expect(ll.type).toBe('landlord');
+  expect((await call('GET', '/customers?type=landlord')).body.data.map((c: { id: string }) => c.id)).toContain(ll.id);
+  const loc = (await call('POST', `/customers/${ll.id}/locations`, { label: 'Rental', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
+  const items = [{ type: 'labour', description: 'l', quantity: 1, unitPrice: 100 }];
+  expect((await call('POST', '/invoices', { customerId: ll.id, locationId: loc, items, reverseCharge: true }, 'accountant')).body.code).toBe('RESIDENTIAL_TERMS');
+  const eq = (await call('POST', '/equipment', { customerId: ll.id, locationId: loc, type: 'heat_pump', brand: 'b', model: 'm', serialNumber: 's9', installationDate: '2025-01-01', warrantyExpiryDate: '2030-01-01', maintenanceFrequency: 'annual', refrigerantType: 'R410A', refrigerantChargeKg: 3 })).body;
+  expect(eq.refrigerantType).toBe('R410A');
+  expect(eq.refrigerantChargeKg).toBe(3);
+});
+
 test('reverse charge, CIS on labour only, retention held until released', async () => {
-  const cust = (await call('POST', '/customers', { type: 'commercial', name: 'CIS', phone: '1', email: 'cis@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Site', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'commercial', name: 'CIS', phone: '01234 567890', email: 'cis@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Site', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const items = [{ type: 'labour', description: 'l', quantity: 1, unitPrice: 1000 }, { type: 'part', description: 'p', quantity: 1, unitPrice: 500 }];
+  const home = (await call('POST', '/customers', { type: 'residential', name: 'Homeowner', phone: '01234 567890', email: 'home@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const homeLoc = (await call('POST', `/customers/${home.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
+  const refused = await call('POST', '/invoices', { customerId: home.id, locationId: homeLoc, items, reverseCharge: true }, 'accountant');
+  expect(refused.body.code).toBe('RESIDENTIAL_TERMS');
   const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: loc, items, reverseCharge: true, cisRatePercent: 20, retentionPercent: 5 }, 'accountant')).body;
   // no VAT; CIS = 20% of 1000 labour; retention = 5% of 1500
   expect(inv).toMatchObject({ vatAmount: 0, total: 1500, cisDeduction: 200, retentionHeld: 75, balanceDue: 1225 });
@@ -671,8 +769,8 @@ test('reverse charge, CIS on labour only, retention held until released', async 
 });
 
 test('deposit and stage invoices are their own rows; the final invoice deducts them', async () => {
-  const cust = (await call('POST', '/customers', { type: 'commercial', name: 'Stage', phone: '1', email: 'stage@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'p' } })).body;
-  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Site', addressLine1: '1', city: 'c', postcode: 'p' })).body.serviceLocations[0].id;
+  const cust = (await call('POST', '/customers', { type: 'commercial', name: 'Stage', phone: '01234 567890', email: 'stage@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Site', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const q = (await call('POST', '/quotations', { customerId: cust.id, locationId: loc, issueDate: '2026-10-01', expiryDate: '2026-12-01', vatRatePercent: 20, items: [{ type: 'part', description: 'unit', quantity: 1, unitPrice: 1000 }] })).body;
   expect((await call('POST', '/invoices/stage', { quoteId: q.id, percent: 25 }, 'accountant')).body.code).toBe('NOT_ACCEPTED');
   await call('POST', `/quotations/${q.id}/send`);
@@ -684,4 +782,24 @@ test('deposit and stage invoices are their own rows; the final invoice deducts t
   const fin = (await call('POST', '/invoices/stage', { quoteId: q.id, final: true }, 'accountant')).body;
   expect(fin).toMatchObject({ stageLabel: 'Final', stagePercent: 75, subtotal: 750, total: 900 });
   expect((await call('POST', '/invoices/stage', { quoteId: q.id, final: true }, 'accountant')).body.code).toBe('ALREADY_CONVERTED');
+});
+
+test('delete is soft: hidden from reads, blocked while in use, row kept; inactive and expired flags', async () => {
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Soft', phone: '01234 567890', email: 'soft@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const part = (await call('POST', '/parts', { name: 'Gasket', sku: 'SOFT1', category: 'x', unitCost: 1, sellingPrice: 2 })).body;
+  expect((await call('PATCH', `/parts/${part.id}`, { inactive: true })).body.inactive).toBe(true);
+  expect((await call('GET', '/parts?inactive=true')).body.data.map((p: any) => p.id)).toContain(part.id);
+  expect((await call('DELETE', `/parts/${part.id}`)).status).toBe(204);
+  expect((await call('GET', `/parts/${part.id}`)).status).toBe(404);
+  expect((await call('GET', '/parts')).body.data.map((p: any) => p.id)).not.toContain(part.id);
+  expect(await prisma.part.findFirst({ where: { id: part.id, isDeleted: undefined } })).toMatchObject({ isDeleted: true });
+  expect((await call('POST', '/parts', { name: 'Gasket', sku: 'SOFT1', category: 'x', unitCost: 1, sellingPrice: 2 })).body.code).toBe('DUPLICATE_SKU');
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Site', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
+  const q = (await call('POST', '/quotations', { customerId: cust.id, locationId: loc, issueDate: '2020-01-01', expiryDate: '2020-02-01', items: [{ type: 'part', description: 'x', quantity: 1, unitPrice: 10 }] })).body;
+  expect(q.expired).toBe(true);
+  expect((await call('DELETE', `/customers/${cust.id}`)).body.code).toBe('IN_USE');
+  expect((await call('DELETE', `/quotations/${q.id}`)).status).toBe(204);
+  expect((await call('GET', `/quotations/${q.id}`)).status).toBe(404);
+  expect((await call('DELETE', `/customers/${cust.id}`)).status).toBe(204);
+  expect((await call('GET', `/customers/${cust.id}`)).status).toBe(404);
 });

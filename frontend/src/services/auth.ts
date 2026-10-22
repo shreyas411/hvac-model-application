@@ -8,11 +8,13 @@ export const auth = {
   },
   /** The signed-in user's profile, or null when there's no valid session (a network error still throws). */
   async me(): Promise<User | null> {
+    // api() turns a 200 with a non-JSON body (the SPA's index.html where /api isn't routed) into {}: that is not a profile.
+    const profile = (u?: User) => (u?.id && u.role ? u : null);
     try {
-      return await api<User>('GET', '/auth/me');
+      return profile(await api<User>('GET', '/auth/me'));
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 401) throw e;
-      return (await refresh()) === 'renewed' ? api<User>('GET', '/auth/me').catch(() => null) : null;
+      return (await refresh()) === 'renewed' ? api<User>('GET', '/auth/me').then(profile).catch(() => null) : null;
     }
   },
   async logout() {

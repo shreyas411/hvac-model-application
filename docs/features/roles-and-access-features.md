@@ -110,3 +110,6 @@ A strip under the navbar, rendered on every tab (`App.tsx:60`). It shows, for th
 - Tabs are defined once in `frontend/src/routes.ts` (`navLinks`) and the current tab lives in the URL path (`/invoices`, `/maintenance`, ...), so refresh and back/forward work. A tab the role may not see redirects to the role's home (Technician Portal for technicians, Dashboard otherwise); `notifications` is open to all.
 - New tabs: **Maintenance Plans** (admin, dispatcher, accountant) and **Checklists** (admin).
 - Roles are now enforced server-side as well; see [security-and-auth-features.md](security-and-auth-features.md) and [compliance-features.md](compliance-features.md) for technician restrictions.
+
+## Updates: quick create, deletes, licences
+- Quick-create is limited per role: request, job, customer = admin/dispatcher; quote = admin/dispatcher/accountant; invoice = admin/accountant. Delete is admin-only for customers, requests, jobs and invoices (dispatchers can also delete quotes). Only admins edit technician Gas Safe / F-Gas details. Inactive users cannot sign in.

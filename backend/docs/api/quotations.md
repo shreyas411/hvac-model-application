@@ -39,3 +39,7 @@ Items may include `vatRatePercent` (per-line VAT). `GET /quotations` is paged in
 | POST | `/public/quotes/:token/reject` | From `sent` or `viewed` |
 
 Rate limited to 60 requests / 15 min per IP. Unknown token is `404`; an already decided quote is `409 INVALID_TRANSITION`.
+
+## Changes
+- `DELETE /quotations/:id` (A D) soft-deletes; refused for accepted or converted quotes (`409 IN_USE`).
+- Quotes carry `expired` (status `expired`, or open and past `expiryDate`). Customer acceptance via the public link and conversion to a job are audited. List `?sort=issueDate|expiryDate|total|status|customer.name`.

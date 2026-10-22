@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 import { Job, Priority } from '../../types';
 import type { TechnicianProfile as Technician } from '../../types';
-import { getTodayISO } from '../../utils/formatters';
+import { formatDateUK, getTodayISO } from '../../utils/formatters';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { IconSearch } from '@tabler/icons-react';
+import { Badge } from '@/src/components/ui/badge';
+import { Card } from '@/src/components/ui/card';
+import { Checkbox } from '@/src/components/ui/checkbox';
+import { Input } from '@/src/components/ui/input';
+import { Label } from '@/src/components/ui/label';
+import { Tip } from '@/src/components/common/Tip';
 
-export const DragCard: React.FC<{ id: string } & React.HTMLAttributes<HTMLDivElement>> = ({ id, style, ...rest }) => {
+export const DragCard: React.FC<{ id: string } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> & { title?: string }> = ({ id, style, title, ...rest }) => {
   const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id });
-  return <div ref={setNodeRef} {...attributes} {...listeners} {...rest} style={{ ...style, opacity: isDragging ? 0.4 : 1, touchAction: 'manipulation' }} />;
+  return <Tip label={title}><div ref={setNodeRef} {...attributes} {...listeners} {...rest} style={{ ...style, opacity: isDragging ? 0.4 : 1, touchAction: 'manipulation' }} /></Tip>;
 };
 
 // eligible: undefined = nothing being dragged, true/false = can this target take the dragged job
@@ -28,7 +34,7 @@ const PRIORITY_BADGE: Record<Priority, string> = {
   emergency: 'bg-rose-100 text-rose-800 font-bold',
   high: 'bg-amber-100 text-amber-800 font-semibold',
   medium: 'bg-sky-100 text-sky-800',
-  low: 'bg-slate-100 text-slate-700',
+  low: 'bg-muted text-foreground',
 };
 
 interface Props {
@@ -88,82 +94,81 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4 items-start">
       {/* Unassigned queue */}
-      <DropColumn id="none" eligible={eligibleFor(null)} baseClass="bg-slate-100/70 border rounded-lg p-3 flex flex-col lg:max-h-[70vh]" idleClass="border-slate-200">
+      <DropColumn id="none" eligible={eligibleFor(null)} baseClass="bg-muted/60 border rounded-lg p-3 flex flex-col lg:max-h-[70vh]" idleClass="border-border">
         <div className="flex items-center justify-between pb-2">
-          <span className="font-bold text-xs text-slate-700">Unassigned queue</span>
-          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">{unassigned.length}</span>
+          <span className="font-bold text-xs text-foreground">Unassigned queue</span>
+          <Badge variant="secondary" className="text-[11px] tabular-nums">{unassigned.length}</Badge>
         </div>
-        <label className="relative mb-2">
-          <IconSearch className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" aria-hidden="true" />
-          <input value={qJob} onChange={(e) => setQJob(e.target.value)} placeholder="Search jobs…" aria-label="Search unassigned jobs"
-            className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded bg-white" />
-        </label>
+        <div className="relative mb-2">
+          <IconSearch className="w-3.5 h-3.5 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" aria-hidden="true" />
+          <Input value={qJob} onChange={(e) => setQJob(e.target.value)} placeholder="Search jobs…" aria-label="Search unassigned jobs"
+            className="h-8 pl-7 text-xs bg-background" />
+        </div>
         <div className="space-y-2 overflow-y-auto flex-1">
           {unassigned.map((job) => (
             <DragCard id={job.id} key={job.id} {...open(job)}
-              className={`bg-white p-2.5 rounded-lg border shadow-2xs hover:border-sky-300 cursor-grab active:cursor-grabbing space-y-1 ${job.slaBreached ? 'border-red-400' : 'border-slate-200'}`}>
+              className={`bg-card p-2.5 rounded-lg border shadow-2xs hover:border-sky-300 cursor-grab active:cursor-grabbing space-y-1 ${job.slaBreached ? 'border-red-400' : 'border-border'}`}>
               <div className="flex items-center justify-between gap-1">
-                <span className="font-mono font-bold text-xs text-slate-900">{job.jobNumber}</span>
-                <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${PRIORITY_BADGE[job.priority]}`}>{job.priority}</span>
+                <span className="tabular-nums font-semibold text-xs">{job.jobNumber}</span>
+                <Badge variant="secondary" className={`text-[10px] uppercase px-1.5 py-0.5 ${PRIORITY_BADGE[job.priority]}`}>{job.priority}</Badge>
               </div>
-              {job.title && <p className="text-xs font-semibold text-slate-900 truncate">{job.title}</p>}
-              <p className="text-xs font-semibold text-slate-800 truncate">{customerById.get(job.customerId)?.name}</p>
-              <p className="text-[11px] text-slate-500 line-clamp-1">{job.description}</p>
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>{job.appointmentDate} · {job.startTime}</span>
+              {job.title && <p className="text-xs font-semibold truncate">{job.title}</p>}
+              <p className="text-xs font-semibold truncate">{customerById.get(job.customerId)?.name}</p>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>{formatDateUK(job.appointmentDate)} · {job.startTime}</span>
                 {job.slaBreached && <span className="font-semibold text-red-600">SLA breached</span>}
               </div>
             </DragCard>
           ))}
-          {unassigned.length === 0 && <div className="text-center py-8 text-xs text-slate-400">No unassigned jobs.</div>}
+          {unassigned.length === 0 && <div className="text-center py-8 text-xs text-muted-foreground">No unassigned jobs.</div>}
         </div>
         <p className="text-[11px] text-sky-700 pt-2">Drag a job onto a technician's row to assign.</p>
       </DropColumn>
 
       {/* Technician × time timeline */}
-      <div className="bg-white border border-slate-200 rounded-lg min-w-0">
-        <div className="p-2 border-b border-slate-100 flex flex-wrap items-center gap-3 text-xs">
-          <label className="relative">
-            <IconSearch className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" aria-hidden="true" />
-            <input value={qTech} onChange={(e) => setQTech(e.target.value)} placeholder="Find technician or skill…" aria-label="Find technician"
-              className="pl-7 pr-2 py-1.5 border border-slate-200 rounded w-56" />
-          </label>
-          <label className="flex items-center gap-1.5 text-slate-600">
-            <input type="checkbox" checked={availableOnly} onChange={(e) => setAvailableOnly(e.target.checked)} /> Available technicians only
-          </label>
-          <span className="ml-auto text-slate-500">{rows.length} of {technicians.length} technicians</span>
+      <Card className="gap-0 py-0 min-w-0">
+        <div className="p-2 border-b border-border flex flex-wrap items-center gap-3 text-xs">
+          <div className="relative">
+            <IconSearch className="w-3.5 h-3.5 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" aria-hidden="true" />
+            <Input value={qTech} onChange={(e) => setQTech(e.target.value)} placeholder="Find technician or skill…" aria-label="Find technician"
+              className="h-8 pl-7 text-xs w-56" />
+          </div>
+          <Label className="text-xs font-normal text-muted-foreground">
+            <Checkbox checked={availableOnly} onCheckedChange={(v) => setAvailableOnly(v === true)} /> Available technicians only
+          </Label>
+          <span className="ml-auto text-muted-foreground">{rows.length} of {technicians.length} technicians</span>
         </div>
 
         <div className="overflow-auto max-h-[70vh]">
           <div style={{ width: NAME_W + trackW }}>
             {/* hour header */}
-            <div className="flex sticky top-0 z-20 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-500">
-              <div className="sticky left-0 z-30 bg-slate-50 px-3 py-1.5 font-semibold border-r border-slate-200" style={{ width: NAME_W }}>Technician</div>
+            <div className="flex sticky top-0 z-20 bg-muted border-b border-border text-[11px] text-muted-foreground">
+              <div className="sticky left-0 z-30 bg-muted px-3 py-1.5 font-semibold border-r border-border" style={{ width: NAME_W }}>Technician</div>
               {hours.map((h) => (
-                <div key={h} className="px-1 py-1.5 border-l border-slate-200 font-mono" style={{ width: HOUR_W }}>{String(h).padStart(2, '0')}:00</div>
+                <div key={h} className="px-1 py-1.5 border-l border-border tabular-nums" style={{ width: HOUR_W }}>{String(h).padStart(2, '0')}:00</div>
               ))}
             </div>
 
             {rows.map(({ tech, jobs: tj, booked }) => {
               const pct = Math.min(100, Math.round((booked / CAPACITY_MIN) * 100));
               return (
-                <DropColumn key={tech.id} id={tech.id} eligible={eligibleFor(tech.id)} baseClass="flex border-b border-slate-100 h-14" idleClass="border-slate-100">
-                  <div className="sticky left-0 z-10 bg-white px-3 py-1.5 border-r border-slate-200 shrink-0 flex flex-col justify-center gap-1" style={{ width: NAME_W }}>
+                <DropColumn key={tech.id} id={tech.id} eligible={eligibleFor(tech.id)} baseClass="flex border-b border-border h-14" idleClass="border-border">
+                  <div className="sticky left-0 z-10 bg-card px-3 py-1.5 border-r border-border shrink-0 flex flex-col justify-center gap-1" style={{ width: NAME_W }}>
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: tech.color }} />
-                      <span className="font-bold text-xs text-slate-900 truncate">{tech.name}</span>
+                      <span className="font-bold text-xs truncate">{tech.name}</span>
                     </div>
-                    <div className="flex items-center gap-1.5" title={`${(booked / 60).toFixed(1)}h of ${(CAPACITY_MIN / 60).toFixed(1)}h booked`}>
-                      <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
+                    <Tip label={`${(booked / 60).toFixed(1)}h of ${(CAPACITY_MIN / 60).toFixed(1)}h booked`}><div className="flex items-center gap-1.5">
+                      <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
                         <div className={`h-full ${pct >= 100 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
                       </div>
-                      <span className="text-[10px] font-mono text-slate-500">{(booked / 60).toFixed(1)}h</span>
-                    </div>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">{(booked / 60).toFixed(1)}h</span>
+                    </div></Tip>
                   </div>
 
                   <div className="relative shrink-0" style={{ width: trackW, backgroundImage: 'linear-gradient(to right, #e2e8f0 1px, transparent 1px)', backgroundSize: `${HOUR_W}px 100%` }}>
                     {offHours.map((r) => (
-                      <div key={r.from} className="absolute top-0 bottom-0 bg-slate-100/80" style={{ left: ((r.from - DAY_START * 60) / 60) * HOUR_W, width: ((r.to - r.from) / 60) * HOUR_W }} />
+                      <div key={r.from} className="absolute top-0 bottom-0 bg-muted/80" style={{ left: ((r.from - DAY_START * 60) / 60) * HOUR_W, width: ((r.to - r.from) / 60) * HOUR_W }} />
                     ))}
                     {showNow && <div className="absolute top-0 bottom-0 w-px bg-red-400 z-[5]" style={{ left: ((nowMin - DAY_START * 60) / 60) * HOUR_W }} />}
                     {tj.map((job) => {
@@ -172,10 +177,10 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
                       return (
                         <DragCard id={job.id} key={job.id} {...open(job)}
                           title={`${job.jobNumber} · ${job.title} · ${customerById.get(job.customerId)?.name || ''} · ${job.startTime}-${job.endTime}`}
-                          className={`absolute top-1.5 bottom-1.5 rounded px-1.5 py-0.5 text-white overflow-hidden cursor-grab active:cursor-grabbing shadow-2xs ${job.priority === 'emergency' || job.slaBreached ? 'ring-2 ring-red-500' : ''}`}
+                          className={`absolute top-1.5 bottom-1.5 rounded px-1.5 py-0.5 text-white overflow-hidden cursor-grab active:cursor-grabbing shadow-[inset_0_0_0_100px_rgba(0,0,0,0.14)] ${job.priority === 'emergency' || job.slaBreached ? 'ring-2 ring-red-500' : ''}`}
                           style={{ left, width, backgroundColor: tech.color }}>
-                          <div className="text-[11px] font-mono font-bold leading-tight truncate">{job.jobNumber}</div>
-                          <div className="text-[10px] leading-tight truncate opacity-90">{job.title || customerById.get(job.customerId)?.name}</div>
+                          <div className="text-xs font-semibold leading-tight truncate">{job.title || customerById.get(job.customerId)?.name || job.jobNumber}</div>
+                          <div className="text-xs tabular-nums leading-tight truncate">{job.jobNumber}</div>
                         </DragCard>
                       );
                     })}
@@ -183,10 +188,10 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
                 </DropColumn>
               );
             })}
-            {rows.length === 0 && <div className="text-center py-10 text-xs text-slate-400">No technicians match.</div>}
+            {rows.length === 0 && <div className="text-center py-10 text-xs text-muted-foreground">No technicians match.</div>}
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   );
 };

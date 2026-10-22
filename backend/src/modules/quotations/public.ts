@@ -5,6 +5,7 @@ import { conflict, h, notFound } from '../../common/errors.js';
 import { prisma } from '../../common/prisma.js';
 import { getSettings } from '../settings/service.js';
 import { accept, getQuotation, hashToken, reject } from './service.js';
+import { isInkedPng } from '../../common/signature.js';
 
 /** Customer-facing, no login: the unguessable emailed token is the credential. */
 async function byToken(token: string) {
@@ -19,7 +20,7 @@ const open = (q: { status: string; expiryDate: string }) => {
 const decision = z.object({
   name: z.string().trim().min(1).max(120),
   option: z.string().optional(),
-  signature: z.string().regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/).max(400_000).optional(),
+  signature: z.string().max(400_000).refine(isInkedPng, 'Signature is empty or not a valid PNG').optional(),
 });
 
 export const publicQuotesRouter = Router();

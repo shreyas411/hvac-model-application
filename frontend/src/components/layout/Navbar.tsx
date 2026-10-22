@@ -1,8 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
-import { navLinks } from '../../routes';
+import { navLinks, quickCreateRoles } from '../../routes';
+import { SyncBanner } from './SyncBanner';
 import { useDataStore } from '../../store/useDataStore';
+import { Button } from '@/src/components/ui/button';
+import { Badge } from '@/src/components/ui/badge';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/src/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/src/components/ui/sheet';
+import { cn } from '@/src/lib/utils';
 import { IconBell, IconFlame, IconHelp, IconLogout, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconMenu2, IconPlus, IconUserCheck, IconX } from '@tabler/icons-react';
 
 interface NavbarProps {
@@ -24,22 +30,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const { currentUser, switchUserRole, users, notifications, realAuth, logout } = useApp(['currentUser', 'switchUserRole', 'users', 'notifications', 'realAuth', 'logout']);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
-  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
 
-  const headerRef = useRef<HTMLElement>(null);
-
-  // Escape or a click outside the header closes any open menu.
-  useEffect(() => {
-    if (!quickMenuOpen && !roleMenuOpen && !mobileMenuOpen) return;
-    const closeAll = () => { setQuickMenuOpen(false); setRoleMenuOpen(false); setMobileMenuOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeAll(); };
-    const onDown = (e: MouseEvent) => { if (!headerRef.current?.contains(e.target as Node)) closeAll(); };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onDown);
-    return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDown); };
-  }, [quickMenuOpen, roleMenuOpen, mobileMenuOpen]);
-
+  // A user record without a name must not blank the whole screen (seen once in test builds; cause not found).
+  const displayName = currentUser.name || currentUser.email || 'User';
   const pendingNotifications = notifications.filter((n) => n.status === 'ready_to_send').length;
 
   const visibleLinks = navLinks.filter((l) => l.allowedRoles.includes(currentUser.role));
@@ -51,71 +44,70 @@ export const Navbar: React.FC<NavbarProps> = ({
     accountant: { label: 'Accountant', desc: 'Quotations, invoices, VAT & payment ledgers', color: 'bg-amber-600 text-white' },
   };
 
-  const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500';
-  const quickItems = [
+  const quickItems = ([
     { action: 'request', label: 'Service Request', hint: 'Enquiry' },
     { action: 'job', label: 'Book Job', hint: 'Dispatch' },
     { action: 'customer', label: 'Add Customer', hint: 'Client' },
     { action: 'quote', label: 'Quotation', hint: 'Estimate', divider: true },
     { action: 'invoice', label: 'Invoice', hint: 'Billing' },
-  ] as const;
+  ] as const).filter((i) => quickCreateRoles[i.action].includes(currentUser.role));
 
   const brandButton = (
-    <button
+    <Button
+      variant="ghost"
       onClick={() => onSelectTab(currentUser.role === 'technician' ? 'technician_portal' : 'dashboard')}
-      className={`flex items-center gap-2.5 text-left group rounded-md ${focusRing}`}
+      className="h-auto gap-2.5 p-1 text-left group hover:bg-transparent"
     >
-      <div className="w-9 h-9 rounded-lg bg-sky-700 text-white flex items-center justify-center shadow-xs">
+      <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shadow-xs">
         <IconFlame className="w-5 h-5 text-amber-300" aria-hidden="true" />
       </div>
       <div className={`${collapsed ? 'lg:hidden' : ''} hidden sm:flex flex-col`}>
-        <span className="text-base font-bold tracking-tight text-slate-900 group-hover:text-sky-700 transition-colors whitespace-nowrap">
+        <span className="text-base font-bold tracking-tight text-foreground group-hover:text-primary transition-colors whitespace-nowrap">
           ApexHVAC
         </span>
-        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase">
+        <span className="text-[10px] text-muted-foreground font-medium tracking-wider uppercase">
           Field Service UK
         </span>
       </div>
-    </button>
+    </Button>
   );
 
+  const navItemClass = (active: boolean) => active ? 'bg-primary/10 text-primary font-semibold hover:bg-primary/15 hover:text-primary' : 'text-muted-foreground';
   return (
     <>
       {/* Left Sidebar Navigation (desktop) */}
-      <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} flex-col transition-[width] bg-white border-r border-slate-200`}>
-        <div className={`h-16 flex items-center ${collapsed ? 'justify-center' : 'px-4'} border-b border-slate-200 shrink-0`}>
+      <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} flex-col transition-[width] bg-background border-r border-border`}>
+        <div className={`h-16 flex items-center ${collapsed ? 'justify-center' : 'px-4'} border-b border-border shrink-0`}>
           {brandButton}
         </div>
         <nav aria-label="Main" className="flex-1 overflow-y-auto p-3 space-y-1">
           {visibleLinks.map((item) => (
-            <button
+            <Button
               key={item.id}
+              variant="ghost"
               onClick={() => onSelectTab(item.id)}
               aria-current={currentTab === item.id ? 'page' : undefined}
               title={collapsed ? item.label : undefined}
               aria-label={item.label}
-              className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'} text-left px-3 py-2 text-sm font-medium rounded-md transition-colors ${focusRing} ${
-                currentTab === item.id
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
+              className={cn('w-full', collapsed ? 'justify-center' : 'justify-start', navItemClass(currentTab === item.id))}
             >
-              <item.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <item.icon aria-hidden="true" />
               {!collapsed && item.label}
-            </button>
+            </Button>
           ))}
         </nav>
-        <button
+        <Button
+          variant="ghost"
           onClick={onToggleSidebar}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className={`m-3 flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'} px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md ${focusRing}`}
+          className={cn('m-3 text-muted-foreground', collapsed ? 'justify-center' : 'justify-start')}
         >
-          {collapsed ? <IconLayoutSidebarLeftExpand className="w-4 h-4" aria-hidden="true" /> : <><IconLayoutSidebarLeftCollapse className="w-4 h-4" aria-hidden="true" />Collapse</>}
-        </button>
+          {collapsed ? <IconLayoutSidebarLeftExpand aria-hidden="true" /> : <><IconLayoutSidebarLeftCollapse aria-hidden="true" />Collapse</>}
+        </Button>
       </aside>
 
-    <header ref={headerRef} className={`sticky top-0 z-30 bg-white border-b border-slate-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-60'}`}>
+    <header className={`sticky top-0 z-30 bg-background border-b border-border ${collapsed ? 'lg:pl-16' : 'lg:pl-60'}`}>
       {/* Top 3-Zone Navigation */}
       <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between lg:justify-end h-16 gap-4">
@@ -128,186 +120,145 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Zone 3: Actions & Role Switcher */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* Workflow Guide Trigger */}
-            {!realAuth && (
-              <button
-                onClick={onOpenWorkflowGuide}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors ${focusRing}`}
-                title="Test End-to-End HVAC Workflows (A, B, C, D)"
-              >
-                <IconHelp className="w-4 h-4 text-sky-600" aria-hidden="true" />
-                <span className="hidden sm:inline">Workflow Demo</span>
-              </button>
-            )}
+            <Button variant="ghost" size="sm" onClick={onOpenWorkflowGuide} title="Test End-to-End HVAC Workflows (A, B, C, D)">
+              <IconHelp className="text-primary" aria-hidden="true" />
+              <span className="hidden sm:inline">Workflow Demo</span>
+            </Button>
 
             {/* Notifications Shortcut */}
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={() => { useDataStore.getState().load('notifications'); onSelectTab('notifications'); }} // the server creates notifications (e.g. on quote send), so refetch on open
               aria-label={pendingNotifications > 0 ? `Customer notifications, ${pendingNotifications} pending` : 'Customer notifications'}
-              className={`relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors ${focusRing}`}
+              className="relative text-muted-foreground"
               title="Customer Notifications"
             >
-              <IconBell className="w-4 h-4" aria-hidden="true" />
+              <IconBell aria-hidden="true" />
               {pendingNotifications > 0 && (
                 <span aria-hidden="true" className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />
               )}
-            </button>
+            </Button>
 
-            {/* Quick Action "+ New" Button (hidden for technicians) */}
-            {currentUser.role !== 'technician' && (
-              <div className="relative">
-                <button
-                  onClick={() => { setQuickMenuOpen(!quickMenuOpen); setRoleMenuOpen(false); }}
-                  aria-label="New"
-                  aria-haspopup="true"
-                  aria-expanded={quickMenuOpen}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-md shadow-xs transition-colors whitespace-nowrap ${focusRing}`}
-                >
-                  <IconPlus className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline">New</span>
-                </button>
-
-                {quickMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-lg shadow-lg py-1.5 z-50 animate-in fade-in zoom-in-95">
-                    <div className="px-3 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                      Quick Create
-                    </div>
-                    {quickItems.map((item) => (
-                      <React.Fragment key={item.action}>
-                        {'divider' in item && <div className="border-t border-slate-100 my-1" />}
-                        <button
-                          onClick={() => {
-                            onQuickAction(item.action);
-                            setQuickMenuOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center justify-between ${focusRing}`}
-                        >
-                          <span>{item.label}</span>
-                          <span className="text-[10px] text-slate-400">{item.hint}</span>
-                        </button>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {/* Quick Action "+ New" Button (hidden when the role can create nothing) */}
+            {quickItems.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" aria-label="New">
+                    <IconPlus aria-hidden="true" />
+                    <span className="hidden sm:inline">New</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">Quick Create</DropdownMenuLabel>
+                  {quickItems.map((item) => (
+                    <React.Fragment key={item.action}>
+                      {'divider' in item && <DropdownMenuSeparator />}
+                      <DropdownMenuItem onSelect={() => onQuickAction(item.action)} className="justify-between text-xs">
+                        <span>{item.label}</span>
+                        <span className="text-[10px] text-muted-foreground">{item.hint}</span>
+                      </DropdownMenuItem>
+                    </React.Fragment>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
 
-            {/* Role Switcher IconMenu2 */}
-            <div className="relative">
-              <button
-                onClick={() => { setRoleMenuOpen(!roleMenuOpen); setQuickMenuOpen(false); }}
-                aria-haspopup="true"
-                aria-expanded={roleMenuOpen}
-                className={`flex items-center gap-2 px-2.5 py-1.5 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors text-left ${focusRing}`}
-                title={realAuth ? 'Account' : 'Switch active user & role to test permissions'}
-              >
-                <div className="w-6 h-6 rounded bg-slate-900 text-white text-xs flex items-center justify-center font-bold">
-                  {currentUser.name.charAt(0)}
-                </div>
-                <div className="hidden md:flex flex-col text-left">
-                  <span className="text-xs font-semibold text-slate-800 leading-tight">
-                    {currentUser.name.split(' ')[0]}
-                  </span>
-                  <span className="text-[10px] text-slate-500 capitalize">
-                    {currentUser.role}
-                  </span>
-                </div>
-                <IconUserCheck className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
-              </button>
-
-              {roleMenuOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-lg shadow-xl p-2 z-50">
-                  {realAuth ? (
-                    <div className="space-y-1">
-                      <div className="px-2 py-1.5 border-b border-slate-100">
-                        <p className="text-xs font-semibold text-slate-900">{currentUser.name}</p>
-                        <p className="text-[11px] text-slate-500">{currentUser.email} · <span className="capitalize">{currentUser.role}</span></p>
-                      </div>
-                      <button
-                        onClick={logout}
-                        className={`w-full flex items-center gap-2 px-2 py-2 text-xs font-medium text-slate-700 rounded-md hover:bg-slate-50 ${focusRing}`}
-                      >
-                        <IconLogout className="w-3.5 h-3.5" aria-hidden="true" />
-                        Sign out
-                      </button>
-                    </div>
-                  ) : (
-                  <>
-                  <div className="px-2 py-1.5 border-b border-slate-100 mb-1">
-                    <p className="text-xs font-semibold text-slate-900">Switch User & Role</p>
-                    <p className="text-[11px] text-slate-500">Test multi-role permissions in real time</p>
+            {/* Account / Role Switcher */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-auto gap-2 px-2.5 py-1.5 text-left" title={realAuth ? 'Account' : 'Switch active user & role to test permissions'}>
+                  <div className="w-6 h-6 rounded bg-primary text-primary-foreground text-xs flex items-center justify-center font-bold">
+                    {displayName.charAt(0)}
                   </div>
-                  <div className="space-y-1">
+                  <div className="hidden md:flex flex-col text-left">
+                    <span className="text-xs font-semibold leading-tight">{displayName.split(' ')[0]}</span>
+                    <span className="text-[10px] text-muted-foreground capitalize font-normal">{currentUser.role}</span>
+                  </div>
+                  <IconUserCheck className="text-muted-foreground" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                {realAuth ? (
+                  <>
+                    <DropdownMenuLabel className="font-normal">
+                      <p className="text-xs font-semibold">{currentUser.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{currentUser.email} · <span className="capitalize">{currentUser.role}</span></p>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={logout} className="text-xs"><IconLogout aria-hidden="true" />Sign out</DropdownMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuLabel className="font-normal">
+                      <p className="text-xs font-semibold">Switch User & Role</p>
+                      <p className="text-[11px] text-muted-foreground">Test multi-role permissions in real time</p>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
                     {users.map((u) => {
-                      const isCurrent = u.id === currentUser.id;
                       const roleMeta = roleLabels[u.role];
                       return (
-                        <button
+                        <DropdownMenuItem
                           key={u.id}
-                          onClick={() => {
-                            switchUserRole(u.role);
-                            setRoleMenuOpen(false);
-                          }}
-                          aria-current={isCurrent ? 'true' : undefined}
-                          className={`w-full text-left p-2 rounded-md transition-colors ${focusRing} ${
-                            isCurrent ? 'bg-slate-100 ring-1 ring-slate-300' : 'hover:bg-slate-50'
-                          }`}
+                          onSelect={() => switchUserRole(u.role)}
+                          aria-current={u.id === currentUser.id ? 'true' : undefined}
+                          className="flex-col items-stretch gap-0.5 aria-[current=true]:bg-accent"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-slate-800">{u.name}</span>
-                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${roleMeta.color}`}>
-                              {u.role.toUpperCase()}
-                            </span>
+                            <span className="text-xs font-semibold">{u.name}</span>
+                            <Badge className={cn('text-[10px] px-1.5 py-0', roleMeta.color)}>{u.role.toUpperCase()}</Badge>
                           </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">{roleMeta.desc}</p>
-                        </button>
+                          <p className="text-[11px] text-muted-foreground">{roleMeta.desc}</p>
+                        </DropdownMenuItem>
                       );
                     })}
-                  </div>
                   </>
-                  )}
-                </div>
-              )}
-            </div>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {/* Mobile Hamburger Button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={mobileMenuOpen}
-              className={`lg:hidden p-2 text-slate-600 hover:text-slate-900 rounded-md ${focusRing}`}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open menu"
+              className="lg:hidden"
             >
-              {mobileMenuOpen ? <IconX className="w-5 h-5" aria-hidden="true" /> : <IconMenu2 className="w-5 h-5" aria-hidden="true" />}
-            </button>
+              <IconMenu2 aria-hidden="true" />
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Mobile Drawer IconMenu2 */}
-      {mobileMenuOpen && (
-        <nav aria-label="Mobile" className="lg:hidden border-t border-slate-200 bg-white px-4 py-3 space-y-1">
-          {visibleLinks.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                onSelectTab(item.id);
-                setMobileMenuOpen(false);
-              }}
-              aria-current={currentTab === item.id ? 'page' : undefined}
-              className={`w-full text-left px-3 py-2 text-sm font-medium rounded-md ${focusRing} ${
-                currentTab === item.id
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+      {/* Mobile drawer */}
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="left" className="w-64 lg:hidden">
+          <SheetHeader>
+            <SheetTitle>ApexHVAC</SheetTitle>
+            <SheetDescription className="sr-only">Main navigation</SheetDescription>
+          </SheetHeader>
+          <nav aria-label="Mobile" className="flex-1 overflow-y-auto px-4 space-y-1">
+            {visibleLinks.map((item) => (
+              <Button
+                key={item.id}
+                variant="ghost"
+                onClick={() => { onSelectTab(item.id); setMobileMenuOpen(false); }}
+                aria-current={currentTab === item.id ? 'page' : undefined}
+                className={cn('w-full justify-start', navItemClass(currentTab === item.id))}
+              >
+                <item.icon aria-hidden="true" />
+                {item.label}
+              </Button>
+            ))}
+          </nav>
+          <div className="p-4 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
             <span>Signed in as: {currentUser.name}</span>
-            <span className="font-semibold capitalize text-sky-700">{currentUser.role}</span>
+            <span className="font-semibold capitalize text-primary">{currentUser.role}</span>
           </div>
-        </nav>
-      )}
+        </SheetContent>
+      </Sheet>
+      <SyncBanner />
     </header>
     </>
   );

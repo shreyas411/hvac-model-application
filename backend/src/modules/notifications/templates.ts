@@ -1,6 +1,7 @@
 import type { Invoice, Job, Quotation } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
 import { prisma } from '../../common/prisma.js';
+import { ukDate } from '../../common/dates.js';
 import { getSettings } from '../settings/service.js';
 import { approveAndSend, createNotification } from './service.js';
 
@@ -22,12 +23,12 @@ const gbp = (n: number) => `£${n.toFixed(2)}`;
 
 export const emailInvoiceIssued = (inv: Invoice) => queueEmail({
   customerId: inv.customerId, type: 'invoice_issued', invoiceId: inv.id, subject: `Invoice ${inv.invoiceNumber}`,
-  messageBody: `Please find invoice ${inv.invoiceNumber} attached. Total ${gbp(inv.total)}, due ${inv.dueDate}.`,
+  messageBody: `Please find invoice ${inv.invoiceNumber} attached. Total ${gbp(inv.total)}, due ${ukDate(inv.dueDate)}.`,
 });
 
 export const emailQuotationReady = (q: Quotation, link: string) => queueEmail({
   customerId: q.customerId, type: 'quotation_ready', quotationId: q.id, subject: `Quotation ${q.quoteNumber}`,
-  messageBody: `Your quotation ${q.quoteNumber} (total ${gbp(q.total)}, valid until ${q.expiryDate}) is attached. Review and accept it online: ${link}`,
+  messageBody: `Your quotation ${q.quoteNumber} (total ${gbp(q.total)}, valid until ${ukDate(q.expiryDate)}) is attached. Review and accept it online: ${link}`,
 });
 
 async function engineer(job: Job) {
@@ -40,7 +41,7 @@ export async function emailBookingConfirmed(job: Job) {
   const eng = await engineer(job);
   await queueEmail({
     customerId: job.customerId, type: 'booking_confirmation', subject: `Appointment confirmed: ${job.jobNumber}`,
-    messageBody: `Your appointment is booked for ${job.appointmentDate} at ${job.startTime}${eng ? `. ${eng} will be your attending engineer` : ''}. Reference ${job.jobNumber}.`,
+    messageBody: `Your appointment is booked for ${ukDate(job.appointmentDate)} at ${job.startTime}${eng ? `. ${eng} will be your attending engineer` : ''}. Reference ${job.jobNumber}.`,
   });
 }
 
