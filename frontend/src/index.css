@@ -134,3 +134,7 @@
     height: 2.75rem;
   }
 }
+
+#nl-badge-frame {
+  display: none !important;
+}
