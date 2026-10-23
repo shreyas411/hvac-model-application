@@ -4,7 +4,7 @@ import { allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
 import { paginate } from '../../common/paginate.js';
-import { ukPostcode } from '../../common/zod.js';
+import { patch, ukPostcode } from '../../common/zod.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
 import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import * as svc from './service.js';
@@ -39,7 +39,7 @@ customersRouter.post('/bulk-archive', rw, h((req) => {
 customersRouter.post('/:id/archive',rw, h((req) => svc.setArchived(req.params.id, true)));
 customersRouter.post('/:id/unarchive', rw, h((req) => svc.setArchived(req.params.id, false)));
 customersRouter.post('/:id/locations', rw, h((req) => svc.addLocation(req.params.id, location.parse(req.body)), 201));
-customersRouter.patch('/:id/locations/:locId', rw, h((req) => svc.updateLocation(req.params.id, req.params.locId, location.partial().parse(req.body))));
+customersRouter.patch('/:id/locations/:locId', rw, h((req) => svc.updateLocation(req.params.id, req.params.locId, patch(location).parse(req.body))));
 customersRouter.delete('/:id/locations/:locId', rw, h((req) => svc.removeLocation(req.params.id, req.params.locId)));
 customersRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.customer, req.params.id, 'Customer', async (c) => {
   const where = { customerId: c.id };
@@ -48,4 +48,4 @@ customersRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.cu
 const read = allow('admin', 'dispatcher', 'accountant');
 customersRouter.get('/', read, h((req) => svc.pageCustomers(req.query)));
 customersRouter.get('/:id', read, h((req) => svc.getCustomer(req.params.id)));
-customersRouter.patch('/:id', rw, h((req) => svc.updateCustomer(req.params.id, customer.omit({ serviceLocations: true }).partial().parse(req.body) as any)));
+customersRouter.patch('/:id', rw, h((req) => svc.updateCustomer(req.params.id, patch(customer.omit({ serviceLocations: true })).parse(req.body) as any)));

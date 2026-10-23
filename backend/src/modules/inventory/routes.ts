@@ -6,7 +6,7 @@ import { crud } from '../../common/crud.js';
 import { ApiError, forbidden, h } from '../../common/errors.js';
 import { paginate } from '../../common/paginate.js';
 import { getSettings } from '../settings/service.js';
-import { money } from '../../common/zod.js';
+import { money, patch } from '../../common/zod.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
@@ -49,7 +49,7 @@ inventoryRouter.post('/parts/bulk-delete', staff, h((req) => bulk(z.object({ ids
 inventoryRouter.use('/parts', crud({
   repo: svc.partsRepo, label: 'Part', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin', 'dispatcher'],
   del: true, // parts with ledger rows fail the FK (422): the ledger stays append-only
-  create: part, update: part.omit({ stockQuantity: true }).partial(), // stock changes only via /parts/:id/adjust
+  create: part, update: patch(part.omit({ stockQuantity: true })), // stock changes only via /parts/:id/adjust
   filter: (rows, q) => (q.lowStock === 'true' ? rows.filter(svc.isLowStock) : rows),
   page: (q) => (q.lowStock === 'true' ? undefined : svc.partsRepo.page(q, ['name', 'sku', 'category'])), // low stock compares two columns: in memory
 }));

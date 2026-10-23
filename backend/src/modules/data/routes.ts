@@ -23,7 +23,7 @@ import { importTechnicianOps, techniciansRepo } from '../technicians/service.js'
 // every reference between records.
 const keys = ['technicians', 'customers', 'parts', 'equipment', 'serviceRequests', 'jobs', 'inventoryMovements', 'quotations', 'invoices', 'notifications'] as const;
 const rows = z.array(z.object({ id: z.string().min(1) }).passthrough());
-const payload = z.object({ settings: z.record(z.unknown()).optional(), ...Object.fromEntries(keys.map((k) => [k, rows.optional()])) })
+const payload = z.object({ settings: z.record(z.string(), z.unknown()).optional(), ...Object.fromEntries(keys.map((k) => [k, rows.optional()])) })
   .passthrough()
   .refine((d) => d.customers && d.jobs, { message: 'customers and jobs are required' });
 

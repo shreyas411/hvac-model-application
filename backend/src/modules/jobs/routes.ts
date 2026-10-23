@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { isUuid, prisma, removeRecord } from '../../common/prisma.js';
-import { hhmm, isoDate, money, priority } from '../../common/zod.js';
+import { hhmm, isoDate, money, patch, priority } from '../../common/zod.js';
 import { getSettings } from '../settings/service.js';
 import { generateFromJob } from '../invoices/service.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
@@ -37,8 +37,8 @@ const job = z.object({
   customFields: customFieldsInput,
 });
 // Technicians may only touch the work record.
-const techPatch = job.pick({ workPerformed: true, labourHours: true, customerSignature: true, checklist: true, followUpRecommended: true, followUpNotes: true }).partial().strict();
-const dispatchPatch = job.omit({ status: true, requestId: true }).partial();
+const techPatch = patch(job.pick({ workPerformed: true, labourHours: true, customerSignature: true, checklist: true, followUpRecommended: true, followUpNotes: true }).strict());
+const dispatchPatch = patch(job.omit({ status: true, requestId: true }));
 
 const mins = (j: { startTime: string; endTime: string }) => {
   const [a, b] = [j.startTime, j.endTime].map((t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3)));

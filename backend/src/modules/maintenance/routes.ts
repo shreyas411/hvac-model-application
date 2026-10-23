@@ -5,7 +5,7 @@ import { bulk, bulkIds } from '../../common/bulk.js';
 import { crud } from '../../common/crud.js';
 import { prisma, prismaRepo } from '../../common/prisma.js';
 import { h, unprocessable } from '../../common/errors.js';
-import { isoDate } from '../../common/zod.js';
+import { isoDate, patch } from '../../common/zod.js';
 import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import { assertLocation } from '../customers/service.js';
 import { getEquipment } from '../equipment/service.js';
@@ -29,7 +29,7 @@ const check = (m: { autoRenew?: boolean; autoInvoice?: boolean; annualPrice?: nu
 // Staff manage agreements; the daily sweep (worker) turns them into jobs.
 const crudRouter = crud<Row>({
   repo, label: 'Maintenance agreement', read: ['admin', 'dispatcher', 'accountant'], write: ['admin', 'dispatcher'], del: true,
-  create: agreement, update: agreement.partial(), page: (q) => repo.page(q, ['notes', 'frequency']),
+  create: agreement, update: patch(agreement), page: (q) => repo.page(q, ['notes', 'frequency']),
   beforeCreate: async (d) => (check(d), await assertLocation(d.customerId, d.locationId), d.equipmentId && (await getEquipment(d.equipmentId)), dates(d)),
   beforeUpdate: async (cur, d) => {
     const m = { ...cur, ...d };

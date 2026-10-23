@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { patch } from '../../common/zod.js';
 import { crud } from '../../common/crud.js';
 import { prisma, prismaRepo } from '../../common/prisma.js';
 import { conflict } from '../../common/errors.js';
@@ -21,5 +22,5 @@ const remove = async (id: string) => {
 
 export const usersRouter = crud({
   repo: { ...repo, remove }, label: 'User', read: ['admin'], write: ['admin'], del: true,
-  create: user, update: user.omit({ id: true }).partial(),
+  create: user, update: patch(user.omit({ id: true })),
 });
