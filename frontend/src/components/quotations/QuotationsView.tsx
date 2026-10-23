@@ -4,13 +4,14 @@ import { downloadSheet, printSheet } from '../../utils/pdf';
 import { useApp } from '../../context/AppContext';
 import { Quotation, LineItem, QuotationStatus } from '../../types';
 import { formatGBP, formatDateUK, tierPrices, getTodayISO, joinParts, regLine } from '../../utils/formatters';
-import { IconBriefcase, IconCircleCheck, IconDownload, IconEye, IconFileInvoice, IconFileText, IconPlus, IconPrinter, IconReceipt, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconBriefcase, IconCircleCheck, IconDownload, IconEye, IconFileInvoice, IconFileText, IconPencil, IconPlus, IconPrinter, IconReceipt, IconSearch, IconSend, IconThumbDown, IconTrash, IconX } from '@tabler/icons-react';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { Badge } from '@/src/components/ui/badge';
 import { Button } from '@/src/components/ui/button';
+import { FormDialog } from '../common/FormDialog';
 import { Card } from '@/src/components/ui/card';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
@@ -20,11 +21,13 @@ import { SortHead, useServerPaged } from '../common/Pager';
 
 interface QuotationsViewProps {
   onOpenQuickAction: (action: 'quote') => void;
+  onEditQuote: (q: Quotation) => void;
   onNavigateTab: (tab: string) => void;
 }
 
 export const QuotationsView: React.FC<QuotationsViewProps> = ({
   onOpenQuickAction,
+  onEditQuote,
   onNavigateTab,
 }) => {
   const { 
@@ -34,6 +37,8 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
     settings, 
     technicians,
     acceptQuotation, 
+    sendQuotation,
+    rejectQuotation,
     convertQuotationToJob, 
     convertQuotationToInvoice,
     addStageInvoice,
@@ -43,8 +48,12 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
     checkScheduleConflict,
     deleteRecord,
     confirmToast,
-  } = useApp(['quotations', 'invoices', 'customers', 'settings', 'technicians', 'acceptQuotation', 'convertQuotationToJob', 'convertQuotationToInvoice', 'addStageInvoice', 'addQuotation', 'updateQuotation', 'customerById', 'checkScheduleConflict', 'deleteRecord', 'confirmToast']);
+    currentUser,
+  } = useApp(['quotations', 'invoices', 'customers', 'settings', 'technicians', 'acceptQuotation', 'sendQuotation', 'rejectQuotation', 'convertQuotationToJob', 'convertQuotationToInvoice', 'addStageInvoice', 'addQuotation', 'updateQuotation', 'customerById', 'checkScheduleConflict', 'deleteRecord', 'confirmToast', 'currentUser']);
 
+  // Mirrors the backend: jobs are dispatch work, invoices are accounts work.
+  const canJob = ['admin', 'dispatcher'].includes(currentUser.role);
+  const canInvoice = ['admin', 'accountant'].includes(currentUser.role);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
@@ -208,11 +217,15 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                   <TableCell>
                     <RowActions subject={quote.quoteNumber} actions={[
                       { icon: IconEye, label: 'Preview', onClick: () => setSelectedQuote(quote) },
-                      { icon: IconCircleCheck, label: 'Record acceptance', tone: 'success', hidden: quote.status !== 'sent', onClick: () => { setAcceptingQuoteId(quote.id); setAcceptedByName(cust?.name || ''); } },
-                      { icon: IconBriefcase, label: 'Convert to job', tone: 'info', hidden: quote.status !== 'accepted' || !!quote.convertedToJobId, onClick: () => setConvertingQuoteId(quote.id) },
-                      { icon: IconReceipt, label: 'Deposit / stage invoice', hidden: quote.status !== 'accepted' || !!quote.convertedToInvoiceId, onClick: () => openStage(quote) },
-                      { icon: IconFileInvoice, label: 'Convert to invoice', tone: 'info', hidden: quote.status !== 'accepted' || !!quote.convertedToInvoiceId || stagesOf(quote.id).length > 0 || busy, onClick: () => void handleExecuteConvertToInvoice(quote.id) },
-                      { icon: IconTrash, label: 'Delete', destructive: true, hidden: quote.status === 'accepted' || !!quote.convertedToJobId || !!quote.convertedToInvoiceId,
+                      { icon: IconPencil, label: 'Edit', hidden: quote.status !== 'draft' && quote.status !== 'sent', onClick: () => onEditQuote(quote) },
+                      { icon: IconSend, label: 'Send to customer', tone: 'info', hidden: quote.status !== 'draft', onClick: () => confirmToast(`Send ${quote.quoteNumber} to ${cust?.name}?`, () => void sendQuotation(quote.id)) },
+                      { icon: IconCircleCheck, label: 'Record acceptance', tone: 'success', hidden: quote.status !== 'sent' && quote.status !== 'viewed', onClick: () => { setAcceptingQuoteId(quote.id); setAcceptedByName(cust?.name || ''); } },
+                      { icon: IconThumbDown, label: 'Mark rejected', destructive: true, hidden: quote.status !== 'sent' && quote.status !== 'viewed',
+                        onClick: () => confirmToast(`Mark ${quote.quoteNumber} as rejected?`, () => void rejectQuotation(quote.id)) },
+                      { icon: IconBriefcase, label: 'Convert to job', tone: 'info', hidden: !canJob || quote.status !== 'accepted' || !!quote.convertedToJobId, onClick: () => setConvertingQuoteId(quote.id) },
+                      { icon: IconReceipt, label: 'Deposit / stage invoice', tone: 'success', hidden: !canInvoice || quote.status !== 'accepted' || !!quote.convertedToInvoiceId, onClick: () => openStage(quote) },
+                      { icon: IconFileInvoice, label: 'Convert to invoice', tone: 'info', hidden: !canInvoice || quote.status !== 'accepted' || !!quote.convertedToInvoiceId || stagesOf(quote.id).length > 0 || busy, onClick: () => void handleExecuteConvertToInvoice(quote.id) },
+                      { icon: IconTrash, label: 'Delete', destructive: true, hidden: !canJob || quote.status === 'accepted' || !!quote.convertedToJobId || !!quote.convertedToInvoiceId,
                         onClick: () => confirmToast(`Delete ${quote.quoteNumber}?`, () => void deleteRecord('quotations', quote.id, 'Quotation')) },
                     ]} />
                   </TableCell>
@@ -348,12 +361,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
       {/* Record Acceptance Modal */}
       {acceptingQuoteId && (
-        <DetailDrawer onClose={() => setAcceptingQuoteId(null)} title="Record Customer Acceptance" description="Confirm that the customer authorized work according to the quotation terms."
-          footer={<>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setAcceptingQuoteId(null)}>Cancel</Button>
-            <Button type="submit" form="accept-form" size="sm" disabled={busy || (acceptTiers.length > 0 && !acceptOption)} className="bg-emerald-700 hover:bg-emerald-800">{busy ? 'Saving…' : 'Confirm Acceptance'}</Button>
-          </>}>
-          <form id="accept-form" onSubmit={handleRecordAcceptance} className="space-y-3 text-xs">
+        <FormDialog onClose={() => setAcceptingQuoteId(null)} onSubmit={handleRecordAcceptance} busy={busy} disabled={acceptTiers.length > 0 && !acceptOption} submitLabel={busy ? 'Saving…' : 'Confirm Acceptance'} title="Record Customer Acceptance" description="Confirm that the customer authorized work according to the quotation terms.">
             <div className="space-y-1.5">
               <Label htmlFor="q-acc-name" className="text-xs">Authorized Signatory Name *</Label>
               <Input type="text" required id="q-acc-name" autoComplete="name" value={acceptedByName} onChange={(e) => setAcceptedByName(e.target.value)} />
@@ -369,18 +377,15 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
                 </Select>
               </div>
             )}
-          </form>
-        </DetailDrawer>
+          </FormDialog>
       )}
 
       {/* Deposit / stage invoice drawer */}
       {stageQuote && (
-        <DetailDrawer onClose={() => setStageQuote(null)} title={`Deposit / stage invoice - ${stageQuote.quoteNumber}`} description={`${billedPercent(stageQuote.id)}% already invoiced, ${100 - billedPercent(stageQuote.id)}% left`}
-          footer={<>
-            <Button variant="ghost" size="sm" onClick={() => setStageQuote(null)}>Cancel</Button>
-            <Button variant="outline" size="sm" disabled={busy || billedPercent(stageQuote.id) >= 100} onClick={() => submitStage(true)} title="Remaining percent, with earlier stages deducted"><IconReceipt aria-hidden="true" /> Final invoice</Button>
-            <Button size="sm" disabled={busy || !(Number(stagePercent) > 0)} onClick={() => submitStage(false)}><IconPlus aria-hidden="true" /> Create stage invoice</Button>
-          </>}>
+        <FormDialog onClose={() => setStageQuote(null)} busy={busy} disabled={!(Number(stagePercent) > 0)} submitLabel="Create stage invoice"
+          onSubmit={(e) => { e.preventDefault(); submitStage(false); }}
+          title={`Deposit / stage invoice - ${stageQuote.quoteNumber}`} description={`${billedPercent(stageQuote.id)}% already invoiced, ${100 - billedPercent(stageQuote.id)}% left`}
+          actions={<Button type="button" variant="outline" size="sm" disabled={busy || billedPercent(stageQuote.id) >= 100} onClick={() => submitStage(true)} title="Remaining percent, with earlier stages deducted"><IconReceipt aria-hidden="true" /> Final invoice</Button>}>
           <div className="space-y-3 text-xs">
             <div className="space-y-1.5">
               <Label htmlFor="q-st-pct" className="text-xs">Percent of quote</Label>
@@ -391,7 +396,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               <Input id="q-st-lbl" name="label" autoComplete="off" value={stageLabel} onChange={(e) => setStageLabel(e.target.value)} placeholder="Deposit" />
             </div>
           </div>
-        </DetailDrawer>
+        </FormDialog>
       )}
 
       {/* Convert to Job Modal (Workflow B) */}

@@ -9,6 +9,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities';
 import { Badge } from '@/src/components/ui/badge';
 import { Button } from '@/src/components/ui/button';
+import { FormDialog } from '../common/FormDialog';
 import { Card } from '@/src/components/ui/card';
 import { Input } from '@/src/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
@@ -102,12 +103,7 @@ export const ChecklistsView: React.FC = () => {
       </div>
 
       {adding && (
-        <DetailDrawer onClose={() => setAdding(false)} dirty={!!label.trim()} title="Add Checklist Item" description="Offered to technicians on jobs of the chosen type"
-          footer={<>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)}>Cancel</Button>
-            <Button type="submit" form="checklist-form" size="sm"><IconPlus aria-hidden="true" /> Add</Button>
-          </>}>
-          <form id="checklist-form" onSubmit={add} className="space-y-3 text-xs">
+        <FormDialog onClose={() => setAdding(false)} onSubmit={add} submitLabel="Add" title="Add Checklist Item" description="Offered to technicians on jobs of the chosen type">
             <div className="space-y-1.5">
               <Label htmlFor="cl-type" className="text-xs">Job type</Label>
               <Select value={jobType} onValueChange={(v) => setJobType(v as JobType)}>
@@ -123,8 +119,7 @@ export const ChecklistsView: React.FC = () => {
               <Label className="text-xs">Category</Label>
               <CategorySelect value={category} onChange={setCategory} className="w-full" />
             </div>
-          </form>
-        </DetailDrawer>
+          </FormDialog>
       )}
 
       <Tabs value={viewType} onValueChange={(v) => setViewType(v as JobType)}>
