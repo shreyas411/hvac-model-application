@@ -88,3 +88,9 @@ Rows under **Job history & visits** are now buttons that open the read-only job 
 - The add/edit form is now `CustomerFormDrawer`; the list uses server paging, sorting by type and an inactive filter. See [ui-conventions-features.md](ui-conventions-features.md). Address lines autocomplete when Google Places is configured.
 - UK postcode and phone are validated and the postcode is normalised (`LS1 4AB`). Email is lower-cased and unique among active customers (`409 DUPLICATE_CUSTOMER`, also when restoring an archived customer).
 - Admins can delete a customer (soft delete); refused while it has jobs, quotes, invoices, requests or equipment. Removed sites vanish from the drawer.
+
+## Updates: bulk selection
+
+- Select rows to **Archive** / **Restore** (loops `POST /customers/:id/archive` and `/unarchive`; the button follows the archived filter) or **Export CSV**.
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

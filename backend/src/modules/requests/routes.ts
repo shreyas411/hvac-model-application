@@ -5,6 +5,7 @@ import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
 import { paginate } from '../../common/paginate.js';
 import { hhmm, isoDate, priority } from '../../common/zod.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 
 const request = z.object({
@@ -24,4 +25,5 @@ requestsRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.ser
 requestsRouter.post('/', h((req) => svc.createRequest(request.parse(req.body)), 201));
 requestsRouter.patch('/:id', h((req) =>
   svc.updateRequest(req.params.id, request.partial().extend({ status: z.enum(['new', 'awaiting_approval', 'cancelled']).optional() }).parse(req.body))));
+requestsRouter.post('/bulk-cancel', h((req) => bulk(z.object({ ids: bulkIds }).parse(req.body).ids, (id) => svc.updateRequest(id, { status: 'cancelled' }))));
 requestsRouter.post('/:id/convert', h((req) => svc.convertToJob(req.params.id, convert.parse(req.body), actor(req)), 201));

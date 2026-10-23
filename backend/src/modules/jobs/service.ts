@@ -221,6 +221,8 @@ export function updateJob(id: string, patch: Partial<Job>, who: Actor, action = 
     // The work record is evidence: once closed only an admin may touch it (audited below).
     if ((cur.status === 'completed' || cur.status === 'cancelled') && who.role !== 'admin') throw conflict('JOB_CLOSED', `A ${cur.status} job is read-only`);
     if (who.role === 'technician' && cur.status !== 'dispatched' && cur.status !== 'in_progress') throw conflict('JOB_NOT_ACTIVE', 'Work record can only be edited while the job is dispatched or in progress');
+    // The signature is the sign-off: refuse it (so it isn't stored) while the job can't be completed. Admin override can still close it.
+    if (patch.customerSignature && who.role !== 'admin') assertCompletable({ ...cur, ...patch });
     const equipment = patch.equipmentIds && (await assertEquipment(patch.equipmentIds, tx));
     const next = { ...cur, ...patch, requiredSkills: await withEquipmentSkills(tx, equipment ?? cur.equipmentIds, patch.requiredSkills ?? cur.requiredSkills, `${patch.title ?? cur.title} ${patch.description ?? cur.description}`) };
     if (equipment || patch.requiredSkills || patch.title || patch.description) patch = { ...patch, requiredSkills: next.requiredSkills };
@@ -243,6 +245,24 @@ export function updateJob(id: string, patch: Partial<Job>, who: Actor, action = 
       } as Prisma.JobUncheckedUpdateInput,
     }));
   });
+}
+
+export type BulkAssignResult = { id: string; ok: boolean; job?: Job; error?: { code?: string; message: string } };
+
+/** Assign (or clear, technicianId null) one technician across many jobs. Each job runs the normal checks (slot, certifications, closed jobs) in its own transaction; one failure doesn't stop the rest. */
+export async function bulkAssign(jobIds: string[], technicianId: string | null, who: Actor): Promise<BulkAssignResult[]> {
+  const results: BulkAssignResult[] = [];
+  for (const id of jobIds) {
+    try {
+      let job = await updateJob(id, { technicianId }, who, technicianId ? 'Assigned from job list' : 'Unassigned from job list');
+      if (technicianId && job.status === 'new') job = await changeStatus(id, 'scheduled', who);
+      results.push({ id, ok: true, job });
+    } catch (e) {
+      const err = e as { code?: string; message?: string };
+      results.push({ id, ok: false, error: { code: err.code, message: err.message ?? 'Failed' } });
+    }
+  }
+  return results;
 }
 
 const SAFETY = ['gas_safety', 'electrical', 'refrigerant'];

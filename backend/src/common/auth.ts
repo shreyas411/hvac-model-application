@@ -1,10 +1,11 @@
 import type { Request, RequestHandler, Response } from 'express';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
+import type { Prisma } from '@prisma/client';
 import type { User, UserRole } from '../types.js';
 import { config, isProd } from '../config.js';
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { ApiError, forbidden } from './errors.js';
-import { isUuid, plain, prisma } from './prisma.js';
+import { isUuid, plain, prisma, runAs, unscoped } from './prisma.js';
 
 declare module 'express-serve-static-core' {
   interface Request { user: User }
@@ -22,8 +23,12 @@ if (devAuth && !config.corsOrigins.every((o) => /^https?:\/\/(localhost|127\.0\.
 const jwtSecret = config.jwtSecret || randomBytes(32).toString('hex');
 const key = config.jwksUrl ? createRemoteJWKSet(new URL(config.jwksUrl)) : new TextEncoder().encode(jwtSecret);
 
-const profile = async (where: { id: string } | { email: string }) => {
-  const u = await prisma.user.findUnique({ where });
+/** Dev logins (and the x-dev-user header) fall back to this company. */
+export const DEV_COMPANY = 'default';
+
+// Unscoped on purpose: the company is what we are about to learn from the user row.
+const profile = async (where: Prisma.UserWhereInput) => {
+  const u = await unscoped.user.findFirst({ where: { ...where, isDeleted: false } });
   // We cast to 'any' then 'User' to satisfy TS when database nulls map to optional properties
   return u && !u.inactive ? (plain(u, ['createdAt', 'updatedAt', 'password']) as any as User) : undefined;
 };
@@ -104,10 +109,10 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
       }
     }
     const dev = devAuth ? (req.headers['x-dev-user'] as string | undefined) : undefined;
-    const user = isUuid(sub) ? await profile({ id: sub }) : dev?.startsWith('dev-') ? await profile({ email: `${dev.slice(4)}@dev.local` }) : undefined;
+    const user = isUuid(sub) ? await profile({ id: sub }) : dev?.startsWith('dev-') ? await profile({ email: `${dev.slice(4)}@dev.local`, company: { slug: (req.headers['x-dev-company'] as string | undefined) ?? DEV_COMPANY } }) : undefined;
     if (!user) throw new ApiError(401, 'UNAUTHENTICATED', 'Missing, invalid or unknown user token');
     req.user = user;
-    next();
+    runAs(user.companyId, () => next()); // every query downstream is scoped to this company
   } catch (e) {
     next(e);
   }
@@ -122,13 +127,15 @@ export type Actor = ReturnType<typeof actor>;
 /** Dev convenience: one profile per role so `x-dev-user: dev-admin` works. Only when Supabase auth isn't configured; idempotent. */
 export async function seedDevUsers() {
   if (!devAuth) return;
-  const tech = await prisma.technician.upsert({
-    where: { legacyId: 'tech-1' }, update: {},
-    create: { legacyId: 'tech-1', name: 'Dev technician', phone: '', email: 'technician@dev.local', skills: [], color: '#0ea5e9', active: true },
+  const { id: companyId } = await unscoped.company.upsert({ where: { slug: DEV_COMPANY }, update: {}, create: { slug: DEV_COMPANY, name: 'Dev company' } });
+  await unscoped.companySettings.upsert({ where: { companyId }, update: {}, create: { companyId, companyName: 'Dev company', availableVatRates: [0, 5, 20] } });
+  const tech = await unscoped.technician.upsert({
+    where: { companyId_legacyId: { companyId, legacyId: 'tech-1' } }, update: {},
+    create: { companyId, legacyId: 'tech-1', name: 'Dev technician', phone: '', email: 'technician@dev.local', skills: [], color: '#0ea5e9', active: true },
   });
   for (const role of ['admin', 'dispatcher', 'technician', 'accountant'] as UserRole[])
-    await prisma.user.upsert({
-      where: { email: `${role}@dev.local` }, update: {},
-      create: { id: randomUUID(), name: `Dev ${role}`, email: `${role}@dev.local`, role, phone: '', ...(role === 'technician' && { technicianId: tech.id }) },
+    await unscoped.user.upsert({
+      where: { companyId_email: { companyId, email: `${role}@dev.local` } }, update: {},
+      create: { id: randomUUID(), companyId, name: `Dev ${role}`, email: `${role}@dev.local`, role, phone: '', ...(role === 'technician' && { technicianId: tech.id }) },
     });
 }

@@ -5,6 +5,7 @@ import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
 import { hhmm, isoDate, lineItems } from '../../common/zod.js';
 import { generateQuotationPdf } from './pdf.service.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 
 const base = z.object({
@@ -29,6 +30,8 @@ quotationsRouter.post('/', h((req) => svc.createQuotation(quotation.parse(req.bo
 quotationsRouter.patch('/:id', h((req) => svc.updateQuotation(req.params.id, base.partial().parse(req.body))));
 quotationsRouter.delete('/:id', allow('admin', 'dispatcher'), h((req) => removeRecord(prisma.quotation, req.params.id, 'Quotation', (q) =>
   (q.status === 'accepted' || q.convertedToJobId || q.convertedToInvoiceId) && 'An accepted or converted quote cannot be deleted')));
+for (const act of ['send', 'reject'] as const)
+  quotationsRouter.post(`/bulk-${act}`, h((req) => bulk(z.object({ ids: bulkIds }).parse(req.body).ids, (id) => svc[act](id))));
 quotationsRouter.post('/:id/send', h((req) => svc.send(req.params.id)));
 quotationsRouter.post('/:id/reject', h((req) => svc.reject(req.params.id)));
 quotationsRouter.post('/:id/accept', h((req) => {

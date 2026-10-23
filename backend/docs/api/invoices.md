@@ -48,3 +48,11 @@ Issuing an invoice (`POST /invoices/:id/issue`) queues an `invoice_issued` email
 - `reverseCharge` and CIS (`cisRatePercent`) are only allowed for commercial customers (`422 RESIDENTIAL_TERMS`), on create and on money edits.
 - Status becomes `overdue` as soon as `dueDate` has passed with a balance (recomputed on payment, credit, refund and retention release), not only via the daily sweep. Audit entries show amounts as `£`.
 - List `?sort=issueDate|dueDate|total|balanceDue|status`.
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/invoices/bulk-issue` | A C | `{ ids }` | Same as `POST /invoices/:id/issue`; non-drafts fail |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.

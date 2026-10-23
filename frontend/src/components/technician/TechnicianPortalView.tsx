@@ -55,14 +55,16 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
   const [selectedJobId, setSelectedJobId] = useState<string>('');
   const today = getTodayISO();
   // This technician's open stops: today onwards, plus anything earlier that isn't finished
-  const techJobs = jobs
-    .filter((j) => j.technicianId === activeTech.id && j.status !== 'cancelled' && (j.appointmentDate >= today || j.status !== 'completed'))
-    .sort((x, y) => `${x.appointmentDate} ${x.startTime}`.localeCompare(`${y.appointmentDate} ${y.startTime}`));
+  const mine = jobs.filter((j) => j.technicianId === activeTech.id && j.status !== 'cancelled');
+  const byTime = (x: Job, y: Job) => `${x.appointmentDate} ${x.startTime}`.localeCompare(`${y.appointmentDate} ${y.startTime}`);
+  const techJobs = mine.filter((j) => j.appointmentDate >= today || j.status !== 'completed').sort(byTime);
   const openJobs = techJobs.filter((j) => j.status !== 'completed');
-  const doneJobs = techJobs.filter((j) => j.status === 'completed');
-  const activeJob = techJobs.find((j) => j.id === selectedJobId) ?? openJobs[0] ?? techJobs[0]; // next open stop by default; never another technician's job
+  const routeDone = techJobs.length - openJobs.length; // progress bar covers the current route only
+  const doneJobs = mine.filter((j) => j.status === 'completed').sort((x, y) => byTime(y, x)); // Completed tab: every finished job, newest first
   const [showAllStops, setShowAllStops] = useState(false);
-  const [showDoneStops, setShowDoneStops] = useState(false);
+  const [showDoneStops, setShowDoneStops] = useState(false); // which label is active: Open or Completed
+  const activeJob = [...techJobs, ...doneJobs].find((j) => j.id === selectedJobId) ?? (showDoneStops ? doneJobs : openJobs)[0] ?? techJobs[0]; // first stop of the chosen list by default; never another technician's job
+  const locked = activeJob?.status === 'completed'; // closed work record: the server refuses edits, so the controls are off
   const STOPS_VISIBLE = 3;
   const shownOpen = showAllStops ? openJobs : openJobs.filter((j, i) => i < STOPS_VISIBLE || j.id === activeJob?.id);
 
@@ -95,7 +97,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
   // Digital Signature Canvas
   const [signatureName, setSignatureName] = useState<string>('');
   const [signatureData, setSignatureData] = useState<string | null>(null);
-  const [isSigned, setIsSigned] = useState<boolean>(!!activeJob?.customerSignature);
+  const isSigned = !!activeJob?.customerSignature; // derived, not state: the selection moves to the next stop once this job completes
   const [showServiceReportModal, setShowServiceReportModal] = useState<boolean>(false);
 
   // Reset the form whenever the job shown changes: carrying one job's notes or readings onto another would corrupt records
@@ -105,7 +107,6 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
     setLabourHours(activeJob?.labourHours || 0);
     setFollowUpRecommended(!!activeJob?.followUpRecommended);
     setFollowUpNotes(activeJob?.followUpNotes || '');
-    setIsSigned(!!activeJob?.customerSignature);
     setPressureBar(''); setFlowTempC(''); setReturnTempC(''); setCoPpm(''); setCo2Percent(''); setRefrigerantPsi('');
     setSignatureName(''); setSignatureData(null);
   }, [activeJobId]);
@@ -230,7 +231,6 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
     setBusy(false);
     if (!ok) return; // e.g. the completion gate refused: don't show the job as signed off
 
-    setIsSigned(true);
     if (wasQueued()) showToast(`No signal: ${signatureName}'s sign-off is saved on this phone and the job will be marked completed when you are back online`, 'info');
     else showToast(`Signature saved for ${signatureName}. Job marked completed!`, 'success');
   };
@@ -261,7 +261,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
           {/* Switch technician dropdown */}
           {currentUser.role !== 'technician' && (
             <div className="flex items-center gap-2">
-              <Select value={activeTechId} onValueChange={(v) => { setActiveTechId(v); setSelectedJobId(''); }}>
+              <Select value={activeTech.id}onValueChange={(v) => { setActiveTechId(v); setSelectedJobId(''); }}>
                 <SelectTrigger size="sm" aria-label="Active van" className="bg-slate-800 border-slate-700 text-white text-xs hover:bg-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700">
                   <SelectValue />
                 </SelectTrigger>
@@ -281,10 +281,10 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
               Route & Assigned Stops
             </span>
-            <span className="text-[11px] text-slate-300">{doneJobs.length} of {techJobs.length} done</span>
+            <span className="text-[11px] text-slate-300">{routeDone} of {techJobs.length} done</span>
           </div>
-          <div className="h-1 rounded bg-slate-800 mb-3" role="progressbar" aria-valuemin={0} aria-valuemax={techJobs.length} aria-valuenow={doneJobs.length}>
-            <div className="h-1 rounded bg-emerald-500" style={{ width: `${techJobs.length ? (doneJobs.length / techJobs.length) * 100 : 0}%` }} />
+          <div className="h-1 rounded bg-slate-800 mb-3" role="progressbar" aria-valuemin={0} aria-valuemax={techJobs.length} aria-valuenow={routeDone}>
+            <div className="h-1 rounded bg-emerald-500" style={{ width: `${techJobs.length ? (routeDone / techJobs.length) * 100 : 0}%` }} />
           </div>
 
           {(() => {
@@ -317,19 +317,29 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             const toggle = 'text-[11px] font-semibold text-sky-300 hover:text-sky-200 h-auto py-1.5 px-0 justify-start';
             return (
               <div className="space-y-1.5">
-                {shownOpen.map(row)}
-                {openJobs.length > shownOpen.length || showAllStops && openJobs.length > STOPS_VISIBLE ? (
-                  <Button variant="link" size="xs" onClick={() => setShowAllStops(!showAllStops)} className={toggle}>
-                    {showAllStops ? 'Show fewer' : `Later (${openJobs.length - shownOpen.length} more)`}
-                  </Button>
-                ) : null}
-                {openJobs.length === 0 && <p className="text-xs text-slate-400">No open stops.</p>}
-                {doneJobs.length > 0 && (
-                  <>
-                    <Button variant="link" size="xs" onClick={() => setShowDoneStops(!showDoneStops)} aria-expanded={showDoneStops} className={toggle}>
-                      {showDoneStops ? 'Hide' : 'Show'} completed ({doneJobs.length})
+                <div className="flex gap-1.5 pb-1" role="tablist">
+                  {[{ done: false, label: 'Open', n: openJobs.length }, { done: true, label: 'Completed', n: doneJobs.length }].map((t) => (
+                    <Button key={t.label} role="tab" aria-selected={showDoneStops === t.done} variant="outline" size="xs"
+                      onClick={() => { setShowDoneStops(t.done); setSelectedJobId(''); }}
+                      className={`flex-1 ${showDoneStops === t.done ? 'bg-sky-500 text-white border-sky-400 hover:bg-sky-500 hover:text-white' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-slate-300'}`}>
+                      {t.label} ({t.n})
                     </Button>
-                    {showDoneStops && doneJobs.map(row)}
+                  ))}
+                </div>
+                {showDoneStops ? (
+                  <>
+                    {doneJobs.map(row)}
+                    {doneJobs.length === 0 && <p className="text-xs text-slate-400">No completed stops.</p>}
+                  </>
+                ) : (
+                  <>
+                    {shownOpen.map(row)}
+                    {openJobs.length > shownOpen.length || showAllStops && openJobs.length > STOPS_VISIBLE ? (
+                      <Button variant="link" size="xs" onClick={() => setShowAllStops(!showAllStops)} className={toggle}>
+                        {showAllStops ? 'Show fewer' : `Later (${openJobs.length - shownOpen.length} more)`}
+                      </Button>
+                    ) : null}
+                    {openJobs.length === 0 && <p className="text-xs text-slate-400">No open stops.</p>}
                   </>
                 )}
               </div>
@@ -484,6 +494,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
 
           {/* Inspection Checklists (Gas Safe & F-Gas Requirements) */}
           <Card className="gap-0 py-4 px-4 sm:p-5 space-y-3">
+            <fieldset disabled={locked} className="contents">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <IconSquareCheck className="w-4 h-4 text-sky-700" aria-hidden="true" />
@@ -565,10 +576,12 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                 </div>
               );
             })()}
+            </fieldset>
           </Card>
 
           {/* HVAC Diagnostic Readings & Findings Input */}
           <Card className="gap-0 py-4 px-4 sm:p-5 space-y-4">
+            <fieldset disabled={locked} className="contents">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <IconFlame className="w-4 h-4 text-amber-600" aria-hidden="true" />
@@ -710,11 +723,13 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                 </div>
               )}
             </div>
+            </fieldset>
           </Card>
 
           {/* Refrigerant handling log (required to complete jobs with a refrigerant checklist item) */}
           {activeJob.checklist.some((c) => c.category === 'refrigerant') && (
             <Card className="gap-0 py-4 px-4 sm:p-5 space-y-3">
+              <fieldset disabled={locked} className="contents">
               <h3 className="font-bold text-sm text-slate-900 pb-2 border-b border-slate-100">Refrigerant Log</h3>
               <form onSubmit={handleAddRefrigerant} className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                 <Input required aria-label="Refrigerant" placeholder="Refrigerant" value={fridge.refrigerant} onChange={(e) => setFridge({ ...fridge, refrigerant: e.target.value })}  />
@@ -735,11 +750,13 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
                   <span className="tabular-nums">{l.amountKg} kg</span>
                 </div>
               ))}
+              </fieldset>
             </Card>
           )}
 
           {/* Parts Used on Site (Van Stock Inventory Deduction) */}
           <Card className="gap-0 py-4 px-4 sm:p-5 space-y-3">
+            <fieldset disabled={locked} className="contents">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h3 className="font-bold text-sm text-slate-900">Van Parts Consumed</h3>
               <span className="text-xs text-slate-500">Live Inventory Deduction</span>
@@ -791,6 +808,7 @@ export const TechnicianPortalView: React.FC<TechnicianPortalViewProps> = ({ onNa
             ) : (
               <EmptyState icon={IconPackage} compact>No parts consumed yet on this visit.</EmptyState>
             )}
+            </fieldset>
           </Card>
 
           <JobPhotos jobId={activeJob.id} locked={activeJob.status === 'completed'} />

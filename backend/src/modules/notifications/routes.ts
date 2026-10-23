@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
-import { h } from '../../common/errors.js';
+import { ApiError, h } from '../../common/errors.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 
 const notification = z.object({
@@ -16,4 +17,7 @@ export const notificationsRouter = Router();
 notificationsRouter.use(allow('admin', 'dispatcher'));
 notificationsRouter.get('/', h((req) => svc.pageNotifications(req.query)));
 notificationsRouter.post('/', h((req) => svc.createNotification(notification.parse(req.body)), 201));
+notificationsRouter.post('/bulk-approve-send', h((req) => bulk(z.object({ ids: bulkIds }).parse(req.body).ids, async (id) => {
+  if ((await svc.approveAndSend(id, actor(req))).status === 'failed') throw new ApiError(502, 'DELIVERY_FAILED', 'Delivery failed');
+})));
 notificationsRouter.post('/:id/approve-send', h((req) => svc.approveAndSend(req.params.id, actor(req))));

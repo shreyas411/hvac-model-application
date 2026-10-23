@@ -15,6 +15,7 @@ const AuthContext = createContext<AuthState>({ user: null, logout: async () => {
 export const useAuth = () => useContext(AuthContext);
 
 function Login({ onDone, notice }: { onDone: (u: User) => void; notice?: string }) {
+  const [company, setCompany] = useState(() => localStorage.getItem('hvac_company') ?? '');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(notice ?? '');
@@ -25,16 +26,13 @@ function Login({ onDone, notice }: { onDone: (u: User) => void; notice?: string 
     setBusy(true);
     setError('');
     try {
-      await auth.login(email.trim(), password);
+      await auth.login(company.trim(), email.trim(), password);
+      localStorage.setItem('hvac_company', company.trim());
       const me = await auth.me();
       if (!me) { setError('Signed in, but your profile could not be loaded. Try again.'); return; }
       onDone(me);
     } catch (err) {
-      setError(
-        err instanceof ApiError && err.status === 401 && err.code === 'UNAUTHENTICATED'
-          ? 'Signed in, but this account has no profile yet. Ask an administrator to set it up.'
-          : err instanceof ApiError ? err.message : 'Could not reach the server. Try again.',
-      );
+      setError(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.');
     } finally {
       setBusy(false);
     }
@@ -53,8 +51,12 @@ function Login({ onDone, notice }: { onDone: (u: User) => void; notice?: string 
               </div>
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="company" className="text-xs">Company</Label>
+              <Input id="company" name="company" autoComplete="organization" spellCheck={false} autoCapitalize="none" required autoFocus={!company} value={company} onChange={(e) => setCompany(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="email" className="text-xs">Email</Label>
-              <Input id="email" name="email" type="email" autoComplete="username" spellCheck={false} required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input id="email" name="email" type="email" autoComplete="username" spellCheck={false} required autoFocus={!!company} value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password" className="text-xs">Password</Label>

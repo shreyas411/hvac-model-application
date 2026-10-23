@@ -41,3 +41,9 @@ Completed and cancelled jobs are read-only (`JOB_CLOSED`) except for admin; ever
 ## Updates: Gas Certificates screen
 
 Tab **Gas Certificates** (`/certificates`, roles admin, dispatcher, technician; `frontend/src/components/certificates/CertificatesView.tsx`). Create CP12 Landlord Gas Safety Record (per-appliance flue, ventilation, safety device, gas tightness, safe-to-use, defects, warning notice), Gas Appliance Service Record or Commissioning Record. The issuing engineer needs a current Gas Safe registration. Each row has **PDF** download (`/certificates/:id/pdf`). Expiring CP12s per site come from `GET /certificates/expiring` (no UI list or notification yet); see [certificates.md](../../backend/docs/api/certificates.md). Landlord/agent accounts and a CP12 expiry tracker are not built.
+
+## Updates: bulk selection
+
+- Certificates tab: select rows to **Download PDFs** (loops `GET /certificates/:id/pdf`) or, for admins, **Delete** (loops `DELETE /certificates/:id`, with confirmation).
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

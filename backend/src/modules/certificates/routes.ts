@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 import { generateCertificatePdf } from './pdf.service.js';
 
@@ -19,4 +20,5 @@ certificatesRouter.get('/:id/pdf', async (req, res, next) => {
 });
 certificatesRouter.get('/:id', h((req) => svc.getCertificate(req.params.id)));
 certificatesRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.certificate, req.params.id, 'Certificate')));
+certificatesRouter.post('/bulk-delete', allow('admin'), h((req) => bulk(z.object({ ids: bulkIds }).parse(req.body).ids, (id) => removeRecord(prisma.certificate, id, 'Certificate'))));
 certificatesRouter.post('/', h((req) => svc.issueCertificate(svc.certificateInput.parse(req.body), { ...actor(req), technicianId: req.user.technicianId }), 201));

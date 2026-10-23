@@ -17,8 +17,8 @@ export const DragCard: React.FC<{ id: string } & Omit<React.HTMLAttributes<HTMLD
 };
 
 // eligible: undefined = nothing being dragged, true/false = can this target take the dragged job
-export const DropColumn: React.FC<{ id: string; idleClass: string; baseClass: string; eligible?: boolean; children: React.ReactNode }> = ({ id, idleClass, baseClass, eligible, children }) => {
-  const { setNodeRef, isOver } = useDroppable({ id });
+export const DropColumn: React.FC<{ id: string; idleClass: string; baseClass: string; eligible?: boolean; data?: object; children: React.ReactNode }> = ({ id, idleClass, baseClass, eligible, data, children }) => {
+  const { setNodeRef, isOver } = useDroppable({ id, data });
   const state = eligible === undefined ? idleClass
     : !eligible ? `${isOver ? 'border-red-500 ring-2 ring-red-200' : idleClass} opacity-50`
     : isOver ? 'border-emerald-600 ring-2 ring-emerald-300 bg-emerald-50'
@@ -26,9 +26,11 @@ export const DropColumn: React.FC<{ id: string; idleClass: string; baseClass: st
   return <div ref={setNodeRef} className={`${baseClass} transition-opacity ${state}`}>{children}</div>;
 };
 
-const HOUR_W = 80;
-const NAME_W = 176;
-const mins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+export const HOUR_W = 80;
+export const NAME_W = 176;
+export const SNAP = 15; // minutes
+export const mins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+export const toTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const PRIORITY_RANK: Record<Priority, number> = { emergency: 0, high: 1, medium: 2, low: 3 };
 const PRIORITY_BADGE: Record<Priority, string> = {
   emergency: 'bg-rose-100 text-rose-800 font-bold',
@@ -46,9 +48,11 @@ interface Props {
   workingHoursEnd: string;
   eligibleFor: (techId: string | null) => boolean | undefined;
   onOpen: (job: Job) => void;
+  onResize: (job: Job, endTime: string) => void; // drag a block's right edge
 }
 
-export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerById, selectedDate, workingHoursStart, workingHoursEnd, eligibleFor, onOpen }) => {
+export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerById, selectedDate, workingHoursStart, workingHoursEnd, eligibleFor, onOpen, onResize }) => {
+  const [resize, setResize] = useState<{ id: string; x0: number; end0: number; end: number } | null>(null);
   const [qJob, setQJob] = useState('');
   const [qTech, setQTech] = useState('');
   const [availableOnly, setAvailableOnly] = useState(false);
@@ -152,7 +156,7 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
             {rows.map(({ tech, jobs: tj, booked }) => {
               const pct = Math.min(100, Math.round((booked / CAPACITY_MIN) * 100));
               return (
-                <DropColumn key={tech.id} id={tech.id} eligible={eligibleFor(tech.id)} baseClass="flex border-b border-border h-14" idleClass="border-border">
+                <DropColumn key={tech.id} id={tech.id} data={{ dayStart: DAY_START }} eligible={eligibleFor(tech.id)} baseClass="flex border-b border-border h-14" idleClass="border-border">
                   <div className="sticky left-0 z-10 bg-card px-3 py-1.5 border-r border-border shrink-0 flex flex-col justify-center gap-1" style={{ width: NAME_W }}>
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: tech.color }} />
@@ -173,7 +177,9 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
                     {showNow && <div className="absolute top-0 bottom-0 w-px bg-red-400 z-[5]" style={{ left: ((nowMin - DAY_START * 60) / 60) * HOUR_W }} />}
                     {tj.map((job) => {
                       const left = Math.max(0, ((mins(job.startTime) - DAY_START * 60) / 60) * HOUR_W);
-                      const width = Math.max(48, ((mins(job.endTime) - mins(job.startTime)) / 60) * HOUR_W - 2);
+                      const end = resize?.id === job.id ? resize.end : mins(job.endTime);
+                      const width = Math.max(48, ((end - mins(job.startTime)) / 60) * HOUR_W - 2);
+                      const stop = (e: React.SyntheticEvent) => e.stopPropagation(); // keep the resize handle out of the card's drag/click
                       return (
                         <DragCard id={job.id} key={job.id} {...open(job)}
                           title={`${job.jobNumber} · ${job.title} · ${customerById.get(job.customerId)?.name || ''} · ${job.startTime}-${job.endTime}`}
@@ -181,6 +187,18 @@ export const DispatchTimeline: React.FC<Props> = ({ jobs, technicians, customerB
                           style={{ left, width, backgroundColor: tech.color }}>
                           <div className="text-xs font-semibold leading-tight truncate">{job.title || customerById.get(job.customerId)?.name || job.jobNumber}</div>
                           <div className="text-xs tabular-nums leading-tight truncate">{job.jobNumber}</div>
+                          {job.status !== 'completed' && (
+                            <div aria-hidden="true" title="Drag to change duration" className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-black/20 hover:bg-black/40" style={{ touchAction: 'none' }}
+                              onMouseDown={stop} onTouchStart={stop} onClick={stop} onKeyDown={stop}
+                              onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); setResize({ id: job.id, x0: e.clientX, end0: mins(job.endTime), end: mins(job.endTime) }); }}
+                              onPointerMove={(e) => {
+                                if (resize?.id !== job.id) return;
+                                const raw = resize.end0 + ((e.clientX - resize.x0) / HOUR_W) * 60;
+                                setResize({ ...resize, end: Math.min(DAY_END * 60, Math.max(mins(job.startTime) + SNAP, Math.round(raw / SNAP) * SNAP)) });
+                              }}
+                              onPointerUp={() => { if (resize?.id === job.id && resize.end !== resize.end0) onResize(job, toTime(resize.end)); setResize(null); }}
+                              onPointerCancel={() => setResize(null)} />
+                          )}
                         </DragCard>
                       );
                     })}

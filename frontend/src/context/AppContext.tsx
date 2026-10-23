@@ -1,9 +1,9 @@
 import type { ConfirmOptions } from '../components/common/ConfirmDialog';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { services } from '../services';
+import { services, type BulkResults } from '../services';
 import { REAL_AUTH, setDevUser, wasQueued } from '../services/api';
 import { useAuth } from '../components/auth/AuthGate';
-import { useDataStore } from '../store/useDataStore';
+import { useDataStore, type Key } from '../store/useDataStore';
 import {
   CompanySettings,
   Customer,
@@ -59,6 +59,7 @@ interface AppContextType {
   updateCustomerLocation: (id: string, locId: string, loc: Partial<Omit<ServiceLocation, 'id'>>) => Promise<boolean>;
   removeCustomerLocation: (id: string, locId: string) => Promise<void>;
   archiveCustomer: (id: string) => Promise<void>;
+  bulkArchiveCustomers: (ids: string[], archived: boolean) => Promise<Record<string, string>>;
 
   // Equipment
   equipment: Equipment[];
@@ -70,12 +71,16 @@ interface AppContextType {
   serviceRequests: ServiceRequest[];
   addServiceRequest: (sr: Omit<ServiceRequest, 'id' | 'requestNumber' | 'createdAt' | 'updatedAt' | 'convertedJobId'>) => Promise<ServiceRequest | undefined>;
   updateServiceRequest: (id: string, updates: Partial<ServiceRequest>) => Promise<void>;
+  bulkCancelRequests: (ids: string[]) => Promise<Record<string, string>>;
   convertRequestToJob: (requestId: string, appointmentDate: string, startTime: string, endTime: string, technicianId: string) => Promise<Job | undefined>;
 
   // Jobs
   jobs: Job[];
   addJob: (jobData: Omit<Job, 'id' | 'jobNumber' | 'createdAt' | 'updatedAt' | 'auditTrail'>) => Promise<Job | undefined>;
   updateJob: (id: string, updates: Partial<Job>, auditAction?: string) => Promise<boolean>;
+  /** One request, one toast. Returns the failures as `jobId -> reason`. */
+  bulkSetJobStatus: (jobIds: string[], status: JobStatus) => Promise<Record<string, string>>;
+  bulkAssignJobs: (jobIds: string[], technicianId: string | null) => Promise<Record<string, string>>;
   updateJobStatus: (id: string, newStatus: JobStatus, note?: string, override?: boolean) => Promise<void>;
   addJobPart: (jobId: string, partId: string, quantity: number) => Promise<boolean>;
   addRefrigerantLog: (jobId: string, body: object) => Promise<boolean>;
@@ -88,6 +93,7 @@ interface AppContextType {
   acceptQuotation: (id: string, acceptedBy: string, option?: string) => Promise<boolean>;
   sendQuotation: (id: string) => Promise<boolean>;
   rejectQuotation: (id: string) => Promise<boolean>;
+  bulkQuotations: (ids: string[], action: 'send' | 'reject') => Promise<Record<string, string>>;
   convertQuotationToJob: (quoteId: string, appointmentDate: string, startTime: string, endTime: string, technicianId: string) => Promise<Job | undefined>;
   convertQuotationToInvoice: (quoteId: string) => Promise<Invoice | undefined>;
 
@@ -100,6 +106,7 @@ interface AppContextType {
   creditInvoice: (invoiceId: string, amount: number, reason: string) => Promise<boolean>;
   voidInvoice: (invoiceId: string, reason: string) => Promise<boolean>;
   issueInvoice: (invoiceId: string) => Promise<boolean>;
+  bulkIssueInvoices: (invoiceIds: string[]) => Promise<Record<string, string>>;
   refundPayment: (invoiceId: string, paymentId: string, reason: string) => Promise<boolean>;
   addStageInvoice: (quoteId: string, percent: number | 'final', label?: string) => Promise<boolean>;
   generateInvoiceFromJob: (jobId: string, vatRatePercent: number) => Promise<Invoice | undefined>;
@@ -109,6 +116,9 @@ interface AppContextType {
   addPart: (part: Omit<PartItem, 'id' | 'createdAt'>) => Promise<PartItem | undefined>;
   updatePart: (id: string, updates: Partial<PartItem>) => Promise<void>;
   deletePart: (id: string) => Promise<void>;
+  bulkDeleteParts: (ids: string[]) => Promise<Record<string, string>>;
+  bulkSetPartsInactive: (ids: string[], inactive: boolean) => Promise<Record<string, string>>;
+  bulkSetEquipmentInactive: (ids: string[], inactive: boolean) => Promise<Record<string, string>>;
   /** Soft-deletes a record; the server refuses (409) while it is still in use. */
   deleteRecord: (key: 'customers' | 'requests' | 'jobs' | 'quotations' | 'invoices' | 'equipment', id: string, label: string) => Promise<void>;
   adjustStock: (partId: string, delta: number, type: 'used_on_job' | 'stock_adjustment' | 'restock_purchase', notes: string, jobId?: string) => Promise<boolean>;
@@ -118,6 +128,7 @@ interface AppContextType {
   notifications: CustomerNotification[];
   createNotification: (notif: Omit<CustomerNotification, 'id' | 'createdAt'>) => Promise<CustomerNotification | undefined>;
   sendNotification: (id: string) => Promise<CustomerNotification | undefined>;
+  bulkSendNotifications: (ids: string[]) => Promise<Record<string, string>>;
 
   // Active Toast/Banner Feedback
   toastMessage: { text: string; type: 'success' | 'error' | 'info'; onConfirm?: () => void } | null;
@@ -268,6 +279,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await apiCall('customers', () => (c?.archived ? services.customers.unarchive(id) : services.customers.archive(id)), 'Customer archive status changed');
   };
 
+  // One bulk request (the server loops and validates each record). Reloads the list and returns { id: error } for the records it refused.
+  const bulkCall = async (key: Key, ids: string[], call: () => Promise<BulkResults>, doneToast: (n: number) => string) => {
+    try {
+      const { results } = await call();
+      await useDataStore.getState().load(key);
+      const failed = Object.fromEntries(results.filter((r) => !r.ok).map((r) => [r.id, r.error?.message ?? 'Failed']));
+      const done = results.length - Object.keys(failed).length;
+      if (done) showToast(doneToast(done));
+      return failed;
+    } catch (e) {
+      showToast((e as Error).message, 'error');
+      return Object.fromEntries(ids.map((id) => [id, (e as Error).message]));
+    }
+  };
+  const s = (n: number) => (n === 1 ? '' : 's');
+
+  const bulkArchiveCustomers: AppContextType['bulkArchiveCustomers'] = (ids, archived) =>
+    bulkCall('customers', ids, () => services.customers.bulkArchive(ids, archived), (n) => `${n} customer${s(n)} ${archived ? 'archived' : 'restored'}`);
+
   // Equipment
   const addEquipment: AppContextType['addEquipment'] = (eq) =>
     apiCall('equipment', () => services.equipment.create(eq), `Equipment ${eq.brand} ${eq.model} registered`);
@@ -314,13 +344,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const jobStart = toMinutes(job.startTime);
       const jobEnd = toMinutes(job.endTime);
 
-      // Overlap condition
-      if (reqStart < jobEnd && reqEnd > jobStart) {
+      // Overlap condition, with the same 30-min travel buffer the server enforces (jobs/service.ts assertSlot)
+      if (reqStart - 30 < jobEnd && reqEnd + 30 > jobStart) {
         return job;
       }
     }
     return null;
   };
+
+  const bulkCancelRequests: AppContextType['bulkCancelRequests'] = (ids) =>
+    bulkCall('requests', ids, () => services.requests.bulkCancel(ids), (n) => `${n} request${s(n)} cancelled`);
 
   // Convert service request to job (server creates the job and marks the request converted)
   const convertRequestToJob: AppContextType['convertRequestToJob'] = async (requestId, appointmentDate, startTime, endTime, technicianId) => {
@@ -356,6 +389,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return job;
     }, 'Job updated'));
   };
+
+  const bulkAssignJobs: AppContextType['bulkAssignJobs'] = async (jobIds, technicianId) => {
+    try {
+      const { results } = await services.jobs.bulkAssign(jobIds, technicianId);
+      await useDataStore.getState().load('jobs');
+      const failed = Object.fromEntries(results.filter((r) => !r.ok).map((r) => [r.id, r.error?.message ?? 'Failed']));
+      const done = results.length - Object.keys(failed).length;
+      if (done) showToast(`${done} job${done === 1 ? '' : 's'} ${technicianId ? 'assigned' : 'unassigned'}`);
+      return failed;
+    } catch (e) {
+      showToast((e as Error).message, 'error');
+      return Object.fromEntries(jobIds.map((id) => [id, (e as Error).message]));
+    }
+  };
+
+  const bulkSetJobStatus: AppContextType['bulkSetJobStatus'] = (jobIds, status) =>
+    bulkCall('jobs', jobIds, () => services.jobs.bulkSetStatus(jobIds, status), (n) => `${n} job${s(n)} marked as ${status.replace('_', ' ')}`);
 
   const updateJobStatus: AppContextType['updateJobStatus'] = async (id, newStatus, note, override) => {
     await apiCall('jobs', async () => (await services.jobs.setStatus(id, newStatus, note, override)) ?? { ...jobs.find((j) => j.id === id)!, status: newStatus }, `Job marked as ${newStatus.replace('_', ' ')}`);
@@ -395,6 +445,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const rejectQuotation: AppContextType['rejectQuotation'] = async (id) =>
     !!(await apiCall('quotations', () => services.quotations.reject(id), 'Quotation marked as rejected'));
+
+  const bulkQuotations: AppContextType['bulkQuotations'] = (ids, action) =>
+    bulkCall('quotations', ids, () => services.quotations.bulk(action, ids), (n) => `${n} quotation${s(n)} ${action === 'send' ? 'sent' : 'marked as rejected'}`);
 
   // The server creates the job / invoice and links it back on the quotation.
   const convertQuotationToJob: AppContextType['convertQuotationToJob'] = async (quoteId, appointmentDate, startTime, endTime, technicianId) => {
@@ -454,6 +507,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const issueInvoice: AppContextType['issueInvoice'] = async (invoiceId) =>
     !!(await apiCall('invoices', () => services.invoices.issue(invoiceId), 'Invoice issued'));
 
+  const bulkIssueInvoices: AppContextType['bulkIssueInvoices'] = (ids) =>
+    bulkCall('invoices', ids, () => services.invoices.bulkIssue(ids), (n) => `${n} invoice${s(n)} issued`);
+
   const refundPayment: AppContextType['refundPayment'] = async (invoiceId, paymentId, reason) =>
     !!(await apiCall('invoices', () => services.invoices.refund(invoiceId, paymentId, reason), 'Payment refunded'));
 
@@ -478,6 +534,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await apiCall('parts', () => services.parts.remove(id), 'Part deleted');
     await useDataStore.getState().load('parts');
   };
+
+  // Server refuses parts with stock history.
+  const bulkDeleteParts: AppContextType['bulkDeleteParts'] = (ids) =>
+    bulkCall('parts', ids, () => services.parts.bulkDelete(ids), (n) => `${n} part${s(n)} deleted`);
+
+  const bulkSetPartsInactive: AppContextType['bulkSetPartsInactive'] = (ids, inactive) =>
+    bulkCall('parts', ids, () => services.parts.bulkSetInactive(ids, inactive), (n) => `${n} part${s(n)} ${inactive ? 'deactivated' : 'activated'}`);
+
+  const bulkSetEquipmentInactive: AppContextType['bulkSetEquipmentInactive'] = (ids, inactive) =>
+    bulkCall('equipment', ids, () => services.equipment.bulkSetInactive(ids, inactive), (n) => `${n} asset${s(n)} ${inactive ? 'deactivated' : 'activated'}`);
 
   const deleteRecord: AppContextType['deleteRecord'] = async (key, id, label) => {
     await apiCall(key, async () => { await services[key].remove(id); }, `${label} deleted`);
@@ -517,6 +583,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return n;
   };
 
+  const bulkSendNotifications: AppContextType['bulkSendNotifications'] = (ids) =>
+    bulkCall('notifications', ids, () => services.notifications.bulkApproveSend(ids), (n) => `${n} notification${s(n)} sent`);
+
   const value: AppContextType = {
     currentUser,
     setCurrentUser,
@@ -539,6 +608,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateCustomerLocation,
     removeCustomerLocation,
     archiveCustomer,
+    bulkArchiveCustomers,
     equipment,
     addEquipment,
     updateEquipment,
@@ -546,11 +616,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     serviceRequests,
     addServiceRequest,
     updateServiceRequest,
+    bulkCancelRequests,
     convertRequestToJob,
     jobs,
     addJob,
     updateJob,
     updateJobStatus,
+    bulkAssignJobs,
+    bulkSetJobStatus,
     addJobPart,
     addRefrigerantLog,
     checkScheduleConflict,
@@ -560,6 +633,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     acceptQuotation,
     sendQuotation,
     rejectQuotation,
+    bulkQuotations,
     convertQuotationToJob,
     convertQuotationToInvoice,
     invoices,
@@ -570,6 +644,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     creditInvoice,
     voidInvoice,
     issueInvoice,
+    bulkIssueInvoices,
     refundPayment,
     addStageInvoice,
     generateInvoiceFromJob,
@@ -577,12 +652,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addPart,
     updatePart,
     deletePart,
+    bulkDeleteParts,
+    bulkSetPartsInactive,
+    bulkSetEquipmentInactive,
     deleteRecord,
     adjustStock,
     inventoryMovements,
     notifications,
     createNotification,
     sendNotification,
+    bulkSendNotifications,
     toastMessage,
     showToast,
     confirmToast,

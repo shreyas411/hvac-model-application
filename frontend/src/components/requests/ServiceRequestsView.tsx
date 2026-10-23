@@ -11,6 +11,7 @@ import { Label } from '@/src/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
 import { IconAlertTriangle, IconCalendarPlus, IconCircleCheck, IconInbox, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { Input } from '@/src/components/ui/input';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { SortHead, useServerPaged } from '../common/Pager';
@@ -34,18 +35,31 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
     equipment, 
     technicians, 
     convertRequestToJob,
+    bulkCancelRequests,
+    showToast,
     checkScheduleConflict,
     customerById,
     deleteRecord,
     confirmToast,
     currentUser,
-  } = useApp(['jobs', 'serviceRequests', 'customers', 'equipment', 'technicians', 'convertRequestToJob', 'checkScheduleConflict', 'customerById', 'deleteRecord', 'confirmToast', 'currentUser']);
+  } = useApp(['jobs', 'serviceRequests', 'customers', 'equipment', 'technicians', 'convertRequestToJob', 'bulkCancelRequests', 'showToast', 'checkScheduleConflict', 'customerById', 'deleteRecord', 'confirmToast', 'currentUser']);
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'awaiting_approval' | 'converted' | 'cancelled'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   // Search and status run on the server so paging covers the whole list (search matches request number and problem text)
   const paged = useServerPaged<ServiceRequest>('/requests', { q: searchTerm.trim() || undefined, status: statusFilter === 'all' ? undefined : statusFilter }, serviceRequests);
   
+  const sel = useRowSelection(paged.rows, (r) => r.status === 'new' || r.status === 'awaiting_approval');
+  const bulkCancel = async () => {
+    const rows = sel.selected;
+    setBusy(true);
+    const failed = await bulkCancelRequests(rows.map((r) => r.id));
+    setBusy(false);
+    sel.clear();
+    const bad = rows.filter((r) => failed[r.id]);
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} cancelled. Skipped: ${bad.map((r) => `${r.requestNumber}: ${failed[r.id]}`).join('; ')}`, 'error');
+  };
+
   // Convert modal
   const [convertingRequest, setConvertingRequest] = useState<ServiceRequest | null>(null);
   const [assignDate, setAssignDate] = useState<string>(getTodayISO());
@@ -140,10 +154,15 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
         {(searchTerm || statusFilter !== 'all') && <Button variant="ghost" size="xs" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }}><IconX aria-hidden="true" />Clear filters</Button>}
       </div>
 
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        <Button type="button" size="xs" variant="destructive" disabled={busy} onClick={() => confirmToast(`Cancel ${sel.selected.length} request${sel.selected.length === 1 ? '' : 's'}? They stay on record as cancelled.`, () => void bulkCancel(), { confirmLabel: 'Cancel requests' })}><IconX aria-hidden="true" />Cancel {sel.selected.length}</Button>
+      </BulkBar>
+
       <TableCard footer={paged.pager}>
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
+              <SelectAllHead sel={sel} label="requests" />
               <SortHead paged={paged} by="requestNumber" className="px-3">Request</SortHead>
               <SortHead paged={paged} by="customer.name" className="px-3">Customer / Site</SortHead>
               <TableHead className="hidden md:table-cell px-3">Problem</TableHead>
@@ -160,7 +179,8 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
               const eq = equipment.find((e) => e.id === req.equipmentId);
               const booked = req.convertedJobId ? jobs.find((j) => j.id === req.convertedJobId) : undefined;
               return (
-                <TableRow key={req.id}>
+                <TableRow key={req.id} data-state={sel.has(req.id) ? 'selected' : undefined}>
+                  <SelectCell sel={sel} row={req} label={req.requestNumber} />
                   <TableCell className="px-3 py-3 align-top">
                     <span className="block font-semibold tabular-nums">{req.requestNumber}</span>
                     <span className="block text-[11px] text-muted-foreground capitalize">Slot: {req.preferredSlot.replace('_', ' ')}</span>
@@ -193,7 +213,7 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
               );
             })}
             {paged.rows.length === 0 && !paged.loading && (
-              <TableRow><TableCell colSpan={7} className="py-6"><EmptyState icon={IconInbox}>No service requests match your filters.</EmptyState></TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="py-6"><EmptyState icon={IconInbox}>No service requests match your filters.</EmptyState></TableCell></TableRow>
             )}
           </TableBody>
         </Table>

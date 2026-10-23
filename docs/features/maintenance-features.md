@@ -41,3 +41,9 @@ The job lands unassigned on the dispatch board for the dispatcher to schedule; i
 ## Updates: price, term and SLA
 
 Agreement form adds **annual price** (ex-VAT, with *auto-invoice*), **term end date** with *auto-renew* (past the term an agreement deactivates unless auto-renew rolls it on), and **SLA hours**. The list row summarises them (`£x/yr auto-invoiced · renews yyyy-mm-dd · SLA nh`). Call-outs at the site get `slaDueAt`; see [maintenance.md](../../backend/docs/api/maintenance.md). Not done: SLA breach alerts, renewal repricing or customer notice.
+
+## Updates: bulk selection
+
+- Staff who can write get a select column: **Activate**, **Pause** (loops `PATCH /maintenance/:id`) and admin-style **Delete** (loops `DELETE /maintenance/:id`, with confirmation). View-local, no AppContext action.
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

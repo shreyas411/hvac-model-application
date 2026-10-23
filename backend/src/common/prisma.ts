@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import '../config.js'; // must load .env.<APP_ENV> before the client reads DATABASE_URL
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -10,12 +11,44 @@ const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: proc
 /** Models with `isDeleted`/`deletedAt`: reads hide deleted rows unless the query sets `isDeleted` itself (`undefined` = include them). Deleting = softDelete(). */
 const SOFT_DELETED = new Set(['User', 'Technician', 'Customer', 'ServiceLocation', 'Equipment', 'ServiceRequest', 'Job', 'Quotation', 'Invoice', 'Part', 'ChecklistTemplate', 'MaintenanceAgreement', 'Certificate']);
 const FILTERED = new Set(['findFirst', 'findFirstOrThrow', 'findMany', 'findUnique', 'findUniqueOrThrow', 'count', 'aggregate', 'groupBy', 'updateMany']);
+
+/**
+ * Multi-company: models carrying `companyId` are scoped to the company of the current request (set by authenticate / runAs),
+ * so no query can read or write another company's rows. Child tables (payments, line items, ...) are reached through their parent.
+ * A query on these models outside runAs() throws; use `unscoped` where there is deliberately no company yet (login, sweeps).
+ */
+const TENANT = new Set(['User', 'Technician', 'CompanySettings', 'Counter', 'Customer', 'ServiceLocation', 'Equipment', 'ServiceRequest', 'Job', 'Quotation', 'Invoice', 'CreditNote', 'Part', 'InventoryMovement', 'Notification', 'ChecklistTemplate', 'AuditLog', 'MaintenanceAgreement', 'Certificate']);
+const SCOPED_WHERE = new Set([...FILTERED, 'update', 'delete', 'deleteMany', 'upsert']);
+const tenant = new AsyncLocalStorage<string>();
+export const runAs = <T>(companyId: string, fn: () => T) => tenant.run(companyId, fn);
+export const currentCompany = () => tenant.getStore() ?? (() => { throw new Error('No company in context: wrap in runAs()'); })();
+const withCompany = (d: any, companyId: string): any => Array.isArray(d) ? d.map((r) => withCompany(r, companyId))
+  : { ...d, companyId, ...(d.locations?.create && { locations: { create: withCompany([d.locations.create].flat(), companyId) } }) }; // a customer's nested service locations are tenant rows too
+
 // Cast keeps every `Tx`/`PrismaClient` signature in the codebase unchanged.
 export const prisma = client.$extends({
-  query: { $allModels: { $allOperations: ({ model, operation, args, query }) =>
-    query(SOFT_DELETED.has(model) && FILTERED.has(operation) ? { ...args, where: { isDeleted: false, ...(args as any).where } } : args),
-  } },
+  query: { $allModels: { $allOperations: ({ model, operation, args, query }) => {
+    const a: any = { ...args };
+    if (SOFT_DELETED.has(model) && FILTERED.has(operation)) a.where = { isDeleted: false, ...a.where };
+    if (TENANT.has(model)) {
+      const companyId = currentCompany();
+      if (SCOPED_WHERE.has(operation)) a.where = { ...a.where, companyId };
+      if (operation === 'create' || operation === 'createMany' || operation === 'createManyAndReturn') a.data = withCompany(a.data, companyId);
+      if (operation === 'upsert') a.create = { ...a.create, companyId };
+    }
+    return query(a);
+  } } },
 }) as unknown as PrismaClient;
+
+/** The raw client: no company scoping. Only for lookups that happen before a company is known (login, public links, sweeps). */
+export const unscoped = client;
+
+/** Runs `fn` once per company (background sweeps have no request to take the company from). Sums numeric results. */
+export const forEachCompany = async (fn: () => Promise<number>) => {
+  let total = 0;
+  for (const { id } of await client.company.findMany({ select: { id: true } })) total += await runAs(id, fn);
+  return total;
+};
 
 export const softDelete = (model: any, where: object) => model.update({ where, data: { isDeleted: true, deletedAt: new Date() } });
 

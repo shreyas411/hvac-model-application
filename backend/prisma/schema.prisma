@@ -169,8 +169,10 @@ enum NotificationStatus {
 model User {
   // = auth.users.id (Supabase Auth); no default on purpose
   id           String      @id @db.Uuid
+  companyId    String      @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company      Company     @relation(fields: [companyId], references: [id])
   name         String
-  email        String      @unique
+  email        String
   password     String?     @map("password")
   role         UserRole
   phone        String      @default("")
@@ -178,86 +180,97 @@ model User {
   technicianId String?     @unique @map("technician_id") @db.Uuid
   technician   Technician? @relation(fields: [technicianId], references: [id])
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
-  inactive   Boolean   @default(false)
+  isDeleted    Boolean     @default(false) @map("is_deleted")
+  deletedAt    DateTime?   @map("deleted_at") @db.Timestamptz
+  inactive     Boolean     @default(false)
   updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
+  @@unique([companyId, email])
+  @@index([companyId])
   @@map("users")
 }
 
 model Technician {
-  id              String   @id @default(uuid()) @db.Uuid
-  legacyId        String?  @unique @map("legacy_id")
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company         Company   @relation(fields: [companyId], references: [id])
+  legacyId        String?   @map("legacy_id")
   name            String
-  phone           String   @default("")
-  email           String   @default("")
-  gasSafeLicense  String?  @map("gas_safe_license")
-  fGasLicense     String?  @map("f_gas_license")
+  phone           String    @default("")
+  email           String    @default("")
+  gasSafeLicense  String?   @map("gas_safe_license")
+  fGasLicense     String?   @map("f_gas_license")
   gasSafeExpiry   DateTime? @map("gas_safe_expiry") @db.Date
   fGasExpiry      DateTime? @map("f_gas_expiry") @db.Date
   skills          String[]
   color           String
-  active          Boolean  @default(true)
-  vanRegistration String?  @map("van_registration")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  active          Boolean   @default(true)
+  vanRegistration String?   @map("van_registration")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   user User?
   jobs Job[]
 
+  @@unique([companyId, legacyId])
+  @@index([companyId])
   @@map("technicians")
 }
 
-// Single row (id = 1)
+// One row per company
 model CompanySettings {
-  id                 Int       @id @default(1)
-  companyName        String    @map("company_name")
-  tradingName        String    @default("") @map("trading_name")
-  gasSafeRegisterNo  String    @default("") @map("gas_safe_register_no")
-  fGasCertNo         String    @default("") @map("f_gas_cert_no")
-  vatNumber          String    @default("") @map("vat_number")
-  companyNumber      String    @default("") @map("company_number")
-  email              String    @default("")
-  phone              String    @default("")
-  addressLine1       String    @default("") @map("address_line1")
-  city               String    @default("")
-  postcode           String    @default("")
-  website            String    @default("")
-  currencySymbol     String    @default("£") @map("currency_symbol")
-  defaultVatRate     Decimal   @default(20) @map("default_vat_rate") @db.Decimal(5, 2)
-  defaultHourlyRate  Decimal   @default(85) @map("default_hourly_rate") @db.Decimal(12, 2)
-  defaultTravelCharge Decimal  @default(35) @map("default_travel_charge") @db.Decimal(12, 2)
-  availableVatRates  Decimal[] @map("available_vat_rates") @db.Decimal(5, 2)
-  workingHoursStart  String    @default("08:00") @map("working_hours_start")
-  workingHoursEnd    String    @default("17:30") @map("working_hours_end")
-  enableInventory    Boolean   @default(true) @map("enable_inventory")
-  autoSendEmails Boolean @default(false) @map("auto_send_emails") // true: customer emails go out without staff approval
-  prefixJob          String    @default("JOB-") @map("prefix_job")
-  prefixQuote        String    @default("QTE-") @map("prefix_quote")
-  prefixInvoice      String    @default("INV-") @map("prefix_invoice")
-  bankDetails        Json      @default("{}") @map("bank_details")
-  termsAndConditions String    @default("") @map("terms_and_conditions")
-  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  companyId           String    @id @map("company_id") @db.Uuid
+  company             Company   @relation(fields: [companyId], references: [id])
+  companyName         String    @map("company_name")
+  tradingName         String    @default("") @map("trading_name")
+  gasSafeRegisterNo   String    @default("") @map("gas_safe_register_no")
+  fGasCertNo          String    @default("") @map("f_gas_cert_no")
+  vatNumber           String    @default("") @map("vat_number")
+  companyNumber       String    @default("") @map("company_number")
+  email               String    @default("")
+  phone               String    @default("")
+  addressLine1        String    @default("") @map("address_line1")
+  city                String    @default("")
+  postcode            String    @default("")
+  website             String    @default("")
+  currencySymbol      String    @default("£") @map("currency_symbol")
+  defaultVatRate      Decimal   @default(20) @map("default_vat_rate") @db.Decimal(5, 2)
+  defaultHourlyRate   Decimal   @default(85) @map("default_hourly_rate") @db.Decimal(12, 2)
+  defaultTravelCharge Decimal   @default(35) @map("default_travel_charge") @db.Decimal(12, 2)
+  availableVatRates   Decimal[] @map("available_vat_rates") @db.Decimal(5, 2)
+  workingHoursStart   String    @default("08:00") @map("working_hours_start")
+  workingHoursEnd     String    @default("17:30") @map("working_hours_end")
+  enableInventory     Boolean   @default(true) @map("enable_inventory")
+  autoSendEmails      Boolean   @default(false) @map("auto_send_emails") // true: customer emails go out without staff approval
+  prefixJob           String    @default("JOB-") @map("prefix_job")
+  prefixQuote         String    @default("QTE-") @map("prefix_quote")
+  prefixInvoice       String    @default("INV-") @map("prefix_invoice")
+  bankDetails         Json      @default("{}") @map("bank_details")
+  termsAndConditions  String    @default("") @map("terms_and_conditions")
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("company_settings")
 }
 
 // Document numbering (§6.1): UPDATE ... SET next_value = next_value + 1 RETURNING inside the create tx
 model Counter {
+  companyId String  @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id])
   key       String
   year      Int
-  nextValue Int    @default(1) @map("next_value")
+  nextValue Int     @default(1) @map("next_value")
 
-  @@id([key, year])
+  @@id([companyId, key, year])
   @@map("counters")
 }
 
 model Customer {
   id                      String                  @id @default(uuid()) @db.Uuid
-  legacyId                String?                 @unique @map("legacy_id")
+  companyId               String                  @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company                 Company                 @relation(fields: [companyId], references: [id])
+  legacyId                String?                 @map("legacy_id")
   type                    CustomerType
   name                    String
   companyName             String?                 @map("company_name")
@@ -269,8 +282,8 @@ model Customer {
   gdprConsent             Boolean                 @default(false) @map("gdpr_consent")
   archived                Boolean                 @default(false)
   createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  isDeleted               Boolean                 @default(false) @map("is_deleted")
+  deletedAt               DateTime?               @map("deleted_at") @db.Timestamptz
   updatedAt               DateTime                @updatedAt @map("updated_at") @db.Timestamptz
 
   locations     ServiceLocation[]
@@ -281,27 +294,31 @@ model Customer {
   invoices      Invoice[]
   notifications Notification[]
 
+  @@unique([companyId, legacyId])
+  @@index([companyId])
   @@map("customers")
 }
 
 model ServiceLocation {
-  id           String   @id @default(uuid()) @db.Uuid
-  legacyId     String?  @unique @map("legacy_id")
-  customerId   String   @map("customer_id") @db.Uuid
-  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company      Company   @relation(fields: [companyId], references: [id])
+  legacyId     String?   @map("legacy_id")
+  customerId   String    @map("customer_id") @db.Uuid
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   label        String
-  addressLine1 String   @map("address_line1")
-  addressLine2 String?  @map("address_line2")
+  addressLine1 String    @map("address_line1")
+  addressLine2 String?   @map("address_line2")
   city         String
   postcode     String
-  accessNotes  String?  @map("access_notes")
-  contactName  String?  @map("contact_name")
-  contactPhone String?  @map("contact_phone")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
-  inactive   Boolean   @default(false)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  accessNotes  String?   @map("access_notes")
+  contactName  String?   @map("contact_name")
+  contactPhone String?   @map("contact_phone")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+  inactive     Boolean   @default(false)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   equipment  Equipment[]
   requests   ServiceRequest[]
@@ -309,13 +326,17 @@ model ServiceLocation {
   quotations Quotation[]
   invoices   Invoice[]
 
+  @@unique([companyId, legacyId])
   @@index([customerId])
+  @@index([companyId])
   @@map("service_locations")
 }
 
 model Equipment {
   id                   String               @id @default(uuid()) @db.Uuid
-  legacyId             String?              @unique @map("legacy_id")
+  companyId            String               @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company              Company              @relation(fields: [companyId], references: [id])
+  legacyId             String?              @map("legacy_id")
   customerId           String               @map("customer_id") @db.Uuid
   customer             Customer             @relation(fields: [customerId], references: [id])
   locationId           String               @map("location_id") @db.Uuid
@@ -334,17 +355,19 @@ model Equipment {
   status               EquipmentStatus      @default(operational)
   locationNotes        String?              @map("location_notes")
   createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
-  inactive   Boolean   @default(false)
+  isDeleted            Boolean              @default(false) @map("is_deleted")
+  deletedAt            DateTime?            @map("deleted_at") @db.Timestamptz
+  inactive             Boolean              @default(false)
   updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz
 
   serviceRecords EquipmentServiceRecord[]
   requests       ServiceRequest[]
   jobs           JobEquipment[]
 
+  @@unique([companyId, legacyId])
   @@index([customerId])
   @@index([nextServiceDueDate])
+  @@index([companyId])
   @@map("equipment")
 }
 
@@ -370,8 +393,10 @@ model EquipmentServiceRecord {
 
 model ServiceRequest {
   id              String               @id @default(uuid()) @db.Uuid
-  legacyId        String?              @unique @map("legacy_id")
-  requestNumber   String               @unique @map("request_number")
+  companyId       String               @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company         Company              @relation(fields: [companyId], references: [id])
+  legacyId        String?              @map("legacy_id")
+  requestNumber   String               @map("request_number")
   customerId      String               @map("customer_id") @db.Uuid
   customer        Customer             @relation(fields: [customerId], references: [id])
   locationId      String               @map("location_id") @db.Uuid
@@ -388,20 +413,25 @@ model ServiceRequest {
   convertedJobId  String?              @unique @map("converted_job_id") @db.Uuid
   convertedJob    Job?                 @relation("RequestConvertedJob", fields: [convertedJobId], references: [id])
   createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  isDeleted       Boolean              @default(false) @map("is_deleted")
+  deletedAt       DateTime?            @map("deleted_at") @db.Timestamptz
   updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz
 
   jobs Job[] @relation("JobRequest")
 
+  @@unique([companyId, legacyId])
+  @@unique([companyId, requestNumber])
   @@index([status])
+  @@index([companyId])
   @@map("service_requests")
 }
 
 model Job {
   id                       String          @id @default(uuid()) @db.Uuid
-  legacyId                 String?         @unique @map("legacy_id")
-  jobNumber                String          @unique @map("job_number")
+  companyId                String          @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company                  Company         @relation(fields: [companyId], references: [id])
+  legacyId                 String?         @map("legacy_id")
+  jobNumber                String          @map("job_number")
   requestId                String?         @map("request_id") @db.Uuid
   request                  ServiceRequest? @relation("JobRequest", fields: [requestId], references: [id])
   customerId               String          @map("customer_id") @db.Uuid
@@ -434,13 +464,13 @@ model Job {
   completionTime           DateTime?       @map("completion_time") @db.Timestamptz
   slaDueAt                 DateTime?       @map("sla_due_at") @db.Timestamptz // response deadline from the site's contract; breached while still `new` after it
   createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  isDeleted                Boolean         @default(false) @map("is_deleted")
+  deletedAt                DateTime?       @map("deleted_at") @db.Timestamptz
   updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   equipment        JobEquipment[]
   partsUsed        JobPartUsed[]
-  refrigerantLogs RefrigerantLog[]
+  refrigerantLogs  RefrigerantLog[]
   checklist        JobChecklistItem[]
   auditLog         JobAuditLog[]
   photos           JobPhoto[]
@@ -451,8 +481,11 @@ model Job {
   invoices         Invoice[]
   movements        InventoryMovement[]
 
+  @@unique([companyId, legacyId])
+  @@unique([companyId, jobNumber])
   @@index([technicianId, appointmentDate])
   @@index([status])
+  @@index([companyId])
   @@map("jobs")
 }
 
@@ -467,18 +500,18 @@ model JobEquipment {
 }
 
 model RefrigerantLog {
-  id            String   @id @default(uuid()) @db.Uuid
-  jobId         String   @map("job_id") @db.Uuid
-  job           Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  equipmentId   String?  @map("equipment_id") @db.Uuid
-  refrigerant   String
-  action        String
-  amountKg      Decimal  @map("amount_kg") @db.Decimal(8, 3)
-  cylinderId    String   @default("") @map("cylinder_id")
-  certNumber    String   @map("cert_number")
-  notes         String?
-  createdBy     String   @map("created_by")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id          String   @id @default(uuid()) @db.Uuid
+  jobId       String   @map("job_id") @db.Uuid
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  equipmentId String?  @map("equipment_id") @db.Uuid
+  refrigerant String
+  action      String
+  amountKg    Decimal  @map("amount_kg") @db.Decimal(8, 3)
+  cylinderId  String   @default("") @map("cylinder_id")
+  certNumber  String   @map("cert_number")
+  notes       String?
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   @@index([jobId])
   @@map("refrigerant_logs")
@@ -532,8 +565,10 @@ model JobAuditLog {
 
 model Quotation {
   id                   String          @id @default(uuid()) @db.Uuid
-  legacyId             String?         @unique @map("legacy_id")
-  quoteNumber          String          @unique @map("quote_number")
+  companyId            String          @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company              Company         @relation(fields: [companyId], references: [id])
+  legacyId             String?         @map("legacy_id")
+  quoteNumber          String          @map("quote_number")
   customerId           String          @map("customer_id") @db.Uuid
   customer             Customer        @relation(fields: [customerId], references: [id])
   locationId           String          @map("location_id") @db.Uuid
@@ -557,22 +592,27 @@ model Quotation {
   convertedToJob       Job?            @relation("QuotationConvertedJob", fields: [convertedToJobId], references: [id])
   convertedToInvoiceId String?         @unique @map("converted_to_invoice_id") @db.Uuid
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  isDeleted            Boolean         @default(false) @map("is_deleted")
+  deletedAt            DateTime?       @map("deleted_at") @db.Timestamptz
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   items            LineItem[]
   convertedInvoice Invoice?   @relation("QuotationConvertedInvoice", fields: [convertedToInvoiceId], references: [id])
   invoices         Invoice[]  @relation("InvoiceQuote")
 
+  @@unique([companyId, legacyId])
+  @@unique([companyId, quoteNumber])
   @@index([status, expiryDate])
+  @@index([companyId])
   @@map("quotations")
 }
 
 model Invoice {
   id               String          @id @default(uuid()) @db.Uuid
-  legacyId         String?         @unique @map("legacy_id")
-  invoiceNumber    String          @unique @map("invoice_number")
+  companyId        String          @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company          Company         @relation(fields: [companyId], references: [id])
+  legacyId         String?         @map("legacy_id")
+  invoiceNumber    String          @map("invoice_number")
   quoteId          String?         @map("quote_id") @db.Uuid
   quote            Quotation?      @relation("InvoiceQuote", fields: [quoteId], references: [id])
   jobId            String?         @map("job_id") @db.Uuid
@@ -600,34 +640,37 @@ model Invoice {
   stageLabel       String?         @map("stage_label") // deposit / stage / final invoice raised from a quote
   stagePercent     Decimal?        @map("stage_percent") @db.Decimal(5, 2) // share of the quote this stage bills
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  isDeleted        Boolean         @default(false) @map("is_deleted")
+  deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz
   updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
-  items     LineItem[]
-  payments  Payment[]
+  items       LineItem[]
+  payments    Payment[]
   creditNotes CreditNote[]
-  fromQuote Quotation? @relation("QuotationConvertedInvoice")
+  fromQuote   Quotation?   @relation("QuotationConvertedInvoice")
 
+  @@unique([companyId, legacyId])
+  @@unique([companyId, invoiceNumber])
   @@index([status, dueDate])
+  @@index([companyId])
   @@map("invoices")
 }
 
 // Shared by quotations and invoices; exactly one parent is set
 model LineItem {
-  vatRatePercent Decimal? @map("vat_rate_percent") @db.Decimal(5, 2)
-  id          String       @id @default(uuid()) @db.Uuid
-  quotationId String?      @map("quotation_id") @db.Uuid
-  quotation   Quotation?   @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  invoiceId   String?      @map("invoice_id") @db.Uuid
-  invoice     Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  type        LineItemType
-  description String
-  quantity    Decimal      @db.Decimal(10, 4)
-  unitPrice   Decimal      @map("unit_price") @db.Decimal(12, 2)
-  amount      Decimal      @db.Decimal(12, 2)
-  position    Int          @default(0)
-  option      String?
+  vatRatePercent Decimal?     @map("vat_rate_percent") @db.Decimal(5, 2)
+  id             String       @id @default(uuid()) @db.Uuid
+  quotationId    String?      @map("quotation_id") @db.Uuid
+  quotation      Quotation?   @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  invoiceId      String?      @map("invoice_id") @db.Uuid
+  invoice        Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  type           LineItemType
+  description    String
+  quantity       Decimal      @db.Decimal(10, 4)
+  unitPrice      Decimal      @map("unit_price") @db.Decimal(12, 2)
+  amount         Decimal      @db.Decimal(12, 2)
+  position       Int          @default(0)
+  option         String?
 
   @@index([quotationId])
   @@index([invoiceId])
@@ -647,56 +690,67 @@ model Payment {
   recordedBy String        @map("recorded_by")
   notes      String?
   createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  refunded    Boolean       @default(false)
+  refunded   Boolean       @default(false)
 
   @@index([invoiceId])
   @@map("payments")
 }
 
 model CreditNote {
-  id            String    @id @default(uuid()) @db.Uuid
-  creditNumber  String    @unique @map("credit_number")
-  invoiceId     String    @map("invoice_id") @db.Uuid
-  invoice       Invoice   @relation(fields: [invoiceId], references: [id])
-  amount        Decimal   @db.Decimal(12, 2)
-  reason        String
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  createdBy     String    @map("created_by")
-  vatAmount     Decimal   @default(0) @map("vat_amount") @db.Decimal(12, 2)
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company      Company  @relation(fields: [companyId], references: [id])
+  creditNumber String   @map("credit_number")
+  invoiceId    String   @map("invoice_id") @db.Uuid
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id])
+  amount       Decimal  @db.Decimal(12, 2)
+  reason       String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy    String   @map("created_by")
+  vatAmount    Decimal  @default(0) @map("vat_amount") @db.Decimal(12, 2)
 
+  @@unique([companyId, creditNumber])
   @@index([invoiceId])
+  @@index([companyId])
   @@map("credit_notes")
 }
 
 model Part {
-  id            String   @id @default(uuid()) @db.Uuid
-  legacyId      String?  @unique @map("legacy_id")
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company       Company   @relation(fields: [companyId], references: [id])
+  legacyId      String?   @map("legacy_id")
   name          String
-  sku           String   @unique
-  description   String   @default("")
-  category      String   @default("")
-  unitCost      Decimal  @map("unit_cost") @db.Decimal(12, 2)
-  sellingPrice  Decimal  @map("selling_price") @db.Decimal(12, 2)
+  sku           String
+  description   String    @default("")
+  category      String    @default("")
+  unitCost      Decimal   @map("unit_cost") @db.Decimal(12, 2)
+  sellingPrice  Decimal   @map("selling_price") @db.Decimal(12, 2)
   // CHECK (stock_quantity >= 0) added in migration SQL
-  stockQuantity Int      @default(0) @map("stock_quantity")
-  minStockLevel Int      @default(0) @map("min_stock_level")
-  location      String   @default("")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
-  inactive   Boolean   @default(false)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  stockQuantity Int       @default(0) @map("stock_quantity")
+  minStockLevel Int       @default(0) @map("min_stock_level")
+  location      String    @default("")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted     Boolean   @default(false) @map("is_deleted")
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
+  inactive      Boolean   @default(false)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   movements InventoryMovement[]
   jobParts  JobPartUsed[]
 
+  @@unique([companyId, legacyId])
+  @@unique([companyId, sku])
+  @@index([companyId])
   @@map("parts")
 }
 
 // Append-only ledger; parts.stock_quantity changes only alongside a row here, in one tx
 model InventoryMovement {
   id            String       @id @default(uuid()) @db.Uuid
-  legacyId      String?      @unique @map("legacy_id")
+  companyId     String       @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company       Company      @relation(fields: [companyId], references: [id])
+  legacyId      String?      @map("legacy_id")
   partId        String       @map("part_id") @db.Uuid
   part          Part         @relation(fields: [partId], references: [id])
   type          MovementType
@@ -708,13 +762,17 @@ model InventoryMovement {
   vatAmount     Decimal      @default(0) @map("vat_amount") @db.Decimal(12, 2)
   createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
+  @@unique([companyId, legacyId])
   @@index([partId])
+  @@index([companyId])
   @@map("inventory_movements")
 }
 
 model Notification {
   id          String              @id @default(uuid()) @db.Uuid
-  legacyId    String?             @unique @map("legacy_id")
+  companyId   String              @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company     Company             @relation(fields: [companyId], references: [id])
+  legacyId    String?             @map("legacy_id")
   customerId  String              @map("customer_id") @db.Uuid
   customer    Customer            @relation(fields: [customerId], references: [id])
   type        NotificationType
@@ -722,26 +780,28 @@ model Notification {
   channel     NotificationChannel
   subject     String
   messageBody String              @map("message_body")
-  invoiceId     String?  @map("invoice_id") @db.Uuid // attach this invoice\'s PDF when sending
-  quotationId   String?  @map("quotation_id") @db.Uuid // attach this quotation\'s PDF when sending
+  invoiceId   String?             @map("invoice_id") @db.Uuid // attach this invoice\'s PDF when sending
+  quotationId String?             @map("quotation_id") @db.Uuid // attach this quotation\'s PDF when sending
   status      NotificationStatus  @default(draft)
   sentAt      DateTime?           @map("sent_at") @db.Timestamptz
   approvedBy  String?             @map("approved_by")
-  claimedAt   DateTime?          @map("claimed_at") @db.Timestamptz
+  claimedAt   DateTime?           @map("claimed_at") @db.Timestamptz
   createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz
 
+  @@unique([companyId, legacyId])
   @@index([status])
+  @@index([companyId])
   @@map("customer_notifications")
 }
 
 // Replay guard for the offline write queue: one row per (user, x-idempotency-key); status/body null while the first attempt runs
 model IdempotencyKey {
-  key       String
-  userId    String   @map("user_id")
-  fingerprint String  @default("")
-  status    Int?
-  body      Json?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  key         String
+  userId      String   @map("user_id")
+  fingerprint String   @default("")
+  status      Int?
+  body        Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   @@id([key, userId])
   @@map("idempotency_keys")
@@ -750,22 +810,27 @@ model IdempotencyKey {
 // Admin-managed checklist items offered per job type (copied onto a job when added)
 model ChecklistTemplate {
   id        String            @id @default(uuid()) @db.Uuid
+  companyId String            @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company   Company           @relation(fields: [companyId], references: [id])
   jobType   JobType           @map("job_type")
   label     String
   category  ChecklistCategory @default(general)
   position  Int               @default(0)
   createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
-  inactive   Boolean   @default(false)
+  isDeleted Boolean           @default(false) @map("is_deleted")
+  deletedAt DateTime?         @map("deleted_at") @db.Timestamptz
+  inactive  Boolean           @default(false)
 
   @@index([jobType])
+  @@index([companyId])
   @@map("checklist_templates")
 }
 
 // Append-only trail for money and compliance actions outside jobs (jobs have JobAuditLog).
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id])
   entity    String
   entityId  String   @map("entity_id")
   action    String
@@ -775,54 +840,62 @@ model AuditLog {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   @@index([entity, entityId])
+  @@index([companyId])
   @@map("audit_log")
 }
 
 // Recurring preventive-maintenance contract: the daily sweep raises a job when nextDueDate is near.
 model MaintenanceAgreement {
-  id          String   @id @default(uuid()) @db.Uuid
-  customerId  String   @map("customer_id") @db.Uuid
-  locationId  String   @map("location_id") @db.Uuid
-  equipmentId String?  @map("equipment_id") @db.Uuid
-  frequency   String
-  nextDueDate DateTime @map("next_due_date") @db.Date
-  active      Boolean  @default(true)
-  notes       String?
-  annualPrice      Decimal  @default(0) @map("annual_price") @db.Decimal(12, 2) // ex-VAT; each visit bills its share when autoInvoice is on
+  id               String    @id @default(uuid()) @db.Uuid
+  companyId        String    @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company          Company   @relation(fields: [companyId], references: [id])
+  customerId       String    @map("customer_id") @db.Uuid
+  locationId       String    @map("location_id") @db.Uuid
+  equipmentId      String?   @map("equipment_id") @db.Uuid
+  frequency        String
+  nextDueDate      DateTime  @map("next_due_date") @db.Date
+  active           Boolean   @default(true)
+  notes            String?
+  annualPrice      Decimal   @default(0) @map("annual_price") @db.Decimal(12, 2) // ex-VAT; each visit bills its share when autoInvoice is on
   endDate          DateTime? @map("end_date") @db.Date // term end: no visits are raised after it and the agreement deactivates
-  slaResponseHours Int?     @map("sla_response_hours") // promised response time for call-outs; informational
-  autoInvoice      Boolean  @default(false) @map("auto_invoice")
-  autoRenew        Boolean  @default(false) @map("auto_renew") // past endDate, extend the term 12 months instead of deactivating
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  slaResponseHours Int?      @map("sla_response_hours") // promised response time for call-outs; informational
+  autoInvoice      Boolean   @default(false) @map("auto_invoice")
+  autoRenew        Boolean   @default(false) @map("auto_renew") // past endDate, extend the term 12 months instead of deactivating
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted        Boolean   @default(false) @map("is_deleted")
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   @@index([active, nextDueDate])
+  @@index([companyId])
   @@map("maintenance_agreements")
 }
 
 // Gas Safe paperwork. Engineer name/licence are snapshotted at issue so later profile edits can't alter a signed certificate.
 model Certificate {
-  id             String          @id @default(uuid()) @db.Uuid
-  certNumber     String          @unique @map("cert_number")
-  type           CertificateType
-  jobId          String?         @map("job_id") @db.Uuid
-  customerId     String          @map("customer_id") @db.Uuid
-  locationId     String          @map("location_id") @db.Uuid
-  technicianId   String          @map("technician_id") @db.Uuid
-  engineerName   String          @map("engineer_name")
-  gasSafeNumber  String          @map("gas_safe_number")
-  issueDate      DateTime        @map("issue_date") @db.Date
-  expiryDate     DateTime?       @map("expiry_date") @db.Date
-  data           Json
-  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  id            String          @id @default(uuid()) @db.Uuid
+  companyId     String          @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company       Company         @relation(fields: [companyId], references: [id])
+  certNumber    String          @map("cert_number")
+  type          CertificateType
+  jobId         String?         @map("job_id") @db.Uuid
+  customerId    String          @map("customer_id") @db.Uuid
+  locationId    String          @map("location_id") @db.Uuid
+  technicianId  String          @map("technician_id") @db.Uuid
+  engineerName  String          @map("engineer_name")
+  gasSafeNumber String          @map("gas_safe_number")
+  issueDate     DateTime        @map("issue_date") @db.Date
+  expiryDate    DateTime?       @map("expiry_date") @db.Date
+  data          Json
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted     Boolean         @default(false) @map("is_deleted")
+  deletedAt     DateTime?       @map("deleted_at") @db.Timestamptz
 
+  @@unique([companyId, certNumber])
   @@index([customerId])
   @@index([jobId])
   @@index([expiryDate])
+  @@index([companyId])
   @@map("certificates")
 }
 
@@ -839,4 +912,34 @@ model JobPhoto {
 
   @@index([jobId])
   @@map("job_photos")
+}
+
+// A tenant: every business row below carries company_id, and login is (company slug, email, password).
+model Company {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique // what the user types at login, stored lowercase
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  settings              CompanySettings?
+  counters              Counter[]
+  users                 User[]
+  technicians           Technician[]
+  customers             Customer[]
+  serviceLocations      ServiceLocation[]
+  equipments            Equipment[]
+  serviceRequests       ServiceRequest[]
+  jobs                  Job[]
+  quotations            Quotation[]
+  invoices              Invoice[]
+  creditNotes           CreditNote[]
+  parts                 Part[]
+  inventoryMovements    InventoryMovement[]
+  notifications         Notification[]
+  checklistTemplates    ChecklistTemplate[]
+  auditLogs             AuditLog[]
+  maintenanceAgreements MaintenanceAgreement[]
+  certificates          Certificate[]
+
+  @@map("companies")
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { accessTokenFrom, authenticate, checkPassword, clearSessionCookies, DUMMY_HASH, devAuth, generateLocalToken, refreshLocalSession, refreshTokenFrom, requireCsrfHeader, setSessionCookies } from '../../common/auth.js';
 import { ApiError, h } from '../../common/errors.js';
 import { config } from '../../config.js';
-import { prisma } from '../../common/prisma.js';
+import { unscoped } from '../../common/prisma.js';
 
 // Thin proxy to Supabase Auth (GoTrue); the API itself never sees or stores passwords.
 async function gotrue(path: string, init: RequestInit & { token?: string }) {
@@ -26,13 +26,17 @@ type Tokens = { accessToken: string; refreshToken: string; expiresIn: number };
 const start = (res: Response, t: Tokens) => (setSessionCookies(res, t), { expiresIn: t.expiresIn });
 
 authRouter.post('/login', (req, res, next) => void Promise.resolve().then(async () => {
-  const { email, password } = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
+  const { company, email, password } = z.object({ company: z.string().trim().min(1), email: z.string().email(), password: z.string().min(1) }).parse(req.body);
+  // Login is per company: the same email may exist in several, so the user is looked up inside the named one.
+  const user = await unscoped.user.findFirst({ where: { email, isDeleted: false, company: { slug: company.toLowerCase() } } });
+  const invalid = new ApiError(401, 'UNAUTHENTICATED', 'Invalid company, email or password');
   if (devAuth) {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!checkPassword(password, user?.password ?? DUMMY_HASH) || !user || user.inactive) throw new ApiError(401, 'UNAUTHENTICATED', 'Invalid email or password');
+    if (!checkPassword(password, user?.password ?? DUMMY_HASH) || !user || user.inactive) throw invalid;
     return start(res, { accessToken: await generateLocalToken(user), refreshToken: await generateLocalToken(user, 'refresh'), expiresIn: 3600 });
   }
-  return start(res, session(await gotrue('token?grant_type=password', { method: 'POST', body: JSON.stringify({ email, password }) })));
+  const body = await gotrue('token?grant_type=password', { method: 'POST', body: JSON.stringify({ email, password }) });
+  if (!user || user.inactive || body.user?.id !== user.id) throw invalid; // right password, but not an account of this company
+  return start(res, session(body));
 }).then((r) => res.json(r), next));
 
 authRouter.post('/refresh', (req, res, next) => void Promise.resolve().then(async () => {

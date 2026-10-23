@@ -6,6 +6,7 @@ import { isUuid, prisma, removeRecord } from '../../common/prisma.js';
 import { hhmm, isoDate, money, priority } from '../../common/zod.js';
 import { getSettings } from '../settings/service.js';
 import { generateFromJob } from '../invoices/service.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 import * as photos from './photos.js';
 import { isInkedPng } from '../../common/signature.js';
@@ -76,6 +77,16 @@ jobsRouter.patch('/:id', field, h(async (req) => {
     return svc.updateJob(j.id, techPatch.parse(req.body) as any, actor(req), 'Work record updated');
   }
   return svc.updateJob(j.id, dispatchPatch.parse(req.body) as any, actor(req));
+}));
+
+jobsRouter.post('/bulk-assign', staff, h(async (req) => {
+  const b = z.object({ jobIds: z.array(z.string().uuid()).min(1).max(100), technicianId: z.string().uuid().nullable() }).parse(req.body);
+  return { results: await svc.bulkAssign([...new Set(b.jobIds)], b.technicianId, actor(req)) };
+}));
+
+jobsRouter.post('/bulk-status', staff, h((req) => {
+  const b = z.object({ jobIds: bulkIds, status: jobStatus }).parse(req.body);
+  return bulk(b.jobIds, (id) => svc.changeStatus(id, b.status, actor(req)));
 }));
 
 jobsRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.job, req.params.id, 'Job', async (j) =>

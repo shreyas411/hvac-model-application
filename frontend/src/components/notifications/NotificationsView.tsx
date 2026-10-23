@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { CustomerNotification } from '../../types';
 import { formatDateUK } from '../../utils/formatters';
 import { IconBell, IconDeviceMobile, IconEye, IconMail, IconPlus, IconSearch, IconSend, IconX } from '@tabler/icons-react';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { Combobox } from '../common/Combobox';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { RowActions } from '../common/RowActions';
@@ -18,7 +19,7 @@ import { Textarea } from '@/src/components/ui/textarea';
 import { Tip } from '@/src/components/common/Tip';
 
 export const NotificationsView: React.FC = () => {
-  const { notifications, customers, sendNotification, createNotification, currentUser, customerById, confirmToast, showToast } = useApp(['notifications', 'customers', 'sendNotification', 'createNotification', 'currentUser', 'customerById', 'confirmToast', 'showToast']);
+  const { notifications, customers, sendNotification, bulkSendNotifications, createNotification, currentUser, customerById, confirmToast, showToast } = useApp(['notifications', 'customers', 'sendNotification', 'bulkSendNotifications', 'createNotification', 'currentUser', 'customerById', 'confirmToast', 'showToast']);
 
   const [previewNotif, setPreviewNotif] = useState<CustomerNotification | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
@@ -72,6 +73,17 @@ export const NotificationsView: React.FC = () => {
     setBusy(false);
   };
 
+  const sel = useRowSelection(visible, (n) => n.status !== 'sent' && n.status !== 'sending');
+  const bulkSend = async () => {
+    const rows = sel.selected;
+    setBusy(true);
+    const failed = await bulkSendNotifications(rows.map((n) => n.id));
+    setBusy(false);
+    sel.clear();
+    const bad = rows.filter((n) => failed[n.id]);
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} sent. Skipped: ${bad.map((n) => `${customerById.get(n.customerId)?.name ?? n.recipient}: ${failed[n.id]}`).join('; ')}`, 'error');
+  };
+
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
@@ -102,11 +114,16 @@ export const NotificationsView: React.FC = () => {
         {pending.length > 1 && show !== 'sent' && <Button type="button" size="xs" disabled={busy} onClick={() => confirmToast(`Approve and send ${pending.length} notifications?`, () => void approveAll(), { confirmLabel: 'Approve all' })}><IconSend aria-hidden="true" />Approve all ({pending.length})</Button>}
       </div>
 
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        <Button type="button" size="xs" disabled={busy} onClick={() => confirmToast(`Approve and send ${sel.selected.length} notification${sel.selected.length === 1 ? '' : 's'}?`, () => void bulkSend(), { confirmLabel: 'Approve & send' })}><IconSend aria-hidden="true" />Approve & send {sel.selected.length}</Button>
+      </BulkBar>
+
       <div style={{ '--table-offset': '16.5rem' } as React.CSSProperties}>
         <TableCard>
           <Table className="text-xs">
             <TableHeader>
               <TableRow>
+                <SelectAllHead sel={sel} label="notifications" />
                 <TableHead className="px-3">Customer</TableHead>
                 <TableHead className="hidden md:table-cell px-3">Type</TableHead>
                 <TableHead className="px-3">Subject</TableHead>
@@ -120,7 +137,8 @@ export const NotificationsView: React.FC = () => {
                 const cust = customerById.get(notif.customerId);
                 const isSent = notif.status === 'sent';
                 return (
-                  <TableRow key={notif.id}>
+                  <TableRow key={notif.id} data-state={sel.has(notif.id) ? 'selected' : undefined}>
+                    <SelectCell sel={sel} row={notif} label={notif.subject} />
                     <TableCell className="px-3 py-3 font-bold">{cust?.name}</TableCell>
                     <TableCell className="hidden md:table-cell px-3 py-3 capitalize">{notif.type.replace(/_/g, ' ')}</TableCell>
                     <TableCell className="px-3 py-3 max-w-[360px]">
@@ -142,7 +160,7 @@ export const NotificationsView: React.FC = () => {
                   </TableRow>
                 );
               })}
-              {visible.length === 0 && <TableRow><TableCell colSpan={6} className="py-6"><EmptyState icon={IconBell}>No notifications match.</EmptyState></TableCell></TableRow>}
+              {visible.length === 0 && <TableRow><TableCell colSpan={7} className="py-6"><EmptyState icon={IconBell}>No notifications match.</EmptyState></TableCell></TableRow>}
             </TableBody>
           </Table>
         </TableCard>

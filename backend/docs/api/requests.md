@@ -14,3 +14,11 @@ All routes A D.
 
 ## Changes
 - `DELETE /requests/:id` (admin) soft-deletes; a `converted` request cannot be deleted (it is part of its job's history).
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/requests/bulk-cancel` | A D | `{ ids }` | Sets `status: cancelled` (same as `PATCH /requests/:id`) |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.

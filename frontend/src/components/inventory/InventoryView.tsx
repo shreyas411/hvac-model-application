@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { InventoryMovement, PartItem } from '../../types';
-import { formatGBP, formatDateUK } from '../../utils/formatters';
-import { IconAdjustments, IconArrowsExchange, IconCancel, IconCheck, IconPackage, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { formatGBP, formatDateUK, getTodayISO } from '../../utils/formatters';
+import { downloadCsv } from '../../utils/csv';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
+import { IconAdjustments, IconArrowsExchange, IconCancel, IconCheck, IconDownload, IconPackage, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
@@ -18,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
 
 export const InventoryView: React.FC = () => {
-  const { parts, inventoryMovements, addPart, updatePart, adjustStock, deletePart, settings, confirmToast } = useApp(['parts', 'inventoryMovements', 'addPart', 'updatePart', 'adjustStock', 'deletePart', 'settings', 'confirmToast']);
+  const { parts, inventoryMovements, addPart, updatePart, adjustStock, deletePart, bulkDeleteParts, bulkSetPartsInactive, settings, confirmToast, showToast } = useApp(['parts', 'inventoryMovements', 'addPart', 'updatePart', 'adjustStock', 'deletePart', 'bulkDeleteParts', 'bulkSetPartsInactive', 'settings', 'confirmToast', 'showToast']);
   const paged = useServerPaged<InventoryMovement>('/movements', {}, inventoryMovements);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -58,6 +60,18 @@ export const InventoryView: React.FC = () => {
     return true;
   });
 
+  const sel = useRowSelection(filteredParts);
+  const report = (rows: PartItem[], failed: Record<string, string>) => {
+    sel.clear();
+    const bad = rows.filter((p) => failed[p.id]);
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} done. Skipped: ${bad.map((p) => `${p.name}: ${failed[p.id]}`).join('; ')}`, 'error');
+  };
+  const bulkDelete = async () => { const rows = sel.selected; report(rows, await bulkDeleteParts(rows.map((p) => p.id))); };
+  const bulkInactive = async (inactive: boolean) => { const rows = sel.selected; report(rows, await bulkSetPartsInactive(rows.map((p) => p.id), inactive)); };
+  const exportSelected = () => downloadCsv(`inventory-${getTodayISO()}.csv`, [
+    ['Name', 'SKU', 'Category', 'Location', 'Unit cost', 'Selling price', 'Stock', 'Min stock', 'Inactive'],
+    ...sel.selected.map((p) => [p.name, p.sku, p.category, p.location, p.unitCost, p.sellingPrice, p.stockQuantity, p.minStockLevel, p.inactive ? 'Yes' : 'No']),
+  ]);
 
   const handleSavePart = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,11 +169,19 @@ export const InventoryView: React.FC = () => {
         {(searchTerm || stockFilter !== 'all') && <Button variant="ghost" size="xs" onClick={() => { setSearchTerm(''); setStockFilter('all'); }}><IconX aria-hidden="true" />Clear filters</Button>}
       </div>
 
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        <Button type="button" size="xs" onClick={() => void bulkInactive(false)}><IconCheck aria-hidden="true" />Activate</Button>
+        <Button type="button" size="xs" onClick={() => confirmToast(`Deactivate ${sel.selected.length} part${sel.selected.length === 1 ? '' : 's'}?`, () => void bulkInactive(true))}><IconCancel aria-hidden="true" />Deactivate</Button>
+        <Button type="button" size="xs" variant="secondary" onClick={exportSelected}><IconDownload aria-hidden="true" />Export CSV</Button>
+        <Button type="button" size="xs" variant="destructive" onClick={() => confirmToast(`Delete ${sel.selected.length} part${sel.selected.length === 1 ? '' : 's'}? Parts with stock history are skipped.`, () => void bulkDelete(), { confirmLabel: 'Delete' })}><IconTrash aria-hidden="true" />Delete {sel.selected.length}</Button>
+      </BulkBar>
+
       {/* Parts Table */}
       <div style={{ '--table-offset': '26rem' } as React.CSSProperties}><TableCard>
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
+              <SelectAllHead sel={sel} label="parts" />
               <TableHead>Item Name & SKU</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Location / Bin</TableHead>
@@ -170,12 +192,13 @@ export const InventoryView: React.FC = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredParts.length === 0 && <TableRow><TableCell colSpan={7} className="py-6"><EmptyState icon={IconPackage}>No parts found.</EmptyState></TableCell></TableRow>}
+            {filteredParts.length === 0 && <TableRow><TableCell colSpan={8} className="py-6"><EmptyState icon={IconPackage}>No parts found.</EmptyState></TableCell></TableRow>}
             {filteredParts.map((part) => {
               const isLow = part.stockQuantity <= part.minStockLevel;
 
               return (
-                <TableRow key={part.id}>
+                <TableRow key={part.id} data-state={sel.has(part.id) ? 'selected' : undefined}>
+                  <SelectCell sel={sel} row={part} label={part.name} />
                   <TableCell>
                     <span className={`font-bold block ${part.inactive ? 'text-muted-foreground' : ''}`}>{part.name}{part.inactive && <Badge variant="secondary" className="ml-2 text-[10px] uppercase">Inactive</Badge>}</span>
                     <span className="tabular-nums text-[11px] text-muted-foreground block">{part.sku}</span>

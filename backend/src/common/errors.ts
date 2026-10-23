@@ -22,7 +22,7 @@ export const h =
       .catch(next);
 
 // Constraint violations that escape the service-level checks (races, bad foreign keys).
-const PRISMA: Record<string, [number, string, string]> = {
+export const PRISMA: Record<string, [number, string, string]> = {
   P2002: [409, 'DUPLICATE', 'A record with these unique values already exists'],
   P2023: [422, 'INVALID_ID', 'Malformed id'],
   P2003: [422, 'INVALID_REFERENCE', 'Referenced record does not exist or is still in use'],
