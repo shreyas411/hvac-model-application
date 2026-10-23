@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Customer, CustomerType } from '../../types';
+import { Customer, CustomerType, CustomFieldValues } from '../../types';
+import { CustomFieldInputs } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { AddressInput } from '../common/AddressInput';
 import { Button } from '@/src/components/ui/button';
 import { Checkbox } from '@/src/components/ui/checkbox';
@@ -34,9 +36,11 @@ export const CustomerFormDrawer: React.FC<CustomerFormDrawerProps> = ({ customer
   const [formNotes, setFormNotes] = useState(c?.notes ?? '');
   const [formPref, setFormPref] = useState<'email' | 'sms' | 'both'>(c?.communicationPreference ?? 'email'); // SMS isn't delivered yet, so don't default to it
   const [formGdpr, setFormGdpr] = useState(c?.gdprConsent ?? false); // consent must be an affirmative tick, never pre-ticked
+  const [formCustom, setFormCustom] = useState<CustomFieldValues>(c?.customFields ?? {});
+  const { active: customDefs } = useCustomFields('customer');
 
-  const initial = useRef(JSON.stringify([formType, formName, formCompanyName, formPhone, formEmail, formBillingLine1, formBillingLine2, formBillingCity, formBillingPostcode, formNotes, formPref, formGdpr])).current;
-  const dirty = !busy && initial !== JSON.stringify([formType, formName, formCompanyName, formPhone, formEmail, formBillingLine1, formBillingLine2, formBillingCity, formBillingPostcode, formNotes, formPref, formGdpr]);
+  const initial = useRef(JSON.stringify([formType, formName, formCompanyName, formPhone, formEmail, formBillingLine1, formBillingLine2, formBillingCity, formBillingPostcode, formNotes, formPref, formGdpr, formCustom])).current;
+  const dirty = !busy && initial !== JSON.stringify([formType, formName, formCompanyName, formPhone, formEmail, formBillingLine1, formBillingLine2, formBillingCity, formBillingPostcode, formNotes, formPref, formGdpr, formCustom]);
 
   // An email identifies a customer: refuse a second active record with the same address (the server enforces it too).
   const duplicate = formEmail.trim() ? customers.find((x) => !x.archived && x.id !== customer?.id && x.email.toLowerCase() === formEmail.trim().toLowerCase()) : undefined;
@@ -63,6 +67,7 @@ export const CustomerFormDrawer: React.FC<CustomerFormDrawerProps> = ({ customer
         notes: formNotes,
         communicationPreference: formPref,
         gdprConsent: formGdpr,
+        customFields: formCustom,
       });
     } else {
       // Create new customer with primary service location
@@ -91,6 +96,7 @@ export const CustomerFormDrawer: React.FC<CustomerFormDrawerProps> = ({ customer
         notes: formNotes,
         communicationPreference: formPref,
         gdprConsent: formGdpr,
+        customFields: formCustom,
       });
       ok = !!newCustomer;
       if (newCustomer) onSaved?.(newCustomer.id);
@@ -185,6 +191,8 @@ export const CustomerFormDrawer: React.FC<CustomerFormDrawerProps> = ({ customer
             <Checkbox checked={formGdpr} onCheckedChange={(v) => setFormGdpr(v === true)} />
             Customer consented to service communication (UK GDPR)
           </Label>
+
+          <CustomFieldInputs defs={customDefs} values={formCustom} onChange={setFormCustom} />
         </form>
     </DetailDrawer>
   );

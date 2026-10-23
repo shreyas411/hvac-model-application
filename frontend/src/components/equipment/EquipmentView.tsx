@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
-import { Equipment, EquipmentType } from '../../types';
+import { Equipment, EquipmentType, CustomFieldValues } from '../../types';
+import { CustomFieldBox, CustomFieldInputs } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { formatDateUK, getTodayISO } from '../../utils/formatters';
 import { downloadCsv } from '../../utils/csv';
 import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
-import { IconAirConditioning, IconCalendarPlus, IconCancel, IconCheck, IconDownload, IconHistory, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
+import { IconAirConditioning, IconCalendarPlus, IconCancel, IconCheck, IconDownload, IconHistory, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
 import { Combobox } from '../common/Combobox';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
@@ -40,6 +42,7 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
 
   // New Equipment Modal
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // set = the drawer edits this asset instead of registering one
   const [formCustomerId, setFormCustomerId] = useState(customers[0]?.id || '');
   const [formLocationId, setFormLocationId] = useState(customers[0]?.serviceLocations[0]?.id || '');
   const [formType, setFormType] = useState<EquipmentType>('combi_boiler');
@@ -53,6 +56,8 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
   const [formFrequency, setFormFrequency] = useState<'annual' | 'biannual' | 'quarterly'>('annual');
   const [formNextDue, setFormNextDue] = useState('');
   const [formNotes, setFormNotes] = useState('');
+  const [formCustom, setFormCustom] = useState<CustomFieldValues>({});
+  const { active: customDefs } = useCustomFields('equipment');
   const [busy, setBusy] = useState(false); // guards double-submit (would create duplicate jobs/assets)
 
   // Search (brand, model, serial, customer) and type run on the server so paging covers the whole register
@@ -108,10 +113,30 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
     if (created) onNavigateTab('dispatch');
   };
 
+  const closeForm = () => { setShowAddModal(false); setEditId(null); };
+  const openEdit = (eq: Equipment) => {
+    setEditId(eq.id); setFormCustomerId(eq.customerId); setFormLocationId(eq.locationId); setFormType(eq.type); setFormBrand(eq.brand); setFormModel(eq.model); setFormSerial(eq.serialNumber);
+    setFormRefType(eq.refrigerantType ?? ''); setFormRefKg(eq.refrigerantChargeKg ? String(eq.refrigerantChargeKg) : ''); setFormInstallDate(eq.installationDate); setFormWarrantyDate(eq.warrantyExpiryDate);
+    setFormFrequency(eq.maintenanceFrequency); setFormNextDue(eq.nextServiceDueDate); setFormNotes(eq.locationNotes ?? ''); setFormCustom(eq.customFields ?? {});
+    setShowAddModal(true);
+  };
+
   const handleSaveNewEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formInstallDate || !formWarrantyDate || !formNextDue) return showToast('Pick the installed, warranty and next service dates.', 'error');
     setBusy(true);
+    if (editId) {
+      const fridge = ['heat_pump', 'air_conditioning', 'chiller'].includes(formType);
+      const ok = await updateEquipment(editId, {
+        customerId: formCustomerId, locationId: formLocationId, type: formType, brand: formBrand, model: formModel, serialNumber: formSerial,
+        refrigerantType: fridge && formRefType.trim() ? formRefType.trim() : null, refrigerantChargeKg: fridge && formRefKg ? Number(formRefKg) : null,
+        installationDate: formInstallDate, warrantyExpiryDate: formWarrantyDate, maintenanceFrequency: formFrequency, nextServiceDueDate: formNextDue,
+        locationNotes: formNotes, customFields: formCustom,
+      });
+      setBusy(false);
+      if (ok) closeForm();
+      return;
+    }
     const newEq = await addEquipment({
       customerId: formCustomerId,
       locationId: formLocationId,
@@ -127,11 +152,12 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
       nextServiceDueDate: formNextDue,
       status: 'operational',
       locationNotes: formNotes,
+      customFields: formCustom,
     });
     setBusy(false);
     if (!newEq) return;
-    setFormModel(''); setFormSerial(''); setFormNotes(''); setFormRefType(''); setFormRefKg('');
-    setShowAddModal(false);
+    setFormModel(''); setFormSerial(''); setFormNotes(''); setFormRefType(''); setFormRefKg(''); setFormCustom({});
+    closeForm();
     setSelectedEqId(newEq.id);
   };
 
@@ -152,7 +178,7 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
           </p>
         </div>
 
-        <Button size="sm" onClick={() => setShowAddModal(true)} className="shrink-0">
+        <Button size="sm" onClick={() => { setFormBrand(''); setFormModel(''); setFormSerial(''); setFormNotes(''); setFormRefType(''); setFormRefKg(''); setFormCustom({}); setShowAddModal(true); }} className="shrink-0">
           <IconPlus aria-hidden="true" />
           <span>Register Asset</span>
         </Button>
@@ -222,6 +248,7 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
                     <TableCell className="px-3 py-3">
                       <RowActions subject={`${eq.brand} ${eq.model}`} actions={[
                         { icon: IconHistory, label: 'History', onClick: () => setSelectedEqId(eq.id) },
+                        { icon: IconPencil, label: 'Edit', onClick: () => openEdit(eq) },
                         { icon: IconCalendarPlus, label: 'Book service', tone: 'info', hidden: busy, onClick: () => void handleBookServiceForEquipment(eq) },
                         { icon: eq.inactive ? IconCheck : IconCancel, label: eq.inactive ? 'Activate' : 'Deactivate', destructive: !eq.inactive,
                           onClick: () => eq.inactive ? void updateEquipment(eq.id, { inactive: false }) : confirmToast(`Deactivate ${eq.brand} ${eq.model}? It stays on record but drops out of scheduling.`, () => void updateEquipment(eq.id, { inactive: true }), { confirmLabel: 'Deactivate' }) },
@@ -262,6 +289,8 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
                 <p><strong>Warranty Expiry:</strong> {formatDateUK(selectedEquipment.warrantyExpiryDate)}</p>
                 <p><strong>Plant Location:</strong> {selectedEquipment.locationNotes || 'Not recorded'}</p>
               </div>
+
+              <CustomFieldBox defs={customDefs} values={selectedEquipment.customFields} />
 
               <div>
                 <h4 className="font-bold text-sm mb-2">Service Visit Findings & Readings</h4>
@@ -311,10 +340,10 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
 
       {/* Register asset drawer */}
       {showAddModal && (
-        <DetailDrawer onClose={() => setShowAddModal(false)} dirty={!busy && !!(formBrand || formModel || formSerial)} title="Register HVAC Asset" description="Enter the details of the new equipment asset"
+        <DetailDrawer onClose={closeForm} dirty={!busy && !!(formBrand || formModel || formSerial)} title={editId ? `Edit ${formBrand} ${formModel}` : 'Register HVAC Asset'} description={editId ? 'Update the equipment details' : 'Enter the details of the new equipment asset'}
           footer={<>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setShowAddModal(false)}>Cancel</Button>
-            <Button type="submit" form="equipment-form" size="sm" disabled={busy}>{busy ? 'Saving…' : 'Save Asset'}</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={closeForm}>Cancel</Button>
+            <Button type="submit" form="equipment-form" size="sm" disabled={busy}>{busy ? 'Saving…' : editId ? 'Update Asset' : 'Save Asset'}</Button>
           </>}>
           <form id="equipment-form" onSubmit={handleSaveNewEquipment} className="space-y-3 text-xs">
             <div className="space-y-1.5">
@@ -397,6 +426,8 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
               <Label htmlFor="e-notes" className="text-xs">Plant Location Notes</Label>
               <Input id="e-notes" name="notes" autoComplete="off" value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder="e.g. Roof plant rack 2 / Basement cellar…" />
             </div>
+
+            <CustomFieldInputs defs={customDefs} values={formCustom} onChange={setFormCustom} />
           </form>
         </DetailDrawer>
       )}

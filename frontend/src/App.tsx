@@ -21,6 +21,7 @@ import { InventoryView } from './components/inventory/InventoryView';
 import { NotificationsView } from './components/notifications/NotificationsView';
 import { ReportsView } from './components/reports/ReportsView';
 import { MaintenanceView } from './components/maintenance/MaintenanceView';
+import { CustomFieldsView } from './components/custom-fields/CustomFieldsView';
 import { ChecklistsView } from './components/checklists/ChecklistsView';
 import { CertificatesView } from './components/certificates/CertificatesView';
 import { AuditView } from './components/audit/AuditView';
@@ -141,6 +142,8 @@ const AppContent: React.FC = () => {
 
         {currentTab === 'maintenance' && currentUser.role !== 'technician' && <MaintenanceView />}
         {currentTab === 'checklists' && currentUser.role === 'admin' && <ChecklistsView />}
+
+        {currentTab === 'custom_fields' && currentUser.role === 'admin' && <CustomFieldsView />}
 
         {currentTab === 'certificates' && <CertificatesView />}
 

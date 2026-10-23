@@ -6,6 +6,8 @@ import { services, type Certificate } from '../../services';
 import { Job, MaintenanceAgreement, ServiceLocation } from '../../types';
 import { formatDateUK, formatGBP } from '../../utils/formatters';
 import { AddressInput } from '../common/AddressInput';
+import { CustomFieldBox } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { EmptyState } from '../common/EmptyState';
 import { JobDetailDrawer } from '../scheduling/JobDetailDrawer';
@@ -35,6 +37,7 @@ export const Customer360Drawer: React.FC<{ customerId: string; onClose: () => vo
   const { customerById, equipment, jobs, quotations, invoices, serviceRequests, addCustomerLocation, updateCustomerLocation, removeCustomerLocation, confirmToast } =
     useApp(['customerById', 'equipment', 'jobs', 'quotations', 'invoices', 'serviceRequests', 'addCustomerLocation', 'updateCustomerLocation', 'removeCustomerLocation', 'confirmToast']);
   const c = customerById.get(customerId);
+  const { active: customDefs } = useCustomFields('customer');
   const [viewingJob, setViewingJob] = useState<Job | null>(null);
   const [siteForm, setSiteForm] = useState<{ id: string | null; label: string; addressLine1: string; city: string; postcode: string; accessNotes: string } | null>(null);
   const [busy, setBusy] = useState(false); // guards double-submit (would create duplicate sites)
@@ -108,6 +111,7 @@ export const Customer360Drawer: React.FC<{ customerId: string; onClose: () => vo
             <div className="rounded-lg border border-border bg-muted/50 p-3"><span className="block text-[11px] font-semibold text-muted-foreground">Outstanding balance</span><span className={`text-base font-semibold tabular-nums ${balance > 0 ? 'text-destructive' : ''}`}>{formatGBP(balance)}</span></div>
           </div>
           {c.notes && <p className="rounded-lg border border-border p-3 text-muted-foreground">{c.notes}</p>}
+          <CustomFieldBox defs={customDefs} values={c.customFields} />
           <div className="flex items-center justify-between">
             <span className="font-semibold">Sites{count(c.serviceLocations.length)}</span>
             <Button size="xs" variant="outline" onClick={() => setSiteForm(siteForm ? null : { id: null, label: '', addressLine1: '', city: '', postcode: '', accessNotes: '' })}>

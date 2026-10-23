@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
-import { isoDate, lineItems } from '../../common/zod.js';
+import { isoDate, lineItems, patch } from '../../common/zod.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
+import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import * as svc from './service.js';
 import { generateInvoicePdf } from './pdf.service.js';
 
@@ -14,6 +15,7 @@ const invoice = z.object({
   issueDate: isoDate.optional(), paymentTermsDays: z.number().int().positive().optional(), dueDate: isoDate.optional(),
   notes: z.string().optional(), status: z.enum(['draft', 'issued']).optional(),
   reverseCharge: z.boolean().optional(), cisRatePercent: z.number().min(0).max(100).optional(), retentionPercent: z.number().min(0).max(100).optional(),
+  customFields: customFieldsInput,
 });
 const payment = z.object({
   date: isoDate, amount: z.number().positive().multipleOf(0.01), method: z.enum(['bacs', 'card', 'cheque', 'cash']),
@@ -22,6 +24,7 @@ const payment = z.object({
 
 export const invoicesRouter = Router();
 invoicesRouter.use(allow('admin', 'accountant'));
+invoicesRouter.use(withCustomFields('invoice'));
 invoicesRouter.get('/', h((req) => svc.pageInvoices(req.query)));
 invoicesRouter.get('/:id/pdf', async (req, res, next) => {
   try {
@@ -31,7 +34,7 @@ invoicesRouter.get('/:id/pdf', async (req, res, next) => {
 });
 invoicesRouter.get('/:id', h((req) => svc.getInvoice(req.params.id)));
 invoicesRouter.post('/', h((req) => svc.createInvoice(invoice.parse(req.body)), 201));
-invoicesRouter.patch('/:id', h((req) => svc.updateInvoice(req.params.id, invoice.omit({ customerId: true, locationId: true, quoteId: true, jobId: true, status: true }).partial().parse(req.body))));
+invoicesRouter.patch('/:id', h((req) => svc.updateInvoice(req.params.id, patch(invoice.omit({ customerId: true, locationId: true, quoteId: true, jobId: true, status: true })).parse(req.body))));
 invoicesRouter.post('/stage', h((req) => {
   const b = z.object({ quoteId: z.string().min(1), percent: z.number().positive().max(100).optional(), label: z.string().optional(), final: z.boolean().optional() })
     .refine((x) => x.final || x.percent, 'percent or final required').parse(req.body);

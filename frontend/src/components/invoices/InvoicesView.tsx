@@ -4,11 +4,14 @@ import { useApp } from '../../context/AppContext';
 import { Invoice, InvoiceStatus, PaymentRecord } from '../../types';
 import { formatGBP, formatDateUK, getTodayISO, joinParts, regLine } from '../../utils/formatters';
 import { downloadSheet, printSheet } from '../../utils/pdf';
-import { IconCash, IconDownload, IconBan, IconEye, IconReceiptRefund, IconSend, IconPlus, IconPrinter, IconReceipt, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconCash, IconDownload, IconBan, IconEye, IconPencil, IconReceiptRefund, IconSend, IconPlus, IconPrinter, IconReceipt, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { downloadCsv } from '../../utils/csv';
 import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { DetailDrawer } from '../common/DetailDrawer';
+import { CustomFieldBox } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { FormDialog } from '../common/FormDialog';
+import { InvoiceEditDrawer } from './InvoiceEditDrawer';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { SortHead, useServerPaged } from '../common/Pager';
@@ -50,6 +53,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [editing, setEditing] = useState<Invoice | null>(null);
+  const { active: customDefs } = useCustomFields('invoice');
   const [busy, setBusy] = useState(false); // guards double-submit (would record a payment twice)
 
   // Record payment modal
@@ -288,6 +293,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   <TableCell>
                     <RowActions subject={inv.invoiceNumber} actions={[
                       { icon: IconEye, label: 'View', onClick: () => setSelectedInvoice(inv) },
+                      { icon: IconPencil, label: 'Edit', hidden: inv.status === 'void' || inv.status === 'credited', onClick: () => setEditing(inv) },
                       { icon: IconCash, label: 'Record payment', tone: 'success', hidden: !(inv.balanceDue > 0 && !['draft', 'void', 'credited'].includes(inv.status)), onClick: () => handleOpenPayment(inv) },
                       { icon: IconSend, label: 'Issue', hidden: !(inv.status === 'draft' && canManage), onClick: () => confirmToast(`Issue ${inv.invoiceNumber}? The customer is emailed and it can no longer be edited.`, () => void handleIssue(inv)) },
                       { icon: IconBan, label: 'Void', destructive: true, hidden: !canVoid(inv), onClick: () => { setVoiding(inv); setVoidReason(''); } },
@@ -309,6 +315,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       </TableCard></div>
 
       {/* Invoice Detail / Printable Drawer */}
+      {editing && <InvoiceEditDrawer invoice={editing} onClose={() => setEditing(null)} />}
+
       {selectedInvoice && (
         <DetailDrawer size="detail" onClose={() => setSelectedInvoice(null)} title={`Invoice - ${selectedInvoice.invoiceNumber}`} description="Printable invoice"
           footer={<>
@@ -467,6 +475,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </div>
 
         <p className="mt-10 text-[11px] text-muted-foreground">{settings.termsAndConditions}</p>
+        <div className="mt-4"><CustomFieldBox defs={customDefs} values={selectedInvoice.customFields} /></div>
         </DetailDrawer>
       )}
 

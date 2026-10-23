@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { config } from '../../config.js';
 import { emailBookingConfirmed, emailQuotationReady } from '../notifications/templates.js';
-import type { Quotation } from '../../types.js';
+import type { CustomFieldValues, Quotation } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
 import { conflict, notFound } from '../../common/errors.js';
 import { audit } from '../../common/audit.js';
@@ -35,7 +35,7 @@ export const listQuotations = async () => (await prisma.quotation.findMany({ inc
 
 type Input = {
   customerId: string; locationId: string; jobId?: string; issueDate: string; expiryDate: string;
-  items: ItemInput[]; vatRatePercent?: number; terms?: string; notes?: string;
+  items: ItemInput[]; vatRatePercent?: number; terms?: string; notes?: string; customFields?: CustomFieldValues;
 };
 
 /** Lines with an `option` are alternatives (Good/Better/Best); stored totals cover the shared lines plus the cheapest option. */
@@ -55,7 +55,7 @@ export async function createQuotation(i: Input) {
   return toQuotation(await prisma.$transaction(async (tx) => tx.quotation.create({
     include,
     data: {
-      quoteNumber: await nextNumber('quote', new Date(), tx), customerId: i.customerId, locationId: i.locationId, jobId: i.jobId,
+      quoteNumber: await nextNumber('quote', new Date(), tx), customerId: i.customerId, locationId: i.locationId, jobId: i.jobId, customFields: i.customFields,
       issueDate: new Date(i.issueDate), expiryDate: new Date(i.expiryDate), status: 'draft', ...p,
       terms: i.terms ?? (await getSettings()).termsAndConditions, notes: i.notes, items: { create: rows },
     },

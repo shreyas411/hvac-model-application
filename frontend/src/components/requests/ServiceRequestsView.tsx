@@ -9,12 +9,15 @@ import { Button } from '@/src/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
 import { Label } from '@/src/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
-import { IconAlertTriangle, IconCalendarPlus, IconCircleCheck, IconInbox, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCalendarPlus, IconCircleCheck, IconEye, IconInbox, IconPencil, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { Input } from '@/src/components/ui/input';
 import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { SortHead, useServerPaged } from '../common/Pager';
+import { RecordDetails } from '../common/RecordDetails';
+import { RequestEditDrawer } from './RequestEditDrawer';
+import { useCustomFields } from '../../data/customFields';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { Tip } from '@/src/components/common/Tip';
@@ -59,6 +62,10 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
     const bad = rows.filter((r) => failed[r.id]);
     if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} cancelled. Skipped: ${bad.map((r) => `${r.requestNumber}: ${failed[r.id]}`).join('; ')}`, 'error');
   };
+
+  const [viewing, setViewing] = useState<ServiceRequest | null>(null);
+  const [editing, setEditing] = useState<ServiceRequest | null>(null);
+  const { active: customDefs } = useCustomFields('request');
 
   // Convert modal
   const [convertingRequest, setConvertingRequest] = useState<ServiceRequest | null>(null);
@@ -204,6 +211,8 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
                   <TableCell className="hidden lg:table-cell px-3 py-3 align-top tabular-nums text-muted-foreground">{formatDateUK(req.createdAt)}</TableCell>
                   <TableCell className="px-3 py-3 align-top">
                     <RowActions subject={req.requestNumber} actions={[
+                      { icon: IconEye, label: 'View', onClick: () => setViewing(req) },
+                      { icon: IconPencil, label: 'Edit', hidden: req.status === 'converted' || req.status === 'cancelled', onClick: () => setEditing(req) },
                       { icon: IconCalendarPlus, label: 'Schedule job', tone: 'info', hidden: req.status === 'converted' || req.status === 'cancelled', onClick: () => handleOpenConvert(req) },
                       { icon: IconTrash, label: 'Delete', destructive: true, hidden: req.status === 'converted' || currentUser?.role !== 'admin',
                         onClick: () => confirmToast(`Delete request ${req.requestNumber}?`, () => void deleteRecord('requests', req.id, 'Request')) },
@@ -218,6 +227,20 @@ export const ServiceRequestsView: React.FC<ServiceRequestsViewProps> = ({
           </TableBody>
         </Table>
       </TableCard>
+
+      {viewing && (() => {
+        const c = customerById.get(viewing.customerId);
+        const l = c?.serviceLocations.find((x) => x.id === viewing.locationId);
+        const e = equipment.find((x) => x.id === viewing.equipmentId);
+        return (
+          <RecordDetails title={viewing.requestNumber} description="Service request" defs={customDefs} values={viewing.customFields} onClose={() => setViewing(null)}
+            onEdit={viewing.status === 'converted' || viewing.status === 'cancelled' ? undefined : () => { setEditing(viewing); setViewing(null); }}
+            rows={[['Customer', c?.name], ['Site', l && `${l.addressLine1}, ${l.city} ${l.postcode}`], ['Asset', e && `${e.brand} ${e.model}`], ['Problem', viewing.reportedProblem],
+              ['Priority', viewing.priority], ['Preferred slot', viewing.preferredSlot.replace('_', ' ')], ['Status', viewing.status.replace('_', ' ')],
+              ['Contact', [viewing.contactPerson, viewing.contactPhone].filter(Boolean).join(' · ')], ['Internal notes', viewing.internalNotes], ['Logged', formatDateUK(viewing.createdAt)]]} />
+        );
+      })()}
+      {editing && <RequestEditDrawer request={editing} onClose={() => setEditing(null)} />}
 
       {convertingRequest && (
         <DetailDrawer onClose={() => setConvertingRequest(null)} title={`Convert ${convertingRequest.requestNumber} to Job`} description="Assign appointment slot and technician"

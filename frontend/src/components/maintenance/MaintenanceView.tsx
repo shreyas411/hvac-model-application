@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { services, type BulkResults } from '../../services';
-import { MaintenanceAgreement } from '../../types';
+import { MaintenanceAgreement, CustomFieldValues } from '../../types';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
 import { Card } from '@/src/components/ui/card';
@@ -10,11 +10,15 @@ import { Checkbox } from '@/src/components/ui/checkbox';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
-import { IconCalendarRepeat, IconPencil, IconPlayerPause, IconPlayerPlay, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { formatDateUK, formatGBP } from '../../utils/formatters';
+import { IconCalendarRepeat, IconEye, IconPencil, IconPlayerPause, IconPlayerPlay, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { Combobox } from '../common/Combobox';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
+import { CustomFieldInputs } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
+import { RecordDetails } from '../common/RecordDetails';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
@@ -23,7 +27,7 @@ import { Tip } from '@/src/components/common/Tip';
 const FREQ: MaintenanceAgreement['frequency'][] = ['quarterly', 'biannual', 'annual'];
 const blank = { customerId: '', locationId: '', equipmentId: '', frequency: 'annual' as MaintenanceAgreement['frequency'], nextDueDate: '', notes: '', annualPrice: '', endDate: '', slaResponseHours: '', autoInvoice: false, autoRenew: false };
 const input = 'w-full sm:w-auto h-8 text-xs';
-const cap = 'text-[10px] uppercase text-muted-foreground font-semibold flex flex-col gap-0.5';
+const full = '[&>span]:flex [&_button:first-child]:flex-1';
 
 /** Labelled Select; an empty `value` shows the placeholder. */
 const Pick: React.FC<{ label: string; value: string; onChange: (v: string) => void; placeholder: string; options: [string, string][]; required?: boolean; disabled?: boolean; className?: string }> = ({ label, value, onChange, placeholder, options, required, disabled, className }) => (
@@ -40,6 +44,9 @@ export const MaintenanceView: React.FC = () => {
   const [rows, setRows] = useState<MaintenanceAgreement[]>([]);
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState<string | null>(null);
+  const [custom, setCustom] = useState<CustomFieldValues>({});
+  const [viewing, setViewing] = useState<MaintenanceAgreement | null>(null);
+  const { active: customDefs } = useCustomFields('maintenance');
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [freqFilter, setFreqFilter] = useState('all');
@@ -62,14 +69,15 @@ export const MaintenanceView: React.FC = () => {
   const add = (e: React.FormEvent) => {
     e.preventDefault();
     const { equipmentId, notes, annualPrice, endDate, slaResponseHours, ...rest } = form;
-    const body = { ...rest, equipmentId: equipmentId || null, notes: notes.trim(), annualPrice: Number(annualPrice) || 0, endDate: endDate || null, slaResponseHours: slaResponseHours ? Number(slaResponseHours) : null };
+    const body = { ...rest, equipmentId: equipmentId || null, notes: notes.trim(), annualPrice: Number(annualPrice) || 0, endDate: endDate || null, slaResponseHours: slaResponseHours ? Number(slaResponseHours) : null, customFields: custom };
     if (!form.customerId || !form.locationId || !form.nextDueDate) return showToast('Pick the customer, site and first visit date.', 'error');
     void run(editId ? services.maintenance.update(editId, body) : services.maintenance.create(body)).then((ok) => ok && cancel());
   };
-  const cancel = () => { setEditId(null); setForm(blank); setOpen(false); };
+  const cancel = () => { setEditId(null); setForm(blank); setCustom({}); setOpen(false); };
   const startEdit = (r: MaintenanceAgreement) => {
     setEditId(r.id);
     setOpen(true);
+    setCustom(r.customFields ?? {});
     setForm({ customerId: r.customerId, locationId: r.locationId, equipmentId: r.equipmentId ?? '', frequency: r.frequency, nextDueDate: r.nextDueDate.slice(0, 10), notes: r.notes ?? '',
       annualPrice: r.annualPrice ? String(r.annualPrice) : '', endDate: r.endDate?.slice(0, 10) ?? '', slaResponseHours: r.slaResponseHours ? String(r.slaResponseHours) : '', autoInvoice: r.autoInvoice, autoRenew: r.autoRenew });
   };
@@ -132,19 +140,32 @@ export const MaintenanceView: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><span className="font-semibold">Frequency</span>
                 <Pick label="Frequency" value={form.frequency} onChange={(v) => put('frequency', v)} placeholder="Frequency" className="sm:w-full capitalize" options={FREQ.map((f) => [f, f[0].toUpperCase() + f.slice(1)])} /></div>
+              <div className="space-y-1.5"><span className="font-semibold">Annual price</span><Input type="number" min="0" step="0.01" value={form.annualPrice} onChange={set('annualPrice')} placeholder="£" aria-label="Annual price" className="h-8 text-xs" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><span className="font-semibold">First visit due *</span>
-                <div><DatePicker value={form.nextDueDate} min={editId ? undefined : today} onChange={(v) => put('nextDueDate', v)} /></div></div>
+                <div className={full}><DatePicker value={form.nextDueDate} min={editId ? undefined : today} onChange={(v) => put('nextDueDate', v)} /></div></div>
+              <div className="space-y-1.5"><span className="font-semibold">Term end</span><div className={full}><DatePicker clearable value={form.endDate} onChange={(v) => put('endDate', v)} /></div></div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <Label className={cap}>Annual price <Input type="number" min="0" step="0.01" value={form.annualPrice} onChange={set('annualPrice')} placeholder="£" aria-label="Annual price" className="h-8 text-xs" /></Label>
-              <div className="space-y-1.5"><span className="font-semibold">Term end</span><div><DatePicker clearable value={form.endDate} onChange={(v) => put('endDate', v)} /></div></div>
-              <Label className={cap}>SLA response (hours) <Input type="number" min="1" value={form.slaResponseHours} onChange={set('slaResponseHours')} aria-label="SLA response hours" className="h-8 text-xs" /></Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><span className="font-semibold">SLA response (hours)</span><Input type="number" min="1" value={form.slaResponseHours} onChange={set('slaResponseHours')} aria-label="SLA response hours" className="h-8 text-xs" /></div>
+              <div className="space-y-2 pt-5">
+              <Label className="text-xs font-normal"><Checkbox checked={form.autoInvoice} onCheckedChange={(v) => put('autoInvoice', v === true)} /> Auto-invoice visits</Label>
+              <Label className="text-xs font-normal"><Checkbox checked={form.autoRenew} onCheckedChange={(v) => put('autoRenew', v === true)} /> Auto-renew term</Label>
+              </div>
             </div>
-            <Label className="text-xs font-normal"><Checkbox checked={form.autoInvoice} onCheckedChange={(v) => put('autoInvoice', v === true)} /> Auto-invoice visits</Label>
-            <Label className="text-xs font-normal"><Checkbox checked={form.autoRenew} onCheckedChange={(v) => put('autoRenew', v === true)} /> Auto-renew term</Label>
             <Input aria-label="Notes" autoComplete="off" value={form.notes} onChange={set('notes')} placeholder="Notes…" className="h-8 text-xs" />
+            <CustomFieldInputs defs={customDefs} values={custom} onChange={setCustom} />
           </form>
         </DetailDrawer>
+      )}
+
+      {viewing && (
+        <RecordDetails title="Maintenance agreement" description={name(viewing)} defs={customDefs} values={viewing.customFields} onClose={() => setViewing(null)}
+          onEdit={canWrite ? () => { startEdit(viewing); setViewing(null); } : undefined}
+          rows={[['Equipment', assetName(viewing.equipmentId)], ['Frequency', viewing.frequency], ['Next due', formatDateUK(viewing.nextDueDate)], ['Term end', viewing.endDate && formatDateUK(viewing.endDate)],
+            ['Annual price', viewing.annualPrice > 0 ? formatGBP(viewing.annualPrice) : undefined], ['SLA response', viewing.slaResponseHours && `${viewing.slaResponseHours} hours`],
+            ['Auto-invoice', viewing.autoInvoice ? 'Yes' : 'No'], ['Auto-renew', viewing.autoRenew ? 'Yes' : 'No'], ['Status', viewing.active ? 'Active' : 'Inactive'], ['Notes', viewing.notes]]} />
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -196,10 +217,11 @@ export const MaintenanceView: React.FC = () => {
                   </TableCell>
                   <TableCell className="px-3 py-3"><Checkbox aria-label={`Active, ${name(r)}`} checked={r.active} disabled={!canWrite} onCheckedChange={(v) => void run(services.maintenance.update(r.id, { active: v === true }))} /></TableCell>
                   <TableCell className="px-3 py-3">
-                    {canWrite && <RowActions subject={name(r)} actions={[
-                      { icon: IconPencil, label: 'Edit', onClick: () => startEdit(r) },
-                      { icon: IconTrash, label: 'Delete', destructive: true, onClick: () => confirmToast('Delete this agreement?', () => void run(services.maintenance.remove(r.id))) },
-                    ]} />}
+                    <RowActions subject={name(r)} actions={[
+                      { icon: IconEye, label: 'View', onClick: () => setViewing(r) },
+                      { icon: IconPencil, label: 'Edit', hidden: !canWrite, onClick: () => startEdit(r) },
+                      { icon: IconTrash, label: 'Delete', destructive: true, hidden: !canWrite, onClick: () => confirmToast('Delete this agreement?', () => void run(services.maintenance.remove(r.id))) },
+                    ]} />
                   </TableCell>
                 </TableRow>
               ))}

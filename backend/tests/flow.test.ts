@@ -841,6 +841,42 @@ test('delete is soft: hidden from reads, blocked while in use, row kept; inactiv
   expect((await call('GET', `/customers/${cust.id}`)).status).toBe(404);
 });
 
+test('custom fields: admin defines, values are validated on customers and equipment', async () => {
+  await unscoped.customFieldDefinition.deleteMany(); // the test DB persists: start (and finish) with none, required fields would fail other tests
+  const pr = { type: 'residential', name: 'CF', phone: '01234 567890', email: 'cf@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } };
+  expect((await call('POST', '/custom-fields', { entity: 'customer', label: 'Gate code' }, 'dispatcher')).status).toBe(403);
+  expect((await call('POST', '/custom-fields', { entity: 'customer', label: 'Tier', type: 'select' })).status).toBe(400); // dropdown needs options
+  const tier = (await call('POST', '/custom-fields', { entity: 'customer', label: 'Tier', type: 'select', options: ['Gold', 'Silver'], required: true })).body;
+  const seats = (await call('POST', '/custom-fields', { entity: 'customer', label: 'Seats', type: 'number' })).body;
+  expect((await call('POST', '/customers', pr)).body.code).toBe('CUSTOM_FIELD_REQUIRED');
+  expect((await call('POST', '/customers', { ...pr, customFields: { [tier.id]: 'Bronze' } })).body.code).toBe('INVALID_CUSTOM_FIELD');
+  expect((await call('POST', '/customers', { ...pr, customFields: { [tier.id]: 'Gold', [seats.id]: '5' } })).body.code).toBe('INVALID_CUSTOM_FIELD');
+  const c = (await call('POST', '/customers', { ...pr, customFields: { [tier.id]: 'Gold', [seats.id]: 5, nope: 1 } })).body;
+  expect(c.customFields).toEqual({ [tier.id]: 'Gold', [seats.id]: 5 });
+  expect((await call('PATCH', `/customers/${c.id}`, { notes: 'x' })).body.customFields).toEqual(c.customFields); // untouched when not sent
+  expect((await call('GET', '/custom-fields', undefined, 'technician')).body.data.map((d: any) => d.id)).toEqual(expect.arrayContaining([tier.id, seats.id]));
+  expect((await call('PATCH', `/custom-fields/${tier.id}`, { inactive: true })).body.inactive).toBe(true); // inactive no longer required
+  expect((await call('PATCH', `/custom-fields/${tier.id}`, { type: 'text' })).status).toBe(400); // type is fixed
+  expect((await call('DELETE', `/custom-fields/${seats.id}`)).status).toBe(204);
+  expect((await call('POST', '/customers', { ...pr, email: 'cf2@x.co' })).status).toBe(201);
+
+  // other modules: same rules, plus ordering within a module
+  const sku = (await call('POST', '/custom-fields', { entity: 'part', label: 'Bin', type: 'text', required: true })).body;
+  const sku2 = (await call('POST', '/custom-fields', { entity: 'part', label: 'Shelf', type: 'text' })).body;
+  const part = { name: 'CF part', sku: 'CF-1', category: 'x', unitCost: 1, sellingPrice: 2 };
+  expect((await call('POST', '/parts', part)).body.code).toBe('CUSTOM_FIELD_REQUIRED');
+  const p = (await call('POST', '/parts', { ...part, customFields: { [sku.id]: 'A1' } })).body;
+  expect(p.customFields).toEqual({ [sku.id]: 'A1' });
+  expect((await call('PATCH', `/parts/${p.id}`, { customFields: { [sku.id]: 'B2', [sku2.id]: 'top' } })).body.customFields).toEqual({ [sku.id]: 'B2', [sku2.id]: 'top' });
+  const jf = (await call('POST', '/custom-fields', { entity: 'job', label: 'PO number', type: 'text' })).body;
+  const cu = (await call('GET', '/customers')).body.data.find((x: any) => x.serviceLocations.length);
+  const rq = (await call('POST', '/requests', { customerId: cu.id, locationId: cu.serviceLocations[0].id, reportedProblem: 'leak', customFields: { [jf.id]: 'x' } })).body;
+  expect(rq.customFields).toEqual({}); // a request field is a different module: the job field id is ignored
+  expect((await call('POST', '/custom-fields/reorder', { ids: [sku2.id, sku.id] })).status).toBe(204);
+  expect((await call('GET', '/custom-fields')).body.data.filter((d: any) => d.entity === 'part').map((d: any) => d.id)).toEqual([sku2.id, sku.id]);
+  await unscoped.customFieldDefinition.deleteMany();
+});
+
 test('companies are isolated: same email, own data, own numbering', async () => {
   const other = await unscoped.company.upsert({ where: { slug: 'other' }, update: {}, create: { slug: 'other', name: 'Other Co' } });
   await unscoped.companySettings.upsert({ where: { companyId: other.id }, update: {}, create: { companyId: other.id, companyName: 'Other Co', availableVatRates: [20] } });

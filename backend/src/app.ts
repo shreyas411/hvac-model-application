@@ -24,6 +24,7 @@ import { reportsRouter } from './modules/reports/routes.js';
 import { requestsRouter } from './modules/requests/routes.js';
 import { certificatesRouter } from './modules/certificates/routes.js';
 import { checklistsRouter } from './modules/checklists/routes.js';
+import { customFieldsRouter } from './modules/custom-fields/routes.js';
 import { maintenanceRouter } from './modules/maintenance/routes.js';
 import { auditRouter } from './modules/audit/routes.js';
 import { settingsRouter } from './modules/settings/routes.js';
@@ -60,6 +61,7 @@ export function createApp() {
   api.use('/audit', auditRouter);
   api.use('/certificates', certificatesRouter);
   api.use('/checklist-templates', checklistsRouter);
+  api.use('/custom-fields', customFieldsRouter);
   api.use('/technicians', techniciansRouter);
   api.use('/customers', customersRouter);
   api.use('/equipment', equipmentRouter);

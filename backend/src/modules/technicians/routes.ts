@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { patch } from '../../common/zod.js';
 import { Router } from 'express';
 import { crud } from '../../common/crud.js';
 import { forbidden, h, notFound } from '../../common/errors.js';
@@ -18,7 +19,7 @@ const dates = (d: any) => ({ ...d, ...(d.gasSafeExpiry && { gasSafeExpiry: new D
 const base = crud({
   repo: techniciansRepo, label: 'Technician',
   read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin', 'dispatcher'], del: true,
-  create: tech, update: tech.partial(), beforeCreate: dates, beforeUpdate: (_cur, d) => dates(d),
+  create: tech, update: patch(tech), beforeCreate: dates, beforeUpdate: (_cur, d) => dates(d),
 });
 
 // A technician sees only their own profile (phone, email and licence numbers of colleagues stay private).

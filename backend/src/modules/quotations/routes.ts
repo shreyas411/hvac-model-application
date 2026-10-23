@@ -3,21 +3,24 @@ import { z } from 'zod';
 import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
-import { hhmm, isoDate, lineItems } from '../../common/zod.js';
+import { hhmm, isoDate, lineItems, patch } from '../../common/zod.js';
 import { generateQuotationPdf } from './pdf.service.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
+import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import * as svc from './service.js';
 
 const base = z.object({
   customerId: z.string().min(1), locationId: z.string().min(1), jobId: z.string().optional(),
   issueDate: isoDate, expiryDate: isoDate, items: z.array(lineItems.element.extend({ option: z.string().trim().min(1).max(40).optional() })).min(1),
   vatRatePercent: z.number().min(0).max(100).optional(), terms: z.string().optional(), notes: z.string().optional(),
+  customFields: customFieldsInput,
 });
 const quotation = base.refine((q) => q.expiryDate >= q.issueDate, { message: 'expiryDate must not precede issueDate', path: ['expiryDate'] });
 const slot = z.object({ appointmentDate: isoDate, startTime: hhmm, endTime: hhmm, technicianId: z.string().nullable().optional() });
 
 export const quotationsRouter = Router();
 quotationsRouter.use(allow('admin', 'dispatcher', 'accountant'));
+quotationsRouter.use(withCustomFields('quotation'));
 quotationsRouter.get('/', h((req) => svc.pageQuotations(req.query)));
 quotationsRouter.get('/:id/pdf', async (req, res, next) => {
   try {
@@ -27,7 +30,7 @@ quotationsRouter.get('/:id/pdf', async (req, res, next) => {
 });
 quotationsRouter.get('/:id', h((req) => svc.getQuotation(req.params.id)));
 quotationsRouter.post('/', h((req) => svc.createQuotation(quotation.parse(req.body)), 201));
-quotationsRouter.patch('/:id', h((req) => svc.updateQuotation(req.params.id, base.partial().parse(req.body))));
+quotationsRouter.patch('/:id', h((req) => svc.updateQuotation(req.params.id, patch(base).parse(req.body))));
 quotationsRouter.delete('/:id', allow('admin', 'dispatcher'), h((req) => removeRecord(prisma.quotation, req.params.id, 'Quotation', (q) =>
   (q.status === 'accepted' || q.convertedToJobId || q.convertedToInvoiceId) && 'An accepted or converted quote cannot be deleted')));
 for (const act of ['send', 'reject'] as const)

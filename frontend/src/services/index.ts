@@ -1,6 +1,6 @@
 import type {
   CompanySettings,
-  ChecklistTemplate,
+  ChecklistTemplate, CustomFieldDefinition,
   Customer, CustomerNotification, MaintenanceAgreement, Equipment, EquipmentServiceRecord, InventoryMovement, Invoice, Job, JobStatus,
   PartItem, PaymentRecord, Quotation, ServiceLocation, ServiceRequest, TechnicianProfile,
 } from '../types';
@@ -121,6 +121,10 @@ export const services = {
   checklistTemplates: {
     ...resource<ChecklistTemplate>('/checklist-templates'),
     reorder: (ids: string[]) => post<void>('/checklist-templates/reorder', { ids }),
+  },
+  customFields: {
+    ...resource<CustomFieldDefinition>('/custom-fields'),
+    reorder: (ids: string[]) => post<void>('/custom-fields/reorder', { ids }),
   },
   settings: {
     get: () => api<CompanySettings>('GET', '/settings'),

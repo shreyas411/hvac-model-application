@@ -5,7 +5,8 @@ import { bulk, bulkIds } from '../../common/bulk.js';
 import { crud } from '../../common/crud.js';
 import { prisma, prismaRepo } from '../../common/prisma.js';
 import { h, unprocessable } from '../../common/errors.js';
-import { isoDate } from '../../common/zod.js';
+import { isoDate, patch } from '../../common/zod.js';
+import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import { assertLocation } from '../customers/service.js';
 import { getEquipment } from '../equipment/service.js';
 
@@ -13,6 +14,7 @@ const agreement = z.object({
   customerId: z.string().uuid(), locationId: z.string().uuid(), equipmentId: z.string().uuid().nullish(),
   frequency: z.enum(['quarterly', 'biannual', 'annual']), nextDueDate: isoDate, active: z.boolean().default(true), notes: z.string().optional(),
   annualPrice: z.number().min(0).max(1e7).default(0), endDate: isoDate.nullish(), slaResponseHours: z.number().int().min(1).max(8760).nullish(), autoInvoice: z.boolean().default(false), autoRenew: z.boolean().default(false),
+  customFields: customFieldsInput,
 });
 type Row = z.infer<typeof agreement> & { id: string };
 const repo = prismaRepo<Row>(prisma.maintenanceAgreement, ['updatedAt']);
@@ -27,7 +29,7 @@ const check = (m: { autoRenew?: boolean; autoInvoice?: boolean; annualPrice?: nu
 // Staff manage agreements; the daily sweep (worker) turns them into jobs.
 const crudRouter = crud<Row>({
   repo, label: 'Maintenance agreement', read: ['admin', 'dispatcher', 'accountant'], write: ['admin', 'dispatcher'], del: true,
-  create: agreement, update: agreement.partial(), page: (q) => repo.page(q, ['notes', 'frequency']),
+  create: agreement, update: patch(agreement), page: (q) => repo.page(q, ['notes', 'frequency']),
   beforeCreate: async (d) => (check(d), await assertLocation(d.customerId, d.locationId), d.equipmentId && (await getEquipment(d.equipmentId)), dates(d)),
   beforeUpdate: async (cur, d) => {
     const m = { ...cur, ...d };
@@ -40,6 +42,7 @@ const crudRouter = crud<Row>({
 
 const staff = allow('admin', 'dispatcher');
 export const maintenanceRouter = Router();
+maintenanceRouter.use(withCustomFields('maintenance'));
 maintenanceRouter.post('/bulk-update', staff, h((req) => {
   const b = z.object({ ids: bulkIds, active: z.boolean() }).parse(req.body);
   return bulk(b.ids, (id) => repo.update(id, { active: b.active }));

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { patch } from '../../common/zod.js';
 import { allow } from '../../common/auth.js';
 import { crud } from '../../common/crud.js';
 import { h } from '../../common/errors.js';
@@ -25,7 +26,7 @@ export const checklistsRouter = crud<ChecklistTemplate>({
     },
   },
   label: 'Checklist template', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin'],
-  create: template, update: template.pick({ label: true, category: true }).partial().extend({ inactive: z.boolean().optional() }).strict(), del: true,
+  create: template, update: patch(template.pick({ label: true, category: true }).extend({ inactive: z.boolean() }).strict()), del: true,
 });
 
 // Body: ids in the desired order (one job type's list); position = index.

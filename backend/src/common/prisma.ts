@@ -9,7 +9,7 @@ import { pageFrom } from './paginate.js';
 const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }), transactionOptions: { maxWait: 10_000, timeout: 15_000 } });
 
 /** Models with `isDeleted`/`deletedAt`: reads hide deleted rows unless the query sets `isDeleted` itself (`undefined` = include them). Deleting = softDelete(). */
-const SOFT_DELETED = new Set(['User', 'Technician', 'Customer', 'ServiceLocation', 'Equipment', 'ServiceRequest', 'Job', 'Quotation', 'Invoice', 'Part', 'ChecklistTemplate', 'MaintenanceAgreement', 'Certificate']);
+const SOFT_DELETED = new Set(['User', 'Technician', 'Customer', 'ServiceLocation', 'Equipment', 'ServiceRequest', 'Job', 'Quotation', 'Invoice', 'Part', 'ChecklistTemplate', 'MaintenanceAgreement', 'Certificate', 'CustomFieldDefinition']);
 const FILTERED = new Set(['findFirst', 'findFirstOrThrow', 'findMany', 'findUnique', 'findUniqueOrThrow', 'count', 'aggregate', 'groupBy', 'updateMany']);
 
 /**
@@ -17,7 +17,7 @@ const FILTERED = new Set(['findFirst', 'findFirstOrThrow', 'findMany', 'findUniq
  * so no query can read or write another company's rows. Child tables (payments, line items, ...) are reached through their parent.
  * A query on these models outside runAs() throws; use `unscoped` where there is deliberately no company yet (login, sweeps).
  */
-const TENANT = new Set(['User', 'Technician', 'CompanySettings', 'Counter', 'Customer', 'ServiceLocation', 'Equipment', 'ServiceRequest', 'Job', 'Quotation', 'Invoice', 'CreditNote', 'Part', 'InventoryMovement', 'Notification', 'ChecklistTemplate', 'AuditLog', 'MaintenanceAgreement', 'Certificate']);
+const TENANT = new Set(['User', 'Technician', 'CompanySettings', 'Counter', 'Customer', 'ServiceLocation', 'Equipment', 'ServiceRequest', 'Job', 'Quotation', 'Invoice', 'CreditNote', 'Part', 'InventoryMovement', 'Notification', 'ChecklistTemplate', 'AuditLog', 'MaintenanceAgreement', 'Certificate', 'CustomFieldDefinition']);
 const SCOPED_WHERE = new Set([...FILTERED, 'update', 'delete', 'deleteMany', 'upsert']);
 const tenant = new AsyncLocalStorage<string>();
 export const runAs = <T>(companyId: string, fn: () => T) => tenant.run(companyId, fn);

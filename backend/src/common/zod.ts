@@ -17,3 +17,10 @@ export const lineItems = z.array(z.object({
   unitPrice: z.number().finite(), // discounts are negative
   vatRatePercent: z.number().min(0).max(100).optional(), // overrides the document's VAT rate for this line
 }));
+
+/** PATCH schema: `.partial()`, but keys absent from the body stay absent (zod 4 applies `.default()` inside `.partial()`, which would reset stored fields). */
+export const patch = <S extends z.ZodObject>(s: S) => z.unknown().transform((body) => {
+  const out: Record<string, unknown> = s.partial().parse(body);
+  for (const k of Object.keys(out)) if (!(k in (body as object))) delete out[k];
+  return out as Partial<z.output<S>>;
+});

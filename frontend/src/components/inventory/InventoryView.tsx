@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
-import { InventoryMovement, PartItem } from '../../types';
+import { InventoryMovement, PartItem, CustomFieldValues } from '../../types';
 import { formatGBP, formatDateUK, getTodayISO } from '../../utils/formatters';
 import { downloadCsv } from '../../utils/csv';
 import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
-import { IconAdjustments, IconArrowsExchange, IconCancel, IconCheck, IconDownload, IconPackage, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconAdjustments, IconArrowsExchange, IconCancel, IconCheck, IconDownload, IconEye, IconPackage, IconPencil, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { DetailDrawer } from '../common/DetailDrawer';
+import { CustomFieldInputs } from '../common/CustomFields';
+import { RecordDetails } from '../common/RecordDetails';
+import { useCustomFields } from '../../data/customFields';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { useServerPaged } from '../common/Pager';
@@ -26,10 +29,14 @@ export const InventoryView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [stockFilter, setStockFilter] = useState<'all' | 'low' | 'inactive'>('all');
   const [showAddPartModal, setShowAddPartModal] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // set = the drawer edits this part (stock only changes through Adjust stock)
+  const [viewing, setViewing] = useState<PartItem | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustingPart, setAdjustingPart] = useState<PartItem | null>(null);
 
   // New Part form
+  const [custom, setCustom] = useState<CustomFieldValues>({});
+  const { active: customDefs } = useCustomFields('part');
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [description, setDescription] = useState('');
@@ -73,9 +80,23 @@ export const InventoryView: React.FC = () => {
     ...sel.selected.map((p) => [p.name, p.sku, p.category, p.location, p.unitCost, p.sellingPrice, p.stockQuantity, p.minStockLevel, p.inactive ? 'Yes' : 'No']),
   ]);
 
+  const closePartForm = () => { setShowAddPartModal(false); setEditId(null); };
+  const blankPart = () => { setName(''); setSku(''); setDescription(''); setCategory('Valves & Controls'); setUnitCost(''); setSellingPrice(''); setStockQuantity(''); setMinStockLevel(''); setLocation(''); setCustom({}); };
+  const openEditPart = (p: PartItem) => {
+    setEditId(p.id); setName(p.name); setSku(p.sku); setDescription(p.description ?? ''); setCategory(p.category); setUnitCost(String(p.unitCost)); setSellingPrice(String(p.sellingPrice));
+    setMinStockLevel(String(p.minStockLevel)); setLocation(p.location ?? ''); setCustom(p.customFields ?? {});
+    setShowAddPartModal(true);
+  };
+
   const handleSavePart = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
+    if (editId) {
+      const ok = await updatePart(editId, { name, description, category, unitCost: Number(unitCost), sellingPrice: Number(sellingPrice), minStockLevel: Number(minStockLevel), location, customFields: custom });
+      setBusy(false);
+      if (ok) closePartForm();
+      return;
+    }
     const created = await addPart({
       name,
       sku,
@@ -86,11 +107,12 @@ export const InventoryView: React.FC = () => {
       stockQuantity: Number(stockQuantity),
       minStockLevel: Number(minStockLevel),
       location,
+      customFields: custom,
     });
     setBusy(false);
     if (!created) return;
-    setName(''); setSku(''); setDescription(''); setUnitCost(''); setSellingPrice(''); setStockQuantity(''); setMinStockLevel(''); setLocation('');
-    setShowAddPartModal(false);
+    blankPart();
+    closePartForm();
   };
 
   const handleSaveAdjustment = async (e: React.FormEvent) => {
@@ -140,7 +162,7 @@ export const InventoryView: React.FC = () => {
           </p>
         </div>
 
-        <Button size="sm" onClick={() => setShowAddPartModal(true)} className="shrink-0">
+        <Button size="sm" onClick={() => { blankPart(); setShowAddPartModal(true); }} className="shrink-0">
           <IconPlus aria-hidden="true" />
           <span>Add Catalogue Item</span>
         </Button>
@@ -225,6 +247,8 @@ export const InventoryView: React.FC = () => {
 
                   <TableCell>
                     <RowActions subject={part.name} actions={[
+                      { icon: IconEye, label: 'View', onClick: () => setViewing(part) },
+                      { icon: IconPencil, label: 'Edit', onClick: () => openEditPart(part) },
                       { icon: IconAdjustments, label: 'Adjust stock', onClick: () => { setAdjustingPart(part); setAdjustDelta(''); setAdjustType('restock_purchase'); setShowAdjustModal(true); } },
                       { icon: part.inactive ? IconCheck : IconCancel, label: part.inactive ? 'Activate' : 'Deactivate', destructive: !part.inactive, onClick: () => void updatePart(part.id, { inactive: !part.inactive }) },
                       { icon: IconTrash, label: 'Delete', destructive: true, onClick: () => confirmToast(`Delete ${part.name}? Its stock history is kept.`, () => void deletePart(part.id)) },
@@ -302,11 +326,17 @@ export const InventoryView: React.FC = () => {
       )}
 
 
+      {viewing && (
+        <RecordDetails title={viewing.name} description={<span className="tabular-nums">{viewing.sku}</span>} defs={customDefs} values={viewing.customFields} onClose={() => setViewing(null)} onEdit={() => { openEditPart(viewing); setViewing(null); }}
+          rows={[['Category', viewing.category], ['Description', viewing.description], ['Unit cost', formatGBP(viewing.unitCost)], ['Selling price', formatGBP(viewing.sellingPrice)],
+            ['In stock', viewing.stockQuantity], ['Min reorder level', viewing.minStockLevel], ['Storage location', viewing.location], ['Status', viewing.inactive ? 'Inactive' : 'Active']]} />
+      )}
+
       {showAddPartModal && (
-        <DetailDrawer onClose={() => setShowAddPartModal(false)} title={<>Add Catalogue Item</>} description={<>Enter the new catalogue item details</>}
+        <DetailDrawer onClose={closePartForm} title={editId ? 'Edit Catalogue Item' : 'Add Catalogue Item'} description={editId ? 'Stock changes through Adjust stock' : 'Enter the new catalogue item details'}
           footer={<>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setShowAddPartModal(false)}>Cancel</Button>
-              <Button type="submit" form="part-form" size="sm" disabled={busy}>{busy ? 'Adding…' : 'Add Part'}</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={closePartForm}>Cancel</Button>
+              <Button type="submit" form="part-form" size="sm" disabled={busy}>{busy ? 'Saving…' : editId ? 'Update Part' : 'Add Part'}</Button>
           </>}>
           <form id="part-form" onSubmit={handleSavePart} className="space-y-3 text-xs">
             <div className="space-y-1.5">
@@ -317,7 +347,7 @@ export const InventoryView: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="p-sku" className="text-xs">SKU Code *</Label>
-                <Input type="text" required id="p-sku" name="sku" autoComplete="off" spellCheck={false} value={sku} onChange={(e) => setSku(e.target.value)} placeholder="e.g. CDN-022" className="tabular-nums" />
+                <Input type="text" required readOnly={!!editId} id="p-sku" name="sku" autoComplete="off" spellCheck={false} value={sku} onChange={(e) => setSku(e.target.value)} placeholder="e.g. CDN-022" className="tabular-nums" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="p-cat" className="text-xs">Category</Label>
@@ -338,8 +368,8 @@ export const InventoryView: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="p-stock" className="text-xs">Initial Stock Qty</Label>
-                <Input type="number" required id="p-stock" name="stock" min="0" inputMode="numeric" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className="tabular-nums" />
+                <Label htmlFor="p-stock" className="text-xs">{editId ? 'Stock Qty (use Adjust stock)' : 'Initial Stock Qty'}</Label>
+                <Input type="number" required readOnly={!!editId} id="p-stock" name="stock" min="0" inputMode="numeric" value={editId ? String(parts.find((p) => p.id === editId)?.stockQuantity ?? '') : stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className="tabular-nums" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="p-min" className="text-xs">Min Reorder Level</Label>
@@ -352,6 +382,7 @@ export const InventoryView: React.FC = () => {
               <Input type="text" id="p-loc" name="location" autoComplete="off" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Warehouse Bin C4 / Van 1…" />
             </div>
 
+            <CustomFieldInputs defs={customDefs} values={custom} onChange={setCustom} />
             </form>
         </DetailDrawer>
       )}

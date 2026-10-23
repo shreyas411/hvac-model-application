@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { UserRole } from './types';
-import { IconAirConditioning, IconCalendarRepeat, IconCalendarTime, IconCertificate, IconChartBar, IconChecklist, IconDeviceMobile, IconFileText, IconHistory, IconInbox, IconLayoutDashboard, IconPackage, IconReceipt, IconSettings, IconUsers } from '@tabler/icons-react';
+import { IconAirConditioning, IconCalendarRepeat, IconCalendarTime, IconCertificate, IconChartBar, IconChecklist, IconDeviceMobile, IconForms, IconFileText, IconHistory, IconInbox, IconLayoutDashboard, IconPackage, IconReceipt, IconSettings, IconUsers } from '@tabler/icons-react';
 import type { Icon } from '@tabler/icons-react';
 
 /** Single source of truth for tabs and which roles may open them. */
@@ -18,6 +18,7 @@ export const navLinks: { id: string; label: string; icon: Icon; allowedRoles: Us
   { id: 'reports', icon: IconChartBar, label: 'Reports', allowedRoles: ['admin', 'accountant'] },
   { id: 'certificates', icon: IconCertificate, label: 'Gas Certificates', allowedRoles: ['admin', 'dispatcher', 'technician'] },
   { id: 'checklists', icon: IconChecklist, label: 'Checklists', allowedRoles: ['admin'] },
+  { id: 'custom_fields', icon: IconForms, label: 'Custom Fields', allowedRoles: ['admin'] },
   { id: 'audit', icon: IconHistory, label: 'Audit Log', allowedRoles: ['admin'] },
   { id: 'settings', icon: IconSettings, label: 'Settings', allowedRoles: ['admin'] },
 ];
