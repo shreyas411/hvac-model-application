@@ -1,7 +1,10 @@
+import { Router } from 'express';
 import { z } from 'zod';
+import { allow } from '../../common/auth.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import { crud } from '../../common/crud.js';
 import { prisma, prismaRepo } from '../../common/prisma.js';
-import { unprocessable } from '../../common/errors.js';
+import { h, unprocessable } from '../../common/errors.js';
 import { isoDate } from '../../common/zod.js';
 import { assertLocation } from '../customers/service.js';
 import { getEquipment } from '../equipment/service.js';
@@ -22,7 +25,7 @@ const check = (m: { autoRenew?: boolean; autoInvoice?: boolean; annualPrice?: nu
 };
 
 // Staff manage agreements; the daily sweep (worker) turns them into jobs.
-export const maintenanceRouter = crud<Row>({
+const crudRouter = crud<Row>({
   repo, label: 'Maintenance agreement', read: ['admin', 'dispatcher', 'accountant'], write: ['admin', 'dispatcher'], del: true,
   create: agreement, update: agreement.partial(), page: (q) => repo.page(q, ['notes', 'frequency']),
   beforeCreate: async (d) => (check(d), await assertLocation(d.customerId, d.locationId), d.equipmentId && (await getEquipment(d.equipmentId)), dates(d)),
@@ -34,3 +37,12 @@ export const maintenanceRouter = crud<Row>({
     return dates(d);
   },
 });
+
+const staff = allow('admin', 'dispatcher');
+export const maintenanceRouter = Router();
+maintenanceRouter.post('/bulk-update', staff, h((req) => {
+  const b = z.object({ ids: bulkIds, active: z.boolean() }).parse(req.body);
+  return bulk(b.ids, (id) => repo.update(id, { active: b.active }));
+}));
+maintenanceRouter.post('/bulk-delete', staff, h((req) => bulk(z.object({ ids: bulkIds }).parse(req.body).ids, (id) => repo.remove(id))));
+maintenanceRouter.use(crudRouter);

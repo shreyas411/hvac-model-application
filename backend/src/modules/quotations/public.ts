@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { today } from '../../common/dates.js';
 import { conflict, h, notFound } from '../../common/errors.js';
-import { prisma } from '../../common/prisma.js';
+import { prisma, runAs, unscoped } from '../../common/prisma.js';
 import { getSettings } from '../settings/service.js';
 import { accept, getQuotation, hashToken, reject } from './service.js';
 import { isInkedPng } from '../../common/signature.js';
@@ -24,6 +24,9 @@ const decision = z.object({
 });
 
 export const publicQuotesRouter = Router();
+// The token also names the company: everything below runs scoped to it.
+publicQuotesRouter.param('token', (_req, _res, next, token) => void unscoped.quotation.findUnique({ where: { approvalTokenHash: hashToken(token) }, select: { companyId: true } })
+  .then((q) => (q ? runAs(q.companyId, () => next()) : next(notFound('Quotation'))), next));
 publicQuotesRouter.get('/:token', h(async (req) => {
   const q = await byToken(req.params.token);
   if (q.status === 'sent') await prisma.quotation.updateMany({ where: { id: q.id, status: 'sent' }, data: { status: 'viewed' } });

@@ -5,6 +5,8 @@ import { Invoice, InvoiceStatus, PaymentRecord } from '../../types';
 import { formatGBP, formatDateUK, getTodayISO, joinParts, regLine } from '../../utils/formatters';
 import { downloadSheet, printSheet } from '../../utils/pdf';
 import { IconCash, IconDownload, IconBan, IconEye, IconReceiptRefund, IconSend, IconPlus, IconPrinter, IconReceipt, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { downloadCsv } from '../../utils/csv';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { FormDialog } from '../common/FormDialog';
 import { RowActions } from '../common/RowActions';
@@ -36,12 +38,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     creditInvoice,
     voidInvoice,
     issueInvoice,
+    bulkIssueInvoices,
     refundPayment,
     currentUser,
     customerById,
     deleteRecord,
     confirmToast,
-  } = useApp(['invoices', 'customers', 'settings', 'recordPayment', 'releaseRetention', 'creditInvoice', 'voidInvoice', 'issueInvoice', 'refundPayment', 'currentUser', 'customerById', 'deleteRecord', 'confirmToast']);
+    showToast,
+  } = useApp(['invoices', 'customers', 'settings', 'recordPayment', 'releaseRetention', 'creditInvoice', 'voidInvoice', 'issueInvoice', 'bulkIssueInvoices', 'showToast', 'refundPayment', 'currentUser', 'customerById', 'deleteRecord', 'confirmToast']);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -136,6 +140,21 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   // Status and search (invoice number, notes, customer name) run on the server so paging covers the whole list
   const paged = useServerPaged<Invoice>('/invoices', { q: searchTerm.trim() || undefined, status: statusFilter === 'all' ? undefined : statusFilter }, invoices);
 
+  const sel = useRowSelection(paged.rows);
+  const drafts = sel.selected.filter((i) => i.status === 'draft');
+  const bulkIssue = async () => {
+    setBusy(true);
+    const failed = await bulkIssueInvoices(drafts.map((i) => i.id));
+    setBusy(false);
+    sel.clear();
+    const bad = drafts.filter((i) => failed[i.id]);
+    if (bad.length) showToast(`${drafts.length - bad.length} of ${drafts.length} issued. Skipped: ${bad.map((i) => `${i.invoiceNumber}: ${failed[i.id]}`).join('; ')}`, 'error');
+  };
+  const exportSelected = () => downloadCsv(`invoices-${getTodayISO()}.csv`, [
+    ['Invoice', 'Customer', 'Status', 'Issue date', 'Due date', 'Subtotal', 'VAT', 'Total', 'Paid', 'Balance due'],
+    ...sel.selected.map((i) => [i.invoiceNumber, customerById.get(i.customerId)?.name, i.status, i.issueDate, i.dueDate, i.subtotal, i.vatAmount, i.total, i.amountPaid, i.balanceDue]),
+  ]);
+
   const totalOutstanding = invoices.reduce((sum, inv) => sum + inv.balanceDue, 0);
   const totalPaid = invoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
 
@@ -193,11 +212,19 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         {(searchTerm || statusFilter !== 'all') && <Button variant="ghost" size="xs" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }}><IconX aria-hidden="true" />Clear filters</Button>}
       </div>
 
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        {canManage && drafts.length > 0 && (
+          <Button type="button" size="xs" disabled={busy} onClick={() => confirmToast(`Issue ${drafts.length} draft invoice${drafts.length === 1 ? '' : 's'}? Customers are emailed and they can no longer be edited.`, () => void bulkIssue())}><IconSend aria-hidden="true" />Issue {drafts.length} draft{drafts.length === 1 ? '' : 's'}</Button>
+        )}
+        <Button type="button" size="xs" variant="secondary" onClick={exportSelected}><IconDownload aria-hidden="true" />Export CSV</Button>
+      </BulkBar>
+
       {/* Invoices List Table */}
       <div style={{ '--table-offset': '22.5rem' } as React.CSSProperties}><TableCard footer={paged.pager}>
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
+              <SelectAllHead sel={sel} label="invoices" />
               <SortHead paged={paged} by="invoiceNumber">Invoice Number</SortHead>
               <SortHead paged={paged} by="customer.name" className="hidden md:table-cell">Customer Client</SortHead>
               <SortHead paged={paged} by="issueDate" className="hidden md:table-cell">Issue Date</SortHead>
@@ -214,7 +241,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               const st = statusBadgeMap[inv.status];
 
               return (
-                <TableRow key={inv.id}>
+                <TableRow key={inv.id} data-state={sel.has(inv.id) ? 'selected' : undefined}>
+                  <SelectCell sel={sel} row={inv} label={inv.invoiceNumber} />
                   <TableCell className="tabular-nums font-semibold">
                     <button type="button" onClick={() => setSelectedInvoice(inv)} className="rounded hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{inv.invoiceNumber}</button>
                     {inv.stageLabel && <Badge variant="secondary" className="text-[10px] max-md:mt-1 max-md:flex max-md:w-fit md:ml-1.5">{inv.stageLabel} {inv.stagePercent}%</Badge>}
@@ -273,7 +301,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
             {paged.rows.length === 0 && !paged.loading && (
               <TableRow>
-                <TableCell colSpan={8} className="py-6"><EmptyState icon={IconReceipt}>No invoices found matching criteria.</EmptyState></TableCell>
+                <TableCell colSpan={9} className="py-6"><EmptyState icon={IconReceipt}>No invoices found matching criteria.</EmptyState></TableCell>
               </TableRow>
             )}
           </TableBody>

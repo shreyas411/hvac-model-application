@@ -88,3 +88,9 @@ Issuing an invoice drafts (or, with auto-send on, sends) an email with a server-
 ## Updates: VAT on job invoices, credit notes, overdue
 - Generating an invoice from a job asks for the VAT rate (0-100%) and sends it as `vatRatePercent`.
 - Credit notes are raised from the invoice screen (`creditInvoice`). An invoice turns `overdue` the moment its due date passes with a balance. Admins can delete draft or void invoices without payments.
+
+## Updates: bulk selection
+
+- Select rows to **Issue drafts** (loops `POST /invoices/:id/issue`) or **Export CSV** (`invoices-<date>.csv`). Bulk record payment / void is not built (needs per-invoice reference and reason).
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

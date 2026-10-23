@@ -14,3 +14,13 @@ Issuing rules: the engineer (a technician always issues as themselves; others pa
 
 ## Changes
 - `DELETE /certificates/:id` soft-deletes. Rows carry `expired`; `?sort=type|issueDate|expiryDate`.
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/certificates/bulk-delete` | A | `{ ids: uuid[1..100] }` | Same as `DELETE /certificates/:id` |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.
+
+PDFs stay one `GET /certificates/:id/pdf` per file (a file cannot ride in the JSON result).

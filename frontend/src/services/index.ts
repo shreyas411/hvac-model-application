@@ -35,6 +35,9 @@ const resource = <T extends { id: string }>(path: string) => ({
   remove: (id: string) => api<void>('DELETE', `${path}/${id}`),
 });
 const post = <T,>(path: string, body?: unknown) => api<T>('POST', path, body ?? {});
+/** One request for many records: the server loops and reports each id, so a failure never stops the rest. */
+export type BulkResults = { results: { id: string; ok: boolean; error?: { code?: string; message: string } }[] };
+const bulkPost = (path: string, body: object) => post<BulkResults>(path, body);
 
 /** Every backend call the UI makes lives here. Components never call fetch. */
 export const services = {
@@ -43,27 +46,33 @@ export const services = {
     issue: (body: object) => api<Certificate>('POST', '/certificates', body),
     pdf: (id: string) => apiBlob(`/certificates/${id}/pdf`),
     remove: (id: string) => api<void>('DELETE', `/certificates/${id}`),
+    bulkDelete: (ids: string[]) => bulkPost('/certificates/bulk-delete', { ids }),
   },
   technicians: resource<TechnicianProfile>('/technicians'),
   customers: {
     ...resource<Customer>('/customers'),
     archive: (id: string) => post<Customer>(`/customers/${id}/archive`),
     unarchive: (id: string) => post<Customer>(`/customers/${id}/unarchive`),
+    bulkArchive: (ids: string[], archived: boolean) => bulkPost('/customers/bulk-archive', { ids, archived }),
     updateLocation: (id: string, locId: string, loc: Partial<Omit<ServiceLocation, 'id'>>) => api<Customer>('PATCH', `/customers/${id}/locations/${locId}`, loc),
     removeLocation: (id: string, locId: string) => api<Customer>('DELETE', `/customers/${id}/locations/${locId}`),
     addLocation: (id: string, loc: Omit<ServiceLocation, 'id'>) => post<Customer>(`/customers/${id}/locations`, loc),
   },
   equipment: {
     ...resource<Equipment>('/equipment'),
+    bulkSetInactive: (ids: string[], inactive: boolean) => bulkPost('/equipment/bulk-update', { ids, inactive }),
     addServiceRecord: (id: string, rec: Omit<EquipmentServiceRecord, 'id'>) => post<Equipment>(`/equipment/${id}/service-records`, rec),
   },
   requests: {
     ...resource<ServiceRequest>('/requests'),
     convert: (id: string, slot: object) => post<Job>(`/requests/${id}/convert`, slot),
+    bulkCancel: (ids: string[]) => bulkPost('/requests/bulk-cancel', { ids }),
   },
   jobs: {
     ...resource<Job>('/jobs'),
     setStatus: (id: string, status: JobStatus, note?: string, override?: boolean) => post<Job>(`/jobs/${id}/status`, { status, note, override }),
+    bulkAssign: (jobIds: string[], technicianId: string | null) => post<BulkResults>('/jobs/bulk-assign', { jobIds, technicianId }),
+    bulkSetStatus: (jobIds: string[], status: JobStatus) => bulkPost('/jobs/bulk-status', { jobIds, status }),
     invoice: (id: string, vatRatePercent: number) => post<Invoice>(`/jobs/${id}/invoice`, { vatRatePercent }),
     addPart: (id: string, partId: string, quantity: number) => post<Job>(`/jobs/${id}/parts`, { partId, quantity }),
     addRefrigerant: (id: string, body: object) => post<Job>(`/jobs/${id}/refrigerant`, body),
@@ -76,6 +85,7 @@ export const services = {
     ...resource<Quotation>('/quotations'),
     send: (id: string) => post<Quotation>(`/quotations/${id}/send`),
     reject: (id: string) => post<Quotation>(`/quotations/${id}/reject`),
+    bulk: (action: 'send' | 'reject', ids: string[]) => bulkPost(`/quotations/bulk-${action}`, { ids }),
     accept: (id: string, acceptedBy: string, option?: string) => post<Quotation>(`/quotations/${id}/accept`, { acceptedBy, option }),
     convertToJob: (id: string, slot: object) => post<{ job: Job; quotation: Quotation }>(`/quotations/${id}/convert-to-job`, slot),
     convertToInvoice: (id: string) => post<{ invoice: Invoice; quotation: Quotation }>(`/quotations/${id}/convert-to-invoice`),
@@ -84,6 +94,7 @@ export const services = {
     ...resource<Invoice>('/invoices'),
     pay: (id: string, p: Omit<PaymentRecord, 'id' | 'recordedBy'>) => post<Invoice>(`/invoices/${id}/payments`, p),
     issue: (id: string) => post<Invoice>(`/invoices/${id}/issue`),
+    bulkIssue: (ids: string[]) => bulkPost('/invoices/bulk-issue', { ids }),
     stage: (b: { quoteId: string; percent?: number; final?: boolean; label?: string }) => post<Invoice>('/invoices/stage', b),
     releaseRetention: (id: string) => post<Invoice>(`/invoices/${id}/release-retention`),
     refund: (id: string, paymentId: string, reason: string) => post<Invoice>(`/invoices/${id}/payments/${paymentId}/refund`, { reason }),
@@ -92,14 +103,21 @@ export const services = {
   },
   parts: {
     ...resource<PartItem>('/parts'),
+    bulkSetInactive: (ids: string[], inactive: boolean) => bulkPost('/parts/bulk-update', { ids, inactive }),
+    bulkDelete: (ids: string[]) => bulkPost('/parts/bulk-delete', { ids }),
   adjust: (id: string, body: object) => post<{ part: PartItem; movement: InventoryMovement }>(`/parts/${id}/adjust`, body),
   },
   movements: { list: () => listAll<InventoryMovement>('/movements') },
   notifications: {
     ...resource<CustomerNotification>('/notifications'),
     approveSend: (id: string) => post<CustomerNotification>(`/notifications/${id}/approve-send`),
+    bulkApproveSend: (ids: string[]) => bulkPost('/notifications/bulk-approve-send', { ids }),
   },
-  maintenance: resource<MaintenanceAgreement>('/maintenance-agreements'),
+  maintenance: {
+    ...resource<MaintenanceAgreement>('/maintenance-agreements'),
+    bulkSetActive: (ids: string[], active: boolean) => bulkPost('/maintenance-agreements/bulk-update', { ids, active }),
+    bulkDelete: (ids: string[]) => bulkPost('/maintenance-agreements/bulk-delete', { ids }),
+  },
   checklistTemplates: {
     ...resource<ChecklistTemplate>('/checklist-templates'),
     reorder: (ids: string[]) => post<void>('/checklist-templates/reorder', { ids }),

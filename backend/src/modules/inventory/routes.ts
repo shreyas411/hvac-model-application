@@ -7,6 +7,7 @@ import { ApiError, forbidden, h } from '../../common/errors.js';
 import { paginate } from '../../common/paginate.js';
 import { getSettings } from '../settings/service.js';
 import { money } from '../../common/zod.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 
 const part = z.object({
@@ -36,6 +37,12 @@ inventoryRouter.post('/parts/:id/adjust', allow('admin', 'dispatcher'), h((req) 
   if (b.type === 'used_on_job') throw forbidden('Record parts used on a job via POST /jobs/:id/parts');
   return svc.adjustStock(req.params.id, b.delta, b.type, b.notes, actor(req), b.jobId);
 }));
+const staff = allow('admin', 'dispatcher');
+inventoryRouter.post('/parts/bulk-update', staff, h((req) => {
+  const b = z.object({ ids: bulkIds, inactive: z.boolean() }).parse(req.body);
+  return bulk(b.ids, (id) => svc.partsRepo.update(id, { inactive: b.inactive }));
+}));
+inventoryRouter.post('/parts/bulk-delete', staff, h((req) => bulk(z.object({ ids: bulkIds }).parse(req.body).ids, (id) => svc.partsRepo.remove(id))));
 inventoryRouter.use('/parts', crud({
   repo: svc.partsRepo, label: 'Part', read: ['admin', 'dispatcher', 'technician', 'accountant'], write: ['admin', 'dispatcher'],
   del: true, // parts with ledger rows fail the FK (422): the ledger stays append-only

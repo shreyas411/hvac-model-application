@@ -29,7 +29,7 @@ Base path `/api/v1`. JSON in and out. Roles: **A** admin, **D** dispatcher, **T*
 
 ## Conventions
 
-- **Auth:** the web app signs in with httpOnly session cookies (`hvac_at`, `hvac_rt`); cookie-authenticated writes must send `x-requested-with: apexhvac`. API clients may send `Authorization: Bearer <Supabase JWT>`. With `APP_ENV=local` and no Supabase secret, send `x-dev-user: dev-admin|dev-dispatcher|dev-technician|dev-accountant` (or log in with a local password). Only `/auth/login|refresh|logout` and the health routes are public.
+- **Auth:** the web app signs in with httpOnly session cookies (`hvac_at`, `hvac_rt`); cookie-authenticated writes must send `x-requested-with: apexhvac`. API clients may send `Authorization: Bearer <Supabase JWT>`. With `APP_ENV=local` and no Supabase secret, send `x-dev-user: dev-admin|dev-dispatcher|dev-technician|dev-accountant` (or log in with a local password). Every account belongs to a company and all data is scoped to it: `POST /auth/login` takes `{ company, email, password }` (company = its slug), and `x-dev-company` picks the company for `x-dev-user` (default `default`). Create one with `npm run company:create` (see `docs/COMPANIES.md`). Only `/auth/login|refresh|logout` and the health routes are public.
 - **Idempotency:** a write may carry `x-idempotency-key` (1-64 word characters). It runs once per (user, key); replays get the stored response, and reuse with a different method/path/body is `422 IDEMPOTENCY_KEY_REUSED`. A replay while the first request is running gets `503` + `Retry-After`. Keys are pruned after 7 days.
 - **Rate limits:** `/auth/*` 30 requests per 15 minutes per IP; everything else 600 per minute per user (`429`).
 - **Lists** return `{ data: [...], nextCursor }` and accept `?limit` (the page size, 1-200, default 50), `?q` (text search) and `?status`. Page either by `?cursor` (id of the last row of the previous page) or by `?page` (1-based): with `?page` the response also carries `total`, the number of rows matching the filters. The web UI uses `?page` with `limit` set to the chosen page size (10, 25, 50 or 100).
@@ -51,6 +51,10 @@ Base path `/api/v1`. JSON in and out. Roles: **A** admin, **D** dispatcher, **T*
 | 404 | `NOT_FOUND` |
 | 409 | `SCHEDULE_CONFLICT`, `INVALID_TRANSITION`, `ALREADY_CONVERTED`, `NOT_ACCEPTED`, `INSUFFICIENT_STOCK`, `DUPLICATE_SKU`, `NOT_EDITABLE`, `NOT_DRAFT`, `NOT_PAYABLE`, `HAS_PAYMENTS`, `INVOICE_VOID`, `LOCATION_IN_USE`, `ALREADY_SENT`, `REQUEST_CANCELLED`, `JOB_CLOSED`, `JOB_NOT_ACTIVE`, `JOB_INVOICED`, `JOB_NOT_COMPLETED`, `NOT_CREDITABLE`, `HAS_CREDITS`, `ALREADY_REFUNDED`, `DUPLICATE_PAYMENT_REFERENCE`, `LAST_ADMIN` |
 | 422 | `NOT_COMPLETABLE`, `REASON_REQUIRED`, `EMPTY_INVOICE`, `NOTHING_TO_INVOICE`, `OVER_CREDIT`, `EQUIPMENT_NOT_ON_JOB`, `CONFIRMATION_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `BAD_IDEMPOTENCY_KEY`, `OVERPAYMENT`, `INVALID_LOCATION`, `INVALID_TIME`, `INVALID_QUANTITY`, `CONSENT_REQUIRED`, `CHANNEL_NOT_PREFERRED` |
+
+### Bulk routes
+
+`POST /<module>/bulk-*` takes `{ ids: uuid[1..100], ...options }` (jobs use `jobIds`) and returns `200 { results: [{ id, ok, error?: { code, message } }] }` in request order, duplicates collapsed. The HTTP status is `200` even when some ids fail: check each `ok`. Each id runs the normal single-record checks and is saved on its own. A bad body (empty, over 100, non-UUID) is `400 VALIDATION` for the whole call; roles match the single-record route. `/jobs/bulk-assign` also returns the updated `job` per entry.
 
 ## Health (public)
 

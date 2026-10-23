@@ -43,3 +43,12 @@ Rate limited to 60 requests / 15 min per IP. Unknown token is `404`; an already 
 ## Changes
 - `DELETE /quotations/:id` (A D) soft-deletes; refused for accepted or converted quotes (`409 IN_USE`).
 - Quotes carry `expired` (status `expired`, or open and past `expiryDate`). Customer acceptance via the public link and conversion to a job are audited. List `?sort=issueDate|expiryDate|total|status|customer.name`.
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/quotations/bulk-send` | A D C | `{ ids }` | Same as `POST /quotations/:id/send` |
+| POST | `/quotations/bulk-reject` | A D C | `{ ids }` | Same as `POST /quotations/:id/reject` |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.

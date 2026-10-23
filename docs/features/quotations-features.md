@@ -80,3 +80,9 @@ Sending a quotation drafts (or, with auto-send on, sends) an email with a server
 
 ## Updates: delete, expiry, picker
 - Admins and dispatchers can delete quotes that are not accepted or converted. Expired quotes are flagged by the API (`expired`). Customer acceptance and conversion to a job are audited. Lines use the Parts/Services picker; list columns sort server-side.
+
+## Updates: bulk selection
+
+- Select rows to **Send** drafts (loops `POST /quotations/:id/send`), **Reject** open quotes (loops `/reject`) or **Export CSV**. Bulk PDF download is not built.
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

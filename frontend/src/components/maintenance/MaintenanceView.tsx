@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
-import { services } from '../../services';
+import { services, type BulkResults } from '../../services';
 import { MaintenanceAgreement } from '../../types';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
@@ -10,7 +10,8 @@ import { Checkbox } from '@/src/components/ui/checkbox';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
-import { IconCalendarRepeat, IconPencil, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconCalendarRepeat, IconPencil, IconPlayerPause, IconPlayerPlay, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { Combobox } from '../common/Combobox';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
@@ -75,8 +76,33 @@ export const MaintenanceView: React.FC = () => {
   const today = new Date().toISOString().slice(0, 10);
   const shown = rows.filter((r) => (freqFilter === 'all' || r.frequency === freqFilter) && (!searchTerm.trim() || `${name(r)} ${assetName(r.equipmentId)} ${r.notes ?? ''}`.toLowerCase().includes(searchTerm.trim().toLowerCase())));
 
+  const sel = useRowSelection(shown);
+  const [busy, setBusy] = useState(false);
+  // One bulk request; the server validates each agreement and reports the ones it skipped.
+  const bulk = async (verb: string, call: (ids: string[]) => Promise<BulkResults>) => {
+    const rows = sel.selected;
+    let bad: string[];
+    setBusy(true);
+    try {
+      bad = (await call(rows.map((r) => r.id))).results.filter((r) => !r.ok).map((r) => `${name(rows.find((x) => x.id === r.id)!)}: ${r.error?.message}`);
+    } catch (e) { bad = rows.map((r) => `${name(r)}: ${(e as Error).message}`); }
+    await reload();
+    setBusy(false);
+    sel.clear();
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} ${verb}. Skipped: ${bad.join('; ')}`, 'error');
+    else showToast(`${rows.length} agreement${rows.length === 1 ? '' : 's'} ${verb}`);
+  };
+  const setActive = (active: boolean) => bulk(active ? 'activated' : 'paused', (ids) => services.maintenance.bulkSetActive(ids, active));
+
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
+      {canWrite && (
+        <BulkBar count={sel.selected.length} onClear={sel.clear}>
+          <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={() => void setActive(true)}><IconPlayerPlay aria-hidden="true" />Activate</Button>
+          <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={() => void setActive(false)}><IconPlayerPause aria-hidden="true" />Pause</Button>
+          <Button type="button" size="xs" variant="destructive" disabled={busy} onClick={() => confirmToast(`Delete ${sel.selected.length} agreement${sel.selected.length === 1 ? '' : 's'}?`, () => void bulk('deleted', services.maintenance.bulkDelete), { confirmLabel: 'Delete' })}><IconTrash aria-hidden="true" />Delete {sel.selected.length}</Button>
+        </BulkBar>
+      )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
         <div>
           <div className="flex items-baseline gap-2">
@@ -141,6 +167,7 @@ export const MaintenanceView: React.FC = () => {
           <Table className="text-xs">
             <TableHeader>
               <TableRow>
+                {canWrite && <SelectAllHead sel={sel} label="agreements" />}
                 <TableHead className="px-3">Customer · Site</TableHead>
                 <TableHead className="hidden md:table-cell px-3">Equipment</TableHead>
                 <TableHead className="px-3">Frequency</TableHead>
@@ -151,7 +178,8 @@ export const MaintenanceView: React.FC = () => {
             </TableHeader>
             <TableBody>
               {shown.map((r) => (
-                <TableRow key={r.id} className={r.active ? '' : 'text-muted-foreground'}>
+                <TableRow key={r.id} data-state={sel.has(r.id) ? 'selected' : undefined} className={r.active ? '' : 'text-muted-foreground'}>
+                  {canWrite && <SelectCell sel={sel} row={r} label={name(r)} />}
                   <TableCell className="px-3 py-3 max-w-[320px]">
                     <span className="font-medium block truncate">{name(r)}</span>
                     {(r.annualPrice > 0 || r.endDate || r.slaResponseHours) && (
@@ -175,7 +203,7 @@ export const MaintenanceView: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ))}
-              {!shown.length && <TableRow><TableCell colSpan={6} className="py-6"><EmptyState icon={IconCalendarRepeat}>{rows.length ? 'No agreements match your filters.' : 'No agreements yet.'}</EmptyState></TableCell></TableRow>}
+              {!shown.length && <TableRow><TableCell colSpan={canWrite ? 7 : 6} className="py-6"><EmptyState icon={IconCalendarRepeat}>{rows.length ? 'No agreements match your filters.' : 'No agreements yet.'}</EmptyState></TableCell></TableRow>}
             </TableBody>
           </Table>
         </TableCard>

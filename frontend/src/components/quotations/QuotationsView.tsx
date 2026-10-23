@@ -5,6 +5,8 @@ import { useApp } from '../../context/AppContext';
 import { Quotation, LineItem, QuotationStatus } from '../../types';
 import { formatGBP, formatDateUK, tierPrices, getTodayISO, joinParts, regLine } from '../../utils/formatters';
 import { IconBriefcase, IconCircleCheck, IconDownload, IconEye, IconFileInvoice, IconFileText, IconPencil, IconPlus, IconPrinter, IconReceipt, IconSearch, IconSend, IconThumbDown, IconTrash, IconX } from '@tabler/icons-react';
+import { downloadCsv } from '../../utils/csv';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { RowActions } from '../common/RowActions';
@@ -39,6 +41,8 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
     acceptQuotation, 
     sendQuotation,
     rejectQuotation,
+    bulkQuotations,
+    showToast,
     convertQuotationToJob, 
     convertQuotationToInvoice,
     addStageInvoice,
@@ -49,7 +53,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
     deleteRecord,
     confirmToast,
     currentUser,
-  } = useApp(['quotations', 'invoices', 'customers', 'settings', 'technicians', 'acceptQuotation', 'sendQuotation', 'rejectQuotation', 'convertQuotationToJob', 'convertQuotationToInvoice', 'addStageInvoice', 'addQuotation', 'updateQuotation', 'customerById', 'checkScheduleConflict', 'deleteRecord', 'confirmToast', 'currentUser']);
+  } = useApp(['quotations', 'invoices', 'customers', 'settings', 'technicians', 'acceptQuotation', 'sendQuotation', 'rejectQuotation', 'bulkQuotations', 'showToast', 'convertQuotationToJob', 'convertQuotationToInvoice', 'addStageInvoice', 'addQuotation', 'updateQuotation', 'customerById', 'checkScheduleConflict', 'deleteRecord', 'confirmToast', 'currentUser']);
 
   // Mirrors the backend: jobs are dispatch work, invoices are accounts work.
   const canJob = ['admin', 'dispatcher'].includes(currentUser.role);
@@ -89,6 +93,23 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
   const acceptTiers = [...new Set((quotations.find((q) => q.id === acceptingQuoteId)?.items ?? []).flatMap((i) => (i.option ? [i.option] : [])))];
 
   const paged = useServerPaged<Quotation>('/quotations', { q: searchTerm.trim() || undefined, status: statusFilter === 'all' ? undefined : statusFilter }, quotations);
+
+  const sel = useRowSelection(paged.rows);
+  const drafts = sel.selected.filter((q) => q.status === 'draft');
+  const open = sel.selected.filter((q) => q.status === 'sent' || q.status === 'viewed');
+  const bulk = async (rows: Quotation[], action: 'send' | 'reject') => {
+    setBusy(true);
+    const failed = await bulkQuotations(rows.map((q) => q.id), action);
+    setBusy(false);
+    sel.clear();
+    const bad = rows.filter((q) => failed[q.id]);
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} done. Skipped: ${bad.map((q) => `${q.quoteNumber}: ${failed[q.id]}`).join('; ')}`, 'error');
+  };
+  const plural = (n: number) => `${n} quotation${n === 1 ? '' : 's'}`;
+  const exportSelected = () => downloadCsv(`quotations-${getTodayISO()}.csv`, [
+    ['Quote', 'Customer', 'Status', 'Issue date', 'Expiry date', 'Subtotal', 'VAT', 'Total'],
+    ...sel.selected.map((q) => [q.quoteNumber, customerById.get(q.customerId)?.name, q.status, q.issueDate, q.expiryDate, q.subtotal, q.vatAmount, q.total]),
+  ]);
 
   const handleRecordAcceptance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,11 +186,18 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
         {(searchTerm || statusFilter !== 'all') && <Button variant="ghost" size="xs" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }}><IconX aria-hidden="true" />Clear filters</Button>}
       </div>
 
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        {drafts.length > 0 && <Button type="button" size="xs" disabled={busy} onClick={() => confirmToast(`Send ${plural(drafts.length)} to customers?`, () => void bulk(drafts, 'send'))}><IconSend aria-hidden="true" />Send {drafts.length}</Button>}
+        {open.length > 0 && <Button type="button" size="xs" variant="destructive" disabled={busy} onClick={() => confirmToast(`Mark ${plural(open.length)} as rejected?`, () => void bulk(open, 'reject'))}><IconThumbDown aria-hidden="true" />Reject {open.length}</Button>}
+        <Button type="button" size="xs" variant="secondary" onClick={exportSelected}><IconDownload aria-hidden="true" />Export CSV</Button>
+      </BulkBar>
+
       {/* Quotations Table */}
       <div style={{ '--table-offset': '19.5rem' } as React.CSSProperties}><TableCard footer={paged.pager}>
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
+              <SelectAllHead sel={sel} label="quotations" />
               <SortHead paged={paged} by="quoteNumber">Quote Number</SortHead>
               <SortHead paged={paged} by="customer.name" className="hidden md:table-cell">Customer / Site</SortHead>
               <SortHead paged={paged} by="issueDate" className="hidden md:table-cell">Issued Date</SortHead>
@@ -186,7 +214,8 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               const st = statusBadgeMap[quote.status];
 
               return (
-                <TableRow key={quote.id}>
+                <TableRow key={quote.id} data-state={sel.has(quote.id) ? 'selected' : undefined}>
+                  <SelectCell sel={sel} row={quote} label={quote.quoteNumber} />
                   <TableCell className="tabular-nums font-semibold">
                     <button type="button" onClick={() => setSelectedQuote(quote)} className="rounded hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{quote.quoteNumber}</button>
                     <span className="block max-w-[110px] truncate text-[11px] font-normal text-muted-foreground md:hidden">{cust?.name}</span>
@@ -235,7 +264,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
 
             {paged.rows.length === 0 && !paged.loading && (
               <TableRow>
-                <TableCell colSpan={7} className="py-6"><EmptyState icon={IconFileText}>No quotations found for this filter.</EmptyState></TableCell>
+                <TableCell colSpan={8} className="py-6"><EmptyState icon={IconFileText}>No quotations found for this filter.</EmptyState></TableCell>
               </TableRow>
             )}
           </TableBody>

@@ -5,6 +5,7 @@ import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
 import { paginate } from '../../common/paginate.js';
 import { ukPostcode } from '../../common/zod.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 
 const phone = z.string().regex(/^\+?[\d\s()-]{7,20}$/, 'Enter a valid phone number');
@@ -28,7 +29,11 @@ const rw = allow('admin', 'dispatcher');
 export const customersRouter = Router();
 // No delete: archive instead.
 customersRouter.post('/', rw, h((req) => svc.createCustomer({ ...customer.parse(req.body), archived: false }), 201));
-customersRouter.post('/:id/archive', rw, h((req) => svc.setArchived(req.params.id, true)));
+customersRouter.post('/bulk-archive', rw, h((req) => {
+  const b = z.object({ ids: bulkIds, archived: z.boolean() }).parse(req.body);
+  return bulk(b.ids, (id) => svc.setArchived(id, b.archived));
+}));
+customersRouter.post('/:id/archive',rw, h((req) => svc.setArchived(req.params.id, true)));
 customersRouter.post('/:id/unarchive', rw, h((req) => svc.setArchived(req.params.id, false)));
 customersRouter.post('/:id/locations', rw, h((req) => svc.addLocation(req.params.id, location.parse(req.body)), 201));
 customersRouter.patch('/:id/locations/:locId', rw, h((req) => svc.updateLocation(req.params.id, req.params.locId, location.partial().parse(req.body))));

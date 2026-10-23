@@ -3,8 +3,8 @@ import { api, ApiError, refresh } from './api';
 
 /** Login goes through the backend; it answers with httpOnly cookies, so there is nothing to store here. */
 export const auth = {
-  async login(email: string, password: string) {
-    await api('POST', '/auth/login', { email, password });
+  async login(company: string, email: string, password: string) {
+    await api('POST', '/auth/login', { company, email, password });
   },
   /** The signed-in user's profile, or null when there's no valid session (a network error still throws). */
   async me(): Promise<User | null> {

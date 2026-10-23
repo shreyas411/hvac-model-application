@@ -20,3 +20,14 @@ Technicians can no longer adjust stock; parts used on a job go through `POST /jo
 | Method | Path | Notes |
 |---|---|---|
 | DELETE | `/parts/:id` | A D. `204`. A part that has stock-movement rows is refused with `422 INVALID_REFERENCE`, so the ledger stays append-only |
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/parts/bulk-update` | A D | `{ ids, inactive: boolean }` | Same as `PATCH /parts/:id` with `inactive` |
+| POST | `/parts/bulk-delete` | A D | `{ ids }` | Same as `DELETE /parts/:id`; parts with stock history fail (`INVALID_REFERENCE`, 422) |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.
+
+Returns 403 `FEATURE_DISABLED` when `enableInventory` is off.

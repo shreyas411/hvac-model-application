@@ -77,3 +77,9 @@ Supersedes "Sending is simulated" and the "no provider" limitation above.
 - **Auto-send setting:** Settings > "Send customer emails automatically" (`autoSendEmails`, default off). Off: the emails above wait as drafts for staff to approve here. On: they are approved by "System (auto-send)" and sent at once. Payment reminders always stay drafts.
 - The type list in the Draft form gains "Payment Reminder".
 - Not built: service-due email for jobs raised by maintenance plans; SMS/WhatsApp delivery; showing the failure reason in the UI.
+
+## Updates: bulk selection
+
+- Select rows and **Approve & send** (loops `POST /notifications/:id/approve-send`, with confirmation; failed sends can be retried). Bulk dismiss is not built (no backend dismissed status).
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

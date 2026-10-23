@@ -18,3 +18,11 @@ Statuses: `draft`, `ready_to_send`, `sending`, `sent`, `failed`. The worker clai
 - `type` also accepts `payment_reminder`.
 - Notifications carry optional `invoiceId` / `quotationId`; when set, the matching PDF is attached to the email.
 - The server creates notifications on invoice issue, quotation send, job scheduled, job dispatched and (as drafts) overdue invoices. With company setting `autoSendEmails` on, all but payment reminders are approved and sent immediately as "System (auto-send)"; otherwise they stay `draft` until `approve-send`. Customers without consent or on SMS only get no email.
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/notifications/bulk-approve-send` | A D | `{ ids }` | Same as `POST /notifications/:id/approve-send` (consent, channel and already-sent checks). A delivery that ends `failed` is reported as `{ ok: false, error: { code: 'DELIVERY_FAILED' } }` |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.

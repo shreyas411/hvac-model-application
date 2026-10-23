@@ -5,6 +5,7 @@ import { crud } from '../../common/crud.js';
 import { h } from '../../common/errors.js';
 import { assertOwnJob, getJob } from '../jobs/service.js';
 import { isoDate } from '../../common/zod.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 import { equipmentStore, pageEquipment } from './service.js';
 
@@ -32,6 +33,10 @@ const record = z.object({
 export const equipmentRouter = Router();
 equipmentRouter.post('/', allow('admin', 'dispatcher'), h((req) => svc.createEquipment(equipment.parse(req.body) as any), 201));
 equipmentRouter.patch('/:id', allow('admin', 'dispatcher'), h((req) => svc.updateEquipment(req.params.id, equipment.partial().parse(req.body))));
+equipmentRouter.post('/bulk-update', allow('admin', 'dispatcher'), h((req) => {
+  const b = z.object({ ids: bulkIds, inactive: z.boolean() }).parse(req.body);
+  return bulk(b.ids, (id) => svc.updateEquipment(id, { inactive: b.inactive } as any));
+}));
 equipmentRouter.post('/:id/service-records', allow('admin', 'dispatcher', 'technician'), h(async (req) => {
   const rec = record.parse(req.body);
   if (req.user.role === 'technician') assertOwnJob(await getJob(rec.jobId), req.user);

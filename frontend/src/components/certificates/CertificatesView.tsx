@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { IconDownload, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { Combobox } from '../common/Combobox';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { RowActions } from '../common/RowActions';
@@ -69,17 +70,48 @@ export const CertificatesView: React.FC = () => {
     finally { setBusy(false); }
   };
 
-  const pdf = async (c: Certificate) => {
+  const download = async (c: Certificate) => {
+    const url = URL.createObjectURL(await services.certificates.pdf(c.id));
+    Object.assign(document.createElement('a'), { href: url, download: `${c.certNumber}.pdf` }).click();
+    URL.revokeObjectURL(url);
+  };
+  const pdf = (c: Certificate) => download(c).catch((err: Error) => showToast(err.message, 'error'));
+
+  const isAdmin = currentUser?.role === 'admin';
+  const sel = useRowSelection(paged.rows);
+  const report = (rows: Certificate[], verb: string, bad: string[]) => {
+    setBusy(false);
+    sel.clear();
+    setReload((n) => n + 1);
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} ${verb}. Skipped: ${bad.join('; ')}`, 'error');
+    else showToast(`${rows.length} certificate${rows.length === 1 ? '' : 's'} ${verb}`);
+  };
+  // PDFs are files, so they can't share one JSON response: one download per certificate.
+  const downloadAll = async () => {
+    const rows = sel.selected;
+    const bad: string[] = [];
+    setBusy(true);
+    for (const c of rows) await download(c).catch((e: Error) => bad.push(`${c.certNumber}: ${e.message}`));
+    report(rows, 'downloaded', bad);
+  };
+  // One bulk request; the server validates each certificate and reports the ones it skipped.
+  const deleteAll = async () => {
+    const rows = sel.selected;
+    let bad: string[];
+    setBusy(true);
     try {
-      const url = URL.createObjectURL(await services.certificates.pdf(c.id));
-      Object.assign(document.createElement('a'), { href: url, download: `${c.certNumber}.pdf` }).click();
-      URL.revokeObjectURL(url);
-    } catch (err) { showToast((err as Error).message, 'error'); }
+      bad = (await services.certificates.bulkDelete(rows.map((c) => c.id))).results.filter((r) => !r.ok).map((r) => `${rows.find((c) => c.id === r.id)!.certNumber}: ${r.error?.message}`);
+    } catch (e) { bad = rows.map((c) => `${c.certNumber}: ${(e as Error).message}`); }
+    report(rows, 'deleted', bad);
   };
 
   const today = new Date().toISOString().slice(0, 10);
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={() => void downloadAll()}><IconDownload aria-hidden="true" />Download {sel.selected.length} PDF{sel.selected.length === 1 ? '' : 's'}</Button>
+        {isAdmin && <Button type="button" size="xs" variant="destructive" disabled={busy} onClick={() => confirmToast(`Delete ${sel.selected.length} certificate${sel.selected.length === 1 ? '' : 's'}?`, () => void deleteAll(), { confirmLabel: 'Delete' })}><IconTrash aria-hidden="true" />Delete {sel.selected.length}</Button>}
+      </BulkBar>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
         <div>
           <div className="flex items-baseline gap-2">
@@ -164,12 +196,13 @@ export const CertificatesView: React.FC = () => {
       <div style={{ '--table-offset': '19.5rem' } as React.CSSProperties}><TableCard footer={paged.pager}>
         <Table className="text-xs">
           <TableHeader>
-            <TableRow><SortHead paged={paged} by="certNumber">Number</SortHead><SortHead paged={paged} by="type">Type</SortHead><TableHead>Customer</TableHead><SortHead paged={paged} by="engineerName">Engineer</SortHead><SortHead paged={paged} by="issueDate">Issued</SortHead><SortHead paged={paged} by="expiryDate">Next due</SortHead><TableHead className="text-right">Actions</TableHead></TableRow>
+            <TableRow><SelectAllHead sel={sel} label="certificates" /><SortHead paged={paged} by="certNumber">Number</SortHead><SortHead paged={paged} by="type">Type</SortHead><TableHead>Customer</TableHead><SortHead paged={paged} by="engineerName">Engineer</SortHead><SortHead paged={paged} by="issueDate">Issued</SortHead><SortHead paged={paged} by="expiryDate">Next due</SortHead><TableHead className="text-right">Actions</TableHead></TableRow>
           </TableHeader>
           <TableBody>
-            {paged.rows.length === 0 && !paged.loading && <TableRow><TableCell colSpan={7} className="py-4 text-center text-muted-foreground">No certificates</TableCell></TableRow>}
+            {paged.rows.length === 0 && !paged.loading && <TableRow><TableCell colSpan={8} className="py-4 text-center text-muted-foreground">No certificates</TableCell></TableRow>}
             {paged.rows.map((c) => (
-              <TableRow key={c.id}>
+              <TableRow key={c.id} data-state={sel.has(c.id) ? 'selected' : undefined}>
+                <SelectCell sel={sel} row={c} label={c.certNumber} />
                 <TableCell className="tabular-nums">{c.certNumber}</TableCell>
                 <TableCell>{LABELS[c.type]}</TableCell>
                 <TableCell>{customerById.get(c.customerId)?.name ?? '—'}</TableCell>
@@ -179,7 +212,7 @@ export const CertificatesView: React.FC = () => {
                 <TableCell>
                   <RowActions subject={c.certNumber} actions={[
                     { icon: IconDownload, label: 'Download PDF', onClick: () => void pdf(c) },
-                    { icon: IconTrash, label: 'Delete', destructive: true, hidden: currentUser?.role !== 'admin',
+                    { icon: IconTrash, label: 'Delete', destructive: true, hidden: !isAdmin,
                       onClick: () => confirmToast(`Delete ${c.certNumber}?`, () => void services.certificates.remove(c.id).then(() => setReload((n) => n + 1), (e: Error) => showToast(e.message, 'error'))) },
                   ]} />
                 </TableCell>

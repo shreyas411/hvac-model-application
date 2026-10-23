@@ -99,3 +99,9 @@ Job cards on board, list and reschedule views show a red **SLA breached** badge 
 - Admins can delete jobs that have not started (new, awaiting approval, scheduled, cancelled) and have no invoice. Job detail now carries site address, access notes and customer phone.
 - Required Gas Safe / F-Gas skills are also inferred from gas or refrigerant words in the title and description; assigning a technician without the matching licence is refused. Technician licence fields are admin-only.
 - The completion signature must contain real ink; blank pads are rejected by the API.
+
+## Updates: bulk selection
+
+- Jobs list has a select column. Selected jobs can be assigned to a technician (or unassigned) via `POST /jobs/bulk-assign`, or moved to scheduled, on hold or cancelled (loops `POST /jobs/:id/status`; invalid transitions are skipped and named). Bulk reschedule is not built.
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

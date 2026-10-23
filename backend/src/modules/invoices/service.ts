@@ -7,7 +7,7 @@ import { audit } from '../../common/audit.js';
 import { addDays, today, ukDate } from '../../common/dates.js';
 import { round2, totals } from '../../common/money.js';
 import { nextNumber } from '../../common/numbering.js';
-import { date, isUuid, lockRow, plain, prisma, refer, type Tx } from '../../common/prisma.js';
+import { currentCompany, date, isUuid, lockRow, plain, prisma, refer, type Tx } from '../../common/prisma.js';
 import { getSettings } from '../settings/service.js';
 import { getJob } from '../jobs/service.js';
 import { assertLocation } from '../customers/service.js';
@@ -302,7 +302,7 @@ export async function markOverdue(now = today()) {
  * the reverse link (`convertedToInvoiceId`) is set by the quotation importer's `link`.
  */
 export const importInvoiceOps = (rows: any[], ids: Map<string, string>) => ({
-  wipe: [prisma.payment.deleteMany(), prisma.invoice.deleteMany()],
+  wipe: [prisma.payment.deleteMany({ where: { invoice: { companyId: currentCompany() } } }), prisma.invoice.deleteMany()],
   create: rows.map((v) => {
     const at = `invoice ${v.id}`;
     return prisma.invoice.create({ data: {

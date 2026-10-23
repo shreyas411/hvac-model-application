@@ -3,7 +3,9 @@ import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { Equipment, EquipmentType } from '../../types';
 import { formatDateUK, getTodayISO } from '../../utils/formatters';
-import { IconAirConditioning, IconCalendarPlus, IconCancel, IconCheck, IconHistory, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
+import { downloadCsv } from '../../utils/csv';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
+import { IconAirConditioning, IconCalendarPlus, IconCancel, IconCheck, IconDownload, IconHistory, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
 import { Combobox } from '../common/Combobox';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
@@ -29,7 +31,7 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
   onOpenQuickAction,
   onNavigateTab,
 }) => {
-  const { equipment, customers, addEquipment, updateEquipment, addJob, settings, customerById, confirmToast, showToast } = useApp(['equipment', 'customers', 'addEquipment', 'updateEquipment', 'addJob', 'settings', 'customerById', 'confirmToast', 'showToast']);
+  const { equipment, customers, addEquipment, updateEquipment, bulkSetEquipmentInactive, addJob, settings, customerById, confirmToast, showToast } = useApp(['equipment', 'customers', 'addEquipment', 'updateEquipment', 'bulkSetEquipmentInactive', 'addJob', 'settings', 'customerById', 'confirmToast', 'showToast']);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -55,6 +57,22 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
 
   // Search (brand, model, serial, customer) and type run on the server so paging covers the whole register
   const paged = useServerPaged<Equipment>('/equipment', { q: searchTerm.trim() || undefined, type: typeFilter === 'all' ? undefined : typeFilter }, equipment);
+
+  const sel = useRowSelection(paged.rows);
+  const bulkInactive = async (inactive: boolean) => {
+    const rows = sel.selected;
+    const failed = await bulkSetEquipmentInactive(rows.map((e) => e.id), inactive);
+    sel.clear();
+    const bad = rows.filter((e) => failed[e.id]);
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} done. Skipped: ${bad.map((e) => `${e.brand} ${e.model}: ${failed[e.id]}`).join('; ')}`, 'error');
+  };
+  const exportSelected = () => downloadCsv(`equipment-${getTodayISO()}.csv`, [
+    ['Brand', 'Model', 'Type', 'Serial', 'Customer', 'Postcode', 'Refrigerant', 'Charge (kg)', 'Installed', 'Warranty expiry', 'Frequency', 'Next service', 'Inactive'],
+    ...sel.selected.map((e) => {
+      const c = customerById.get(e.customerId);
+      return [e.brand, e.model, e.type, e.serialNumber, c?.name, c?.serviceLocations.find((l) => l.id === e.locationId)?.postcode, e.refrigerantType, e.refrigerantChargeKg, e.installationDate, e.warrantyExpiryDate, e.maintenanceFrequency, e.nextServiceDueDate, e.inactive ? 'Yes' : 'No'];
+    }),
+  ]);
 
   const handleBookServiceForEquipment = async (eq: Equipment) => {
     if (busy) return;
@@ -155,11 +173,18 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
         {(searchTerm || typeFilter !== 'all') && <Button variant="ghost" size="xs" onClick={() => { setSearchTerm(''); setTypeFilter('all'); }}><IconX aria-hidden="true" />Clear filters</Button>}
       </div>
 
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        <Button type="button" size="xs" onClick={() => void bulkInactive(false)}><IconCheck aria-hidden="true" />Activate</Button>
+        <Button type="button" size="xs" onClick={() => confirmToast(`Deactivate ${sel.selected.length} asset${sel.selected.length === 1 ? '' : 's'}? They stay on record but drop out of scheduling.`, () => void bulkInactive(true), { confirmLabel: 'Deactivate' })}><IconCancel aria-hidden="true" />Deactivate</Button>
+        <Button type="button" size="xs" variant="secondary" onClick={exportSelected}><IconDownload aria-hidden="true" />Export CSV</Button>
+      </BulkBar>
+
       <div style={{ '--table-offset': '19.5rem' } as React.CSSProperties}>
         <TableCard footer={paged.pager}>
           <Table className="text-xs">
             <TableHeader>
               <TableRow>
+                <SelectAllHead sel={sel} label="assets" />
                 <SortHead paged={paged} by="brand" className="px-3">Asset</SortHead>
                 <SortHead paged={paged} by="type" className="hidden md:table-cell px-3">Type</SortHead>
                 <SortHead paged={paged} by="customer.name" className="px-3">Customer / Site</SortHead>
@@ -175,7 +200,8 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
                 const loc = cust?.serviceLocations.find((l) => l.id === eq.locationId);
                 const isOverdue = eq.nextServiceDueDate <= getTodayISO();
                 return (
-                  <TableRow key={eq.id} className={eq.inactive ? 'opacity-60' : undefined}>
+                  <TableRow key={eq.id} data-state={sel.has(eq.id) ? 'selected' : undefined} className={eq.inactive ? 'opacity-60' : undefined}>
+                    <SelectCell sel={sel} row={eq} label={`${eq.brand} ${eq.model}`} />
                     <TableCell className="px-3 py-3">
                       <button onClick={() => setSelectedEqId(eq.id)} className="text-left group rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <span className="font-bold group-hover:text-primary block">{eq.brand} {eq.model}</span>
@@ -205,7 +231,7 @@ export const EquipmentView: React.FC<EquipmentViewProps> = ({
                 );
               })}
               {paged.rows.length === 0 && !paged.loading && (
-                <TableRow><TableCell colSpan={7} className="py-6"><EmptyState icon={IconAirConditioning}>No equipment found.</EmptyState></TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="py-6"><EmptyState icon={IconAirConditioning}>No equipment found.</EmptyState></TableCell></TableRow>
               )}
             </TableBody>
           </Table>

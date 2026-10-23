@@ -4,6 +4,7 @@ import { actor, allow } from '../../common/auth.js';
 import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
 import { isoDate, lineItems } from '../../common/zod.js';
+import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
 import { generateInvoicePdf } from './pdf.service.js';
 
@@ -39,6 +40,7 @@ invoicesRouter.post('/stage', h((req) => {
 invoicesRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.invoice, req.params.id, 'Invoice', async (i) =>
   !['draft', 'void'].includes(i.status) ? 'Only a draft or void invoice can be deleted (void it first)'
     : (await prisma.payment.count({ where: { invoiceId: i.id } })) > 0 && 'Invoice has payments')));
+invoicesRouter.post('/bulk-issue', h((req) => bulk(z.object({ ids: bulkIds }).parse(req.body).ids, (id) => svc.issueInvoice(id, actor(req)))));
 invoicesRouter.post('/:id/issue', h((req) => svc.issueInvoice(req.params.id, actor(req))));
 invoicesRouter.post('/:id/payments', h((req) => svc.recordPayment(req.params.id, payment.parse(req.body), actor(req)), 201));
 invoicesRouter.post('/:id/release-retention', h((req) => svc.releaseRetention(req.params.id, actor(req))));

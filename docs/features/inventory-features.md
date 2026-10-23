@@ -80,3 +80,9 @@ Each row has a **Delete** button (with a confirmation). The server refuses to de
 
 ## Updates: inactive, delete
 - Parts can be marked inactive or soft-deleted, filtered by `?inactive`, and the list pages and sorts on the server.
+
+## Updates: bulk selection
+
+- Select rows to **Activate** / **Deactivate** and **Delete** (loops `PATCH /parts/:id` and `DELETE`), or **Export CSV**. Bulk stock adjust is not built (each part needs its own quantity and reason).
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

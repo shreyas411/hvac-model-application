@@ -69,3 +69,9 @@ On "Confirm & Schedule":
 
 ## Updates: delete
 - Admins can delete a service request (soft delete); converted requests are protected because they belong to their job's history.
+
+## Updates: bulk selection
+
+- Select new or awaiting-approval requests and **Cancel** them (loops `PATCH /requests/:id` with `status: cancelled`). Bulk convert-to-job is not built.
+
+Shared behaviour: [BULK_SELECTION.md](../BULK_SELECTION.md). Selection is limited to the current page; failures are reported as "N of M done. Skipped: …".

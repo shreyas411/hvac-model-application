@@ -4,12 +4,13 @@ import { Job, JobStatus, Priority, JobType } from '../../types';
 import { formatDateUK, getTodayISO, addDaysISO, canMoveJob } from '../../utils/formatters';
 import { IconAlertTriangle, IconChevronLeft, IconChevronRight, IconEye, IconLayoutGrid, IconList, IconMapPin, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
 import { DatePicker, DateRangePicker } from '../common/DatePicker';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { DetailDrawer } from '../common/DetailDrawer';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { SortHead, useServerPaged } from '../common/Pager';
 import { JobDetailDrawer } from './JobDetailDrawer';
-import { DispatchTimeline } from './DispatchTimeline';
+import { DispatchTimeline, HOUR_W, NAME_W, SNAP, mins, toTime } from './DispatchTimeline';
 import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import type { TechnicianProfile as Technician } from '../../types';
 import { Alert, AlertDescription, AlertTitle } from '@/src/components/ui/alert';
@@ -51,6 +52,9 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     technicians,
     customers,
     updateJob,
+    bulkAssignJobs,
+    bulkSetJobStatus,
+    confirmToast,
 
     updateJobStatus, 
     checkScheduleConflict,
@@ -58,7 +62,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     currentUser,
     customerById,
     settings,
-  } = useApp(['jobs', 'technicians', 'customers', 'updateJob', 'updateJobStatus', 'checkScheduleConflict', 'showToast', 'currentUser', 'customerById', 'settings']);
+  } = useApp(['jobs', 'technicians', 'customers', 'updateJob', 'bulkAssignJobs', 'bulkSetJobStatus', 'confirmToast', 'updateJobStatus', 'checkScheduleConflict', 'showToast', 'currentUser', 'customerById', 'settings']);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState('');
@@ -166,36 +170,112 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }), // long-press to drag, scroll otherwise
     useSensor(KeyboardSensor), // focus a card, Space to lift, arrows to move, Space to drop
   );
-  // Why `job` can't go to `techId` (null = allowed)
-  const dropBlocker = (job: Job, techId: string | null): string | null => {
+  // Optimistic placement: the job shows in its new row/slot straight away, then the API call runs;
+  // if it fails the override is dropped and the job falls back to where the server still has it (the queue).
+  const [pending, setPending] = useState<Record<string, Partial<Job>>>({});
+  const shownJobs = jobs.map((j) => (pending[j.id] ? { ...j, ...pending[j.id] } : j));
+  const save = async (job: Job, patch: Partial<Job>, audit: string) => {
+    setPending((p) => ({ ...p, [job.id]: patch }));
+    setBusy(true);
+    await updateJob(job.id, patch, audit);
+    setBusy(false);
+    setPending(({ [job.id]: _, ...rest }) => rest);
+  };
+  const outsideHours = (start: string, end: string) =>
+    mins(start) < mins(settings.workingHoursStart) || mins(end) > mins(settings.workingHoursEnd)
+      ? `${start}-${end} is outside working hours (${settings.workingHoursStart}-${settings.workingHoursEnd})` : null;
+  // Why `job` can't take techId at date start-end (null = allowed)
+  const dropBlocker = (job: Job, techId: string | null, start = job.startTime, end = job.endTime): string | null => {
     if (!techId) return null;
     const tech = technicians.find((t) => t.id === techId);
     const gap = qualificationGap(tech, job);
     if (gap.length) return `${tech?.name} can't take ${job.jobNumber}: missing ${gap.join(', ')}`;
-    const c = checkScheduleConflict(techId, selectedDate, job.startTime, job.endTime, job.id);
+    const off = outsideHours(start, end);
+    if (off) return off;
+    const c = checkScheduleConflict(techId, selectedDate, start, end, job.id);
     if (c) return `${tech?.name} already has ${c.jobNumber} ${c.startTime}-${c.endTime} on ${selectedDate}`;
     return null;
   };
   const eligibleFor = (techId: string | null) => (dragging ? !dropBlocker(dragging, techId) : undefined);
-  const onDragEnd = async ({ active, over }: DragEndEvent) => {
+  const onDragEnd = async ({ active, over, delta, activatorEvent }: DragEndEvent) => {
     setDragging(null);
     const job = jobs.find((j) => j.id === active.id);
     if (!job || !over || busy) return;
     const techId = over.id === 'none' ? null : String(over.id);
-    if ((job.technicianId || null) === techId && (!techId || job.appointmentDate === selectedDate)) return;
-    const blocked = dropBlocker(job, techId);
+    let start = job.startTime, end = job.endTime;
+    const dayStart = over.data.current?.dayStart as number | undefined;
+    if (techId && dayStart !== undefined) {
+      const dur = mins(job.endTime) - mins(job.startTime);
+      const onBoard = job.technicianId && job.appointmentDate === selectedDate;
+      // Moving a block: shift by how far it travelled. From the queue: start where the pointer (or card edge) lands.
+      const x = activatorEvent instanceof MouseEvent ? activatorEvent.clientX + delta.x : (active.rect.current.translated?.left ?? 0);
+      const raw = onBoard ? mins(job.startTime) + (delta.x / HOUR_W) * 60 : dayStart * 60 + ((x - over.rect.left - NAME_W) / HOUR_W) * 60;
+      const s = Math.min(1440 - dur, Math.max(0, Math.round(raw / SNAP) * SNAP));
+      if (activatorEvent instanceof MouseEvent || onBoard) { start = toTime(s); end = toTime(s + dur); }
+    }
+    if ((job.technicianId || null) === techId && (!techId || (job.appointmentDate === selectedDate && start === job.startTime))) return;
+    const blocked = dropBlocker(job, techId, start, end);
     if (blocked) { showToast(`Not allowed: ${blocked}`, 'error'); return; }
-    setBusy(true);
-    await updateJob(
-      job.id,
-      techId
-        ? { technicianId: techId, appointmentDate: selectedDate, status: job.status === 'new' ? 'scheduled' : job.status }
-        : { technicianId: null },
-      techId ? `Assigned by drag & drop on ${selectedDate}` : 'Unassigned by drag & drop'
-    );
     if (techId && job.appointmentDate !== selectedDate) showToast(`${job.jobNumber} moved from ${formatDateUK(job.appointmentDate)} to ${formatDateUK(selectedDate)}`);
-    setBusy(false);
+    await save(
+      job,
+      techId
+        ? { technicianId: techId, appointmentDate: selectedDate, startTime: start, endTime: end, status: job.status === 'new' ? 'scheduled' : job.status }
+        : { technicianId: null },
+      techId ? `Assigned by drag & drop on ${selectedDate} ${start}-${end}` : 'Unassigned by drag & drop'
+    );
   };
+  const onResize = (job: Job, endTime: string) => {
+    if (busy) return;
+    const off = outsideHours(job.startTime, endTime);
+    if (off) { showToast(`Not allowed: ${off}`, 'error'); return; }
+    const c = job.technicianId && checkScheduleConflict(job.technicianId, job.appointmentDate, job.startTime, endTime, job.id);
+    if (c) { showToast(`Not allowed: overlaps ${c.jobNumber} ${c.startTime}-${c.endTime}`, 'error'); return; }
+    save(job, { endTime, estimatedDurationMinutes: mins(endTime) - mins(job.startTime) }, `Duration changed to ${job.startTime}-${endTime} by drag`);
+  };
+
+  // List view: inline / bulk technician assignment. Checks the job's own date; the server re-checks conflicts.
+  const closed = (j: Job) => j.status === 'completed' || j.status === 'cancelled';
+  const sel = useRowSelection(paged.rows, (j) => !closed(j));
+  const assignBlocker = (job: Job, techId: string | null): string | null => {
+    if (!techId) return null;
+    const tech = technicians.find((t) => t.id === techId);
+    const gap = qualificationGap(tech, job);
+    if (gap.length) return `${job.jobNumber}: ${tech?.name} is missing ${gap.join(', ')}`;
+    const c = checkScheduleConflict(techId, job.appointmentDate, job.startTime, job.endTime, job.id);
+    return c ? `${job.jobNumber}: ${tech?.name} already has ${c.jobNumber} ${c.startTime}-${c.endTime}` : null;
+  };
+  const assignJobs = async (list: Job[], techId: string | null) => {
+    if (busy) return;
+    setBusy(true);
+    const failed: Record<string, string> = {};
+    const ok: Job[] = [];
+    for (const job of list) { const why = assignBlocker(job, techId); if (why) failed[job.id] = why; else ok.push(job); }
+    if (ok.length) Object.assign(failed, await bulkAssignJobs(ok.map((j) => j.id), techId));
+    setBusy(false);
+    sel.clear(); // done either way: dismiss the bar; skipped jobs are named in the error toast
+    const bad = list.filter((j) => failed[j.id]);
+    if (bad.length) showToast(`${list.length - bad.length} of ${list.length} updated. Skipped: ${bad.map((j) => failed[j.id].startsWith(j.jobNumber) ? failed[j.id] : `${j.jobNumber}: ${failed[j.id]}`).join('; ')}`, 'error');
+  };
+  const setStatuses = async (list: Job[], status: JobStatus) => {
+    if (busy) return;
+    setBusy(true);
+    const failed = await bulkSetJobStatus(list.map((j) => j.id), status);
+    setBusy(false);
+    sel.clear();
+    const bad = list.filter((j) => failed[j.id]);
+    if (bad.length) showToast(`${list.length - bad.length} of ${list.length} updated. Skipped: ${bad.map((j) => `${j.jobNumber}: ${failed[j.id]}`).join('; ')}`, 'error');
+  };
+  const techSelect = (value: string, onChange: (v: string | null) => void, disabled: boolean, label: string, placeholder?: string, triggerClass = '', onOpenChange?: (open: boolean) => void) => (
+    <Select value={value} onValueChange={(v) => onChange(v === 'none' ? null : v)} disabled={disabled} onOpenChange={onOpenChange}>
+      <SelectTrigger aria-label={label} size="sm" className={`w-36 text-xs ${triggerClass}`}><SelectValue placeholder={placeholder} /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">Unassigned</SelectItem>
+        {technicians.map((t) => <SelectItem key={t.id} value={t.id}><span style={{ color: t.color }}>●</span> {t.name}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+  const [openTech, setOpenTech] = useState<string | null>(null); // row whose dropdown is open: keep it visible after the pointer leaves
 
   const statusColors: Record<JobStatus, { bg: string; text: string; label: string }> = {
     new: { bg: 'bg-muted border-border', text: 'text-foreground', label: 'New / Unassigned' },
@@ -286,7 +366,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
       {/* Board Mode: unassigned queue + technician timeline */}
       {viewMode === 'board' && (
         <DndContext sensors={sensors} onDragStart={(e) => setDragging(jobs.find((j) => j.id === e.active.id) || null)} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
-          <DispatchTimeline jobs={jobs} technicians={technicians} customerById={customerById} selectedDate={selectedDate} workingHoursStart={settings.workingHoursStart} workingHoursEnd={settings.workingHoursEnd} eligibleFor={eligibleFor} onOpen={setViewingJob} />
+          <DispatchTimeline jobs={shownJobs} onResize={onResize} technicians={technicians} customerById={customerById} selectedDate={selectedDate} workingHoursStart={settings.workingHoursStart} workingHoursEnd={settings.workingHoursEnd} eligibleFor={eligibleFor} onOpen={setViewingJob} />
           <DragOverlay>
             {dragging && <div className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs tabular-nums font-semibold shadow-lg">{dragging.jobNumber}</div>}
           </DragOverlay>
@@ -311,10 +391,19 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
           {(q || status || from || to) && <Button type="button" variant="ghost" size="xs" onClick={() => { setQ(''); setStatus(''); setFrom(''); setTo(''); }}><IconX aria-hidden="true" />Clear filters</Button>}
         </div>
 
+        <BulkBar count={sel.selected.length} onClear={sel.clear}>
+          {techSelect('', (v) => assignJobs(sel.selected, v), busy, 'Assign selected jobs to technician', 'Assign technician…', 'bg-background text-foreground')}
+          <Select value="" onValueChange={(v) => { const list = sel.selected, status = v as JobStatus; confirmToast(`Mark ${list.length} job${list.length === 1 ? '' : 's'} as ${status.replace('_', ' ')}?`, () => void setStatuses(list, status)); }} disabled={busy}>
+            <SelectTrigger aria-label="Change status of selected jobs" size="sm" className="w-36 text-xs bg-background text-foreground"><SelectValue placeholder="Set status…" /></SelectTrigger>
+            <SelectContent>{(['scheduled', 'on_hold', 'cancelled'] as JobStatus[]).map((s) => <SelectItem key={s} value={s} className="capitalize">{s.replace('_', ' ')}</SelectItem>)}</SelectContent>
+          </Select>
+        </BulkBar>
+
         <div style={{ '--table-offset': '19.5rem' } as React.CSSProperties}><TableCard footer={paged.pager}>
           <Table className="text-xs">
             <TableHeader>
               <TableRow>
+                <SelectAllHead sel={sel} label="jobs" />
                 <SortHead paged={paged} by="jobNumber">Job Number</SortHead>
                 <SortHead paged={paged} by="appointmentDate">Date & Time</SortHead>
                 <SortHead paged={paged} by="type">Type</SortHead>
@@ -332,7 +421,8 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                 const loc = cust?.serviceLocations.find((l) => l.id === job.locationId);
 
                 return (
-                  <TableRow key={job.id}>
+                  <TableRow key={job.id} className="group/row" data-state={sel.has(job.id) ? 'selected' : undefined}>
+                    <SelectCell sel={sel} row={job} label={job.jobNumber} />
                     <TableCell className="tabular-nums font-semibold">
                       <button type="button" onClick={() => setViewingJob(job)} className="rounded hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{job.jobNumber}</button>
                       <span className="block text-[11px] font-sans font-medium truncate max-w-[220px]">{job.title}</span>
@@ -347,10 +437,15 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                       <span className="text-[11px] text-muted-foreground block truncate">{loc?.city}, {loc?.postcode}</span>
                     </TableCell>
                     <TableCell>
-                      {tech ? (
-                        <span className="font-medium">{tech.name}</span>
-                      ) : (
-                        <span className="text-amber-600 font-medium italic">Unassigned</span>
+                      {closed(job) ? <span className="font-medium">{tech?.name ?? '—'}</span> : (
+                        <div className="grid">
+                          <span className={`col-start-1 row-start-1 self-center ${openTech === job.id ? 'invisible' : 'group-hover/row:invisible group-focus-within/row:invisible'}`}>
+                            {tech ? <span className="font-medium">{tech.name}</span> : <span className="text-amber-600 font-medium italic">Unassigned</span>}
+                          </span>
+                          <div className={`col-start-1 row-start-1 ${openTech === job.id ? '' : 'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100'}`}>
+                            {techSelect(job.technicianId || 'none', (v) => assignJobs([job], v), busy, `Technician for ${job.jobNumber}`, undefined, '', (o) => setOpenTech(o ? job.id : null))}
+                          </div>
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>
@@ -370,7 +465,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                 );
               })}
               {paged.rows.length === 0 && !paged.loading && (
-                <TableRow><TableCell colSpan={8} className="py-6 text-center text-muted-foreground">No jobs match these filters.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="py-6 text-center text-muted-foreground">No jobs match these filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

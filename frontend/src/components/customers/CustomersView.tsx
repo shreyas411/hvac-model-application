@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import { EmptyState } from '../common/EmptyState';
 import { useApp } from '../../context/AppContext';
 import { Customer } from '../../types';
-import { IconArchive, IconArchiveOff, IconCircleCheck, IconEye, IconPencil, IconPlus, IconSearch, IconTrash, IconUsers, IconX } from '@tabler/icons-react';
+import { IconArchive, IconArchiveOff, IconCircleCheck, IconDownload, IconEye, IconPencil, IconPlus, IconSearch, IconTrash, IconUsers, IconX } from '@tabler/icons-react';
 import { SortHead, useServerPaged } from '../common/Pager';
+import { downloadCsv } from '../../utils/csv';
+import { getTodayISO } from '../../utils/formatters';
+import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { Badge } from '@/src/components/ui/badge';
@@ -23,8 +26,8 @@ interface CustomersViewProps {
 type TypeFilter = 'all' | 'residential' | 'commercial' | 'landlord';
 
 export const CustomersView: React.FC<CustomersViewProps> = ({ onOpenQuickAction }) => {
-  const { customers, archiveCustomer, deleteRecord, currentUser, confirmToast } =
-    useApp(['customers', 'archiveCustomer', 'deleteRecord', 'currentUser', 'confirmToast']);
+  const { customers, archiveCustomer, bulkArchiveCustomers, deleteRecord, currentUser, confirmToast, showToast } =
+    useApp(['customers', 'archiveCustomer', 'bulkArchiveCustomers', 'deleteRecord', 'currentUser', 'confirmToast', 'showToast']);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -36,6 +39,19 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ onOpenQuickAction 
   const paged = useServerPaged<Customer>('/customers', { q: searchTerm.trim() || undefined, type: typeFilter === 'all' ? undefined : typeFilter, archived: String(showArchived) }, customers);
   const filtered = !!searchTerm || typeFilter !== 'all' || showArchived;
   const clearFilters = () => { setSearchTerm(''); setTypeFilter('all'); setShowArchived(false); };
+
+  const sel = useRowSelection(paged.rows);
+  const bulkArchive = async () => {
+    const rows = sel.selected;
+    const failed = await bulkArchiveCustomers(rows.map((c) => c.id), !showArchived);
+    sel.clear();
+    const bad = rows.filter((c) => failed[c.id]);
+    if (bad.length) showToast(`${rows.length - bad.length} of ${rows.length} done. Skipped: ${bad.map((c) => `${c.name}: ${failed[c.id]}`).join('; ')}`, 'error');
+  };
+  const exportSelected = () => downloadCsv(`customers-${getTodayISO()}.csv`, [
+    ['Name', 'Company', 'Type', 'Email', 'Phone', 'Address', 'City', 'Postcode', 'Sites', 'GDPR consent'],
+    ...sel.selected.map((c) => [c.name, c.companyName, c.type, c.email, c.phone, c.serviceLocations[0]?.addressLine1, c.serviceLocations[0]?.city, c.serviceLocations[0]?.postcode, c.serviceLocations.length, c.gdprConsent ? 'Yes' : 'No']),
+  ]);
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-2 space-y-3">
@@ -82,10 +98,16 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ onOpenQuickAction 
         )}
       </div>
 
+      <BulkBar count={sel.selected.length} onClear={sel.clear}>
+        <Button type="button" size="xs" onClick={() => confirmToast(`${showArchived ? 'Restore' : 'Archive'} ${sel.selected.length} customer${sel.selected.length === 1 ? '' : 's'}?`, () => void bulkArchive())}>{showArchived ? <IconArchiveOff aria-hidden="true" /> : <IconArchive aria-hidden="true" />}{showArchived ? 'Restore' : 'Archive'}</Button>
+        <Button type="button" size="xs" variant="secondary" onClick={exportSelected}><IconDownload aria-hidden="true" />Export CSV</Button>
+      </BulkBar>
+
       <TableCard footer={paged.pager}>
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
+              <SelectAllHead sel={sel} label="customers" />
               <SortHead paged={paged} by="name" className="px-3">Customer / Company</SortHead>
               <SortHead paged={paged} by="type" className="hidden md:table-cell px-3">Type</SortHead>
               <SortHead paged={paged} by="email" className="px-3">Contact</SortHead>
@@ -99,7 +121,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ onOpenQuickAction 
             {paged.rows.map((c) => {
               const primaryLoc = c.serviceLocations[0];
               return (
-                <TableRow key={c.id}>
+                <TableRow key={c.id} data-state={sel.has(c.id) ? 'selected' : undefined}>
+                  <SelectCell sel={sel} row={c} label={c.name} />
                   <TableCell className="px-3 py-3">
                     <button onClick={() => setSelectedCustomerId(c.id)} className="text-left group rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                       <span className="font-bold group-hover:text-primary block">{c.name}</span>
@@ -141,7 +164,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ onOpenQuickAction 
             })}
             {paged.rows.length === 0 && !paged.loading && (
               <TableRow>
-                <TableCell colSpan={7} className="py-6"><EmptyState icon={IconUsers}>No customers found matching your criteria.</EmptyState></TableCell>
+                <TableCell colSpan={8} className="py-6"><EmptyState icon={IconUsers}>No customers found matching your criteria.</EmptyState></TableCell>
               </TableRow>
             )}
           </TableBody>

@@ -1,8 +1,12 @@
 import type { AddressInfo } from 'node:net';
 import { beforeAll, expect, test } from 'vitest';
 import { createApp } from '../src/app.js';
-import { seedDevUsers } from '../src/common/auth.js';
-import { prisma } from '../src/common/prisma.js';
+import { DEV_COMPANY, seedDevUsers } from '../src/common/auth.js';
+import { prisma as scoped, runAs, unscoped } from '../src/common/prisma.js';
+
+// Every model query needs a company: run the test's direct DB calls as the dev company, like a request would.
+let companyId = '';
+const prisma = new Proxy(scoped, { get: (t: any, k: string) => typeof t[k] !== 'object' || k.startsWith('$') ? t[k] : new Proxy(t[k], { get: (m, op: string) => (...a: any[]) => runAs(companyId, async () => await m[op](...a)) }) });
 import { crc32, deflateSync } from 'node:zlib';
 
 // Real RGBA PNG like the signature pad's: transparent canvas, optional opaque "ink" pixels.
@@ -24,6 +28,8 @@ let base = '';
 beforeAll(async () => {
   // tests wipe everything: only ever a local *_test database, never the dev data
   if (!/@(localhost|127\.0\.0\.1)[:/][^?]*_test(\?|$)/.test(process.env.DATABASE_URL ?? '')) throw new Error('Tests wipe their database: only a local *_test database is allowed, use `npm test`');
+  await seedDevUsers();
+  companyId = (await unscoped.company.findUniqueOrThrow({ where: { slug: DEV_COMPANY } })).id;
   await prisma.certificate.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.maintenanceAgreement.deleteMany();
@@ -38,7 +44,7 @@ beforeAll(async () => {
   await prisma.equipment.deleteMany();
   await prisma.user.deleteMany();
   await Promise.all([prisma.customer.deleteMany(), prisma.technician.deleteMany(), prisma.part.deleteMany(), prisma.counter.deleteMany()]);
-  await prisma.companySettings.update({ where: { id: 1 }, data: { defaultVatRate: 20 } }); // the import test changes it
+  await prisma.companySettings.update({ where: { companyId }, data: { defaultVatRate: 20 } }); // the import test changes it
   await seedDevUsers();
   base = `http://127.0.0.1:${(createApp().listen(0).address() as AddressInfo).port}/api/v1`;
 });
@@ -108,6 +114,36 @@ test('jobs list filters by appointment date range', async () => {
   expect((await call('GET', '/jobs?to=1999-01-01')).body.data).toEqual([]);
 });
 
+test('bulk assign: per-job results, conflicts skipped, unassign, office roles only', async () => {
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'B', phone: '01234 567890', email: 'b@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0];
+  const tech = (await call('POST', '/technicians', { name: 'Bulk', phone: '1', email: 'bulk@x.co' })).body;
+  const mk = async (startTime: string, endTime: string) => (await call('POST', '/jobs', { customerId: cust.id, locationId: loc.id, type: 'repair', title: 't', description: 'x', appointmentDate: '2026-12-01', startTime, endTime })).body;
+  const [j1, j2] = [await mk('09:00', '10:00'), await mk('09:30', '10:30')];
+  expect(j1.status).toBe('new');
+  expect((await call('POST', '/jobs/bulk-assign', { jobIds: [j1.id], technicianId: tech.id }, 'technician')).status).toBe(403);
+  const r = (await call('POST', '/jobs/bulk-assign', { jobIds: [j1.id, j2.id], technicianId: tech.id })).body.results;
+  expect(r[0]).toMatchObject({ id: j1.id, ok: true, job: { technicianId: tech.id, status: 'scheduled' } });
+  expect(r[1]).toMatchObject({ id: j2.id, ok: false, error: { code: 'SCHEDULE_CONFLICT' } });
+  const u = (await call('POST', '/jobs/bulk-assign', { jobIds: [j1.id], technicianId: null })).body.results;
+  expect(u[0].job.technicianId).toBeNull();
+});
+
+test('bulk endpoints: one call, per-id results, bad ids reported, validation and roles enforced', async () => {
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'BK', phone: '01234 567890', email: 'bk@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0];
+  const r1 = (await call('POST', '/requests', { customerId: cust.id, locationId: loc.id, reportedProblem: 'a' })).body;
+  const ghost = '00000000-0000-4000-8000-000000000000';
+  const res = (await call('POST', '/requests/bulk-cancel', { ids: [r1.id, ghost, r1.id] })).body.results;
+  expect(res).toMatchObject([{ id: r1.id, ok: true }, { id: ghost, ok: false, error: { code: 'NOT_FOUND' } }]); // duplicate id collapsed
+  expect((await call('GET', `/requests/${r1.id}`)).body.status).toBe('cancelled');
+  expect((await call('POST', '/requests/bulk-cancel', { ids: [] })).status).toBe(400);
+  expect((await call('POST', '/requests/bulk-cancel', { ids: ['nope'] })).status).toBe(400);
+  expect((await call('POST', '/customers/bulk-archive', { ids: [cust.id], archived: true })).body.results[0].ok).toBe(true);
+  expect((await call('POST', '/customers/bulk-archive', { ids: [cust.id], archived: true }, 'technician')).status).toBe(403);
+  expect((await call('POST', '/certificates/bulk-delete', { ids: [ghost] }, 'dispatcher')).status).toBe(403);
+});
+
 test('rbac and technician scoping', async () => {
   expect((await call('GET', '/invoices', undefined, 'technician')).status).toBe(403);
   expect((await call('GET', '/users', undefined, 'dispatcher')).status).toBe(403);
@@ -138,7 +174,7 @@ test('quotation must be accepted before conversion; sweeps', async () => {
   expect((await call('POST', `/quotations/${q.id}/convert-to-invoice`)).body.code).toBe('NOT_ACCEPTED');
   await call('POST', `/quotations/${q.id}/send`);
   const { expireQuotations } = await import('../src/modules/quotations/service.js');
-  expect(await expireQuotations()).toBe(1);
+  expect(await runAs(companyId, () => expireQuotations())).toBe(1);
   expect((await call('GET', `/quotations/${q.id}`)).body.status).toBe('expired');
 });
 
@@ -287,7 +323,7 @@ test('overdue sweep; notification consent and single delivery', async () => {
   const loc = cust.serviceLocations[0].id;
   const late = (await call('POST', '/invoices', { customerId: cust.id, locationId: loc, issueDate: '2020-01-01', paymentTermsDays: 14, items: [{ type: 'fee', description: 'f', quantity: 1, unitPrice: 10 }] }, 'accountant')).body;
   const draft = (await call('POST', '/invoices', { customerId: cust.id, locationId: loc, issueDate: '2020-01-01', status: 'draft', items: [{ type: 'fee', description: 'f', quantity: 1, unitPrice: 10 }] }, 'accountant')).body;
-  expect(await markOverdue()).toBeGreaterThanOrEqual(1);
+  expect(await runAs(companyId, () => markOverdue())).toBeGreaterThanOrEqual(1);
   expect((await call('GET', `/invoices/${late.id}`, undefined, 'accountant')).body.status).toBe('overdue');
   expect((await call('GET', `/invoices/${draft.id}`, undefined, 'accountant')).body.status).toBe('draft');
 
@@ -301,7 +337,7 @@ test('overdue sweep; notification consent and single delivery', async () => {
   setProvider({ async send(x) { sent.push(x.id); await new Promise((r) => setTimeout(r, 50)); } });
   const made = (await call('POST', '/notifications', n)).body;
   expect(made).toMatchObject({ status: 'draft', recipient: 'o@x.co' });
-  const res = await Promise.all([call('POST', `/notifications/${made.id}/approve-send`), call('POST', `/notifications/${made.id}/approve-send`), deliverApproved()]);
+  const res = await Promise.all([call('POST', `/notifications/${made.id}/approve-send`), call('POST', `/notifications/${made.id}/approve-send`), runAs(companyId, () => deliverApproved())]);
   expect(sent).toEqual([made.id]); // delivered exactly once, however many callers raced
   expect((await call('GET', '/notifications')).body.data.find((x: any) => x.id === made.id)).toMatchObject({ status: 'sent', approvedBy: 'Dev admin' });
   expect((await call('POST', `/notifications/${made.id}/approve-send`)).body.code).toBe('ALREADY_SENT');
@@ -453,7 +489,7 @@ test('database refuses overlapping jobs for one technician even if the app check
   const mk = (startTime: string, endTime: string) => call('POST', '/jobs', { customerId: cust.id, locationId: loc, type: 'repair', title: 't', description: 'x', appointmentDate: '2027-04-01', startTime, endTime, technicianId: tech.id });
   await mk('08:00', '09:00');
   const far = (await mk('15:00', '16:00')).body;
-  await expect(prisma.$executeRaw`UPDATE jobs SET start_time = '08:30', end_time = '09:30' WHERE id = ${far.id}::uuid`).rejects.toThrow(/jobs_technician_no_overlap/);
+  await expect(scoped.$executeRaw`UPDATE jobs SET start_time = '08:30', end_time = '09:30' WHERE id = ${far.id}::uuid`).rejects.toThrow(/jobs_technician_no_overlap/);
 });
 
 test('per-line VAT, credit-note VAT share, and paged customers/parts/equipment/requests', async () => {
@@ -479,8 +515,8 @@ test('maintenance agreement raises one preventive job per due date and advances'
   const loc = (await call('POST', `/customers/${cust.id}/locations`, { label: 'Home', addressLine1: '1', city: 'c', postcode: 'LS1 4AB' })).body.serviceLocations[0].id;
   const ag = await call('POST', '/maintenance-agreements', { customerId: cust.id, locationId: loc, frequency: 'quarterly', nextDueDate: '2027-06-01' });
   expect(ag.status).toBe(201);
-  expect(await raiseMaintenanceJobs('2027-01-01')).toBe(0); // not within the lead window
-  const [r1, r2] = await Promise.all([raiseMaintenanceJobs('2027-05-25'), raiseMaintenanceJobs('2027-05-25')]);
+  expect(await runAs(companyId, () => raiseMaintenanceJobs('2027-01-01'))).toBe(0); // not within the lead window
+  const [r1, r2] = await Promise.all([runAs(companyId, () => raiseMaintenanceJobs('2027-05-25')), runAs(companyId, () => raiseMaintenanceJobs('2027-05-25'))]);
   expect(r1 + r2).toBe(1);
   const jobs = (await call('GET', '/jobs?q=Scheduled quarterly')).body.data;
   expect(jobs).toHaveLength(1);
@@ -497,7 +533,7 @@ test('service contract: auto-invoices each visit, rejects bad terms, deactivates
   expect((await call('POST', '/maintenance-agreements', { ...base, autoInvoice: true })).status).toBe(422); // no price
   expect((await call('POST', '/maintenance-agreements', { ...base, endDate: '2028-01-01' })).status).toBe(422); // ends before first visit
   const ag = (await call('POST', '/maintenance-agreements', { ...base, annualPrice: 400, autoInvoice: true, slaResponseHours: 24, endDate: '2028-07-01' })).body;
-  expect(await raiseMaintenanceJobs('2028-05-25')).toBe(1);
+  expect(await runAs(companyId, () => raiseMaintenanceJobs('2028-05-25'))).toBe(1);
   const inv = await prisma.invoice.findMany({ where: { customerId: cust.id } });
   expect(inv).toHaveLength(1);
   expect(inv[0]).toMatchObject({ status: 'issued' });
@@ -509,30 +545,31 @@ test('service contract: auto-invoices each visit, rejects bad terms, deactivates
   expect(co.body.slaBreached).toBe(false);
   await prisma.job.update({ where: { id: co.body.id }, data: { slaDueAt: new Date(Date.now() - 1000) } });
   expect((await call('GET', `/jobs/${co.body.id}`)).body.slaBreached).toBe(true);
-  expect(await raiseMaintenanceJobs('2028-08-25')).toBe(0); // next due 2028-09-01 is past the term
+  expect(await runAs(companyId, () => raiseMaintenanceJobs('2028-08-25'))).toBe(0); // next due 2028-09-01 is past the term
   expect((await call('GET', `/maintenance-agreements/${ag.id}`)).body.active).toBe(false);
   const rn = (await call('POST', '/maintenance-agreements', { ...base, nextDueDate: '2029-06-01', endDate: '2029-07-01', autoRenew: true })).body;
-  expect(await raiseMaintenanceJobs('2029-05-25')).toBe(1); // last in-term visit
-  expect(await raiseMaintenanceJobs('2029-08-25')).toBe(1); // 2029-09-01 is past the term, so it renews
+  expect(await runAs(companyId, () => raiseMaintenanceJobs('2029-05-25'))).toBe(1); // last in-term visit
+  expect(await runAs(companyId, () => raiseMaintenanceJobs('2029-08-25'))).toBe(1); // 2029-09-01 is past the term, so it renews
   expect((await call('GET', `/maintenance-agreements/${rn.id}`)).body).toMatchObject({ active: true });
   expect((await call('GET', `/maintenance-agreements/${rn.id}`)).body.endDate).toMatch(/^2030-07-01/);
 });
 
 test('sessions are httpOnly cookies: no tokens in bodies, CSRF header required, refresh from cookie, logout clears', async () => {
   const { hashPassword } = await import('../src/common/auth.js');
-  await prisma.user.update({ where: { email: 'admin@dev.local' }, data: { password: hashPassword('Secret1$') } });
+  await prisma.user.update({ where: { companyId_email: { companyId, email: 'admin@dev.local' } }, data: { password: hashPassword('Secret1$') } });
   const post = (path: string, body: object | undefined, headers: Record<string, string> = {}) =>
     fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: body && JSON.stringify(body) });
   const csrf = { 'x-requested-with': 'apexhvac' };
   const cookies = (r: Response) => r.headers.getSetCookie().map((c) => c.split(';')[0]);
 
-  expect((await post('/auth/login', { email: 'admin@dev.local', password: 'Secret1$' })).status).toBe(403); // no CSRF header
-  const login = await post('/auth/login', { email: 'admin@dev.local', password: 'Secret1$' }, csrf);
+  expect((await post('/auth/login', { company: 'default', email: 'admin@dev.local', password: 'Secret1$' })).status).toBe(403); // no CSRF header
+  const login = await post('/auth/login', { company: 'default', email: 'admin@dev.local', password: 'Secret1$' }, csrf);
   expect(login.status).toBe(200);
   expect(Object.keys(await login.json())).toEqual(['expiresIn']);
   const set = login.headers.getSetCookie();
   expect(set.find((c) => c.startsWith('hvac_at='))).toMatch(/HttpOnly/i);
   expect(set.find((c) => c.startsWith('hvac_rt='))).toMatch(/Path=\/api\/v1\/auth/);
+  expect((await post('/auth/login', { company: 'nope', email: 'admin@dev.local', password: 'Secret1$' }, csrf)).status).toBe(401); // right credentials, wrong company
   const jar = cookies(login).join('; ');
 
   expect((await fetch(base + '/auth/me', { headers: { cookie: jar } })).status).toBe(200);
@@ -551,7 +588,7 @@ test('overdue sweep drafts a payment reminder; invoice PDF route; part delete', 
   const [cust] = (await call('GET', '/customers')).body.data;
   await prisma.customer.update({ where: { id: cust.id }, data: { gdprConsent: true, communicationPreference: 'email' } });
   const inv = (await call('POST', '/invoices', { customerId: cust.id, locationId: cust.serviceLocations[0].id, issueDate: '2020-02-01', paymentTermsDays: 14, items: [{ type: 'fee', description: 'late fee', quantity: 1, unitPrice: 10 }] }, 'accountant')).body;
-  await markOverdue();
+  await runAs(companyId, () => markOverdue());
   const reminder = await prisma.notification.findFirst({ where: { type: 'payment_reminder', customerId: cust.id, subject: { contains: inv.invoiceNumber } } });
   expect(reminder?.status).toBe('draft');
 
@@ -802,4 +839,16 @@ test('delete is soft: hidden from reads, blocked while in use, row kept; inactiv
   expect((await call('GET', `/quotations/${q.id}`)).status).toBe(404);
   expect((await call('DELETE', `/customers/${cust.id}`)).status).toBe(204);
   expect((await call('GET', `/customers/${cust.id}`)).status).toBe(404);
+});
+
+test('companies are isolated: same email, own data, own numbering', async () => {
+  const other = await unscoped.company.upsert({ where: { slug: 'other' }, update: {}, create: { slug: 'other', name: 'Other Co' } });
+  await unscoped.companySettings.upsert({ where: { companyId: other.id }, update: {}, create: { companyId: other.id, companyName: 'Other Co', availableVatRates: [20] } });
+  await unscoped.user.upsert({ where: { companyId_email: { companyId: other.id, email: 'admin@dev.local' } }, update: {}, create: { id: crypto.randomUUID(), companyId: other.id, name: 'Other admin', email: 'admin@dev.local', role: 'admin' } });
+  const cust = (await call('POST', '/customers', { type: 'residential', name: 'Mine', phone: '01234 567890', email: 'mine@x.co', gdprConsent: true, billingAddress: { line1: '1', city: 'c', postcode: 'LS1 4AB' } })).body;
+  const theirs = (id: string) => fetch(base + `/customers/${id}`, { headers: { 'x-dev-user': 'dev-admin', 'x-dev-company': 'other' } });
+  expect((await theirs(cust.id)).status).toBe(404);
+  const list = await (await fetch(base + '/customers', { headers: { 'x-dev-user': 'dev-admin', 'x-dev-company': 'other' } })).json();
+  expect(JSON.stringify(list)).not.toContain('Mine');
+  await unscoped.company.delete({ where: { id: other.id } }).catch(() => {}); // fails while its rows exist: leave them
 });

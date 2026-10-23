@@ -1,4 +1,4 @@
-import { prisma, type Tx } from './prisma.js';
+import { currentCompany, prisma, type Tx } from './prisma.js';
 import { getSettings } from '../modules/settings/service.js';
 
 export type NumberKey = 'job' | 'quote' | 'invoice' | 'request' | 'credit' | 'certificate';
@@ -10,8 +10,8 @@ const yearOf = (key: NumberKey, year: number) => (key === 'request' ? 0 : year);
 export async function nextNumber(key: NumberKey, now = new Date(), c: Tx = prisma): Promise<string> {
   const year = now.getUTCFullYear();
   const [{ n }] = await c.$queryRaw<{ n: number }[]>`
-    INSERT INTO counters (key, year, next_value) VALUES (${key}, ${yearOf(key, year)}, 2)
-    ON CONFLICT (key, year) DO UPDATE SET next_value = counters.next_value + 1
+    INSERT INTO counters (company_id, key, year, next_value) VALUES (${currentCompany()}::uuid, ${key}, ${yearOf(key, year)}, 2)
+    ON CONFLICT (company_id, key, year) DO UPDATE SET next_value = counters.next_value + 1
     RETURNING next_value - 1 AS n`;
   const s = await getSettings(c);
   const prefix = ({ job: s.prefixJob, quote: s.prefixQuote, invoice: s.prefixInvoice, request: 'SR-', credit: 'CN-', certificate: 'CERT-' })[key].replace(/-+$/, '');

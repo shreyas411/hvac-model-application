@@ -13,3 +13,12 @@ Recurring preventive-maintenance agreements. Read: A D C. Write: A D.
 | DELETE | `/maintenance-agreements/:id` | |
 
 The daily sweep raises a `preventive_maintenance` job for every active agreement whose `nextDueDate` is within 14 days (unassigned, 09:00-10:00, with that job type's checklist templates) and advances `nextDueDate` by the frequency (3, 6 or 12 months).
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/maintenance-agreements/bulk-update` | A D | `{ ids, active: boolean }` | Activate or pause |
+| POST | `/maintenance-agreements/bulk-delete` | A D | `{ ids }` | Same as `DELETE /maintenance-agreements/:id` |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.

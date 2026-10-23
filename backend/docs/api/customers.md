@@ -21,3 +21,11 @@ Read: A D C. Write: A D. No delete; archive instead.
 - Postcodes are UK-validated and normalised; `email` is trimmed, lower-cased and must be unique among active, non-archived customers (`409 DUPLICATE_CUSTOMER`, also on restore via `unarchive`). Location `label`, `addressLine1`, `city` and `postcode` are required.
 - `DELETE /customers/:id` (admin) soft-deletes; `409 IN_USE` while jobs, quotes, invoices, requests or equipment reference it. Deleted locations disappear from `serviceLocations`.
 - List: `?sort=type`, `?inactive`.
+
+## Bulk use
+
+| Method | Path | Roles | Body | Per-id action |
+|---|---|---|---|---|
+| POST | `/customers/bulk-archive` | A D | `{ ids, archived: boolean }` | `true` archives, `false` restores (same as `/archive` and `/unarchive`) |
+
+Response `{ results: [{ id, ok, error?: { code, message } }] }`, one entry per id. Max 100 ids (`400 VALIDATION` otherwise, duplicates collapsed). Each id runs the same checks as the single-record route and is saved on its own, so some can fail while others succeed; see [README](README.md) for the shared shape.
