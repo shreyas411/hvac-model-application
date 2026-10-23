@@ -7,6 +7,8 @@ import { formatDateTimeUK, formatDateUK, formatGBP, regLine } from '../../utils/
 import { IconDownload, IconPrinter } from '@tabler/icons-react';
 import { Button } from '@/src/components/ui/button';
 import { DetailDrawer } from '../common/DetailDrawer';
+import { CustomFieldBox } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
@@ -28,6 +30,7 @@ export const JobDetailDrawer: React.FC<{ job: Job; onClose: () => void; onEdit?:
   const { jobs, customerById, technicians, equipment, invoices, quotations, settings, deleteRecord, confirmToast, currentUser } =
     useApp(['jobs', 'customerById', 'technicians', 'equipment', 'invoices', 'quotations', 'settings', 'deleteRecord', 'confirmToast', 'currentUser']);
 
+  const { active: customDefs } = useCustomFields('job');
   const job = jobs.find((j) => j.id === passed.id) ?? passed; // live copy: status/notes change while it's open
   const customer = customerById.get(job.customerId);
   const loc = customer?.serviceLocations.find((l) => l.id === job.locationId);
@@ -148,6 +151,8 @@ export const JobDetailDrawer: React.FC<{ job: Job; onClose: () => void; onEdit?:
               {jobInvoices.map((i) => <p key={i.id} className="text-foreground"><span className="tabular-nums font-semibold">{i.invoiceNumber}</span> · invoice · <span className="capitalize">{i.status.replace('_', ' ')}</span> · {formatGBP(i.total)} (due {formatGBP(i.balanceDue)})</p>)}
             </Section>
           )}
+
+          <CustomFieldBox defs={customDefs} values={job.customFields} />
 
           <Section title="History">
             {job.auditTrail.length ? job.auditTrail.map((a, i) => (

@@ -211,7 +211,7 @@ export async function createJob(input: JobInput, who: Actor, tx?: Tx): Promise<J
 
 const SCALARS = [
   'customerId', 'locationId', 'type', 'priority', 'technicianId', 'startTime', 'endTime', 'estimatedDurationMinutes', 'requiredSkills',
-  'title', 'description', 'internalNotes', 'workPerformed', 'labourHours', 'hourlyRate', 'travelTimeMinutes', 'travelCharge', 'followUpRecommended', 'followUpNotes',
+  'title', 'description', 'internalNotes', 'workPerformed', 'labourHours', 'hourlyRate', 'travelTimeMinutes', 'travelCharge', 'followUpRecommended', 'followUpNotes', 'customFields',
 ] as const;
 
 export function updateJob(id: string, patch: Partial<Job>, who: Actor, action = 'Job updated') {

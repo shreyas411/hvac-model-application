@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import type { Invoice, Job, LineItem, PaymentRecord, Quotation } from '../../types.js';
+import type { CustomFieldValues, Invoice, Job, LineItem, PaymentRecord, Quotation } from '../../types.js';
 import type { Actor } from '../../common/auth.js';
 import { ApiError, conflict, notFound, unprocessable } from '../../common/errors.js';
 import { pageFrom } from '../../common/paginate.js';
@@ -43,7 +43,7 @@ export type InvoiceInput = {
   customerId: string; locationId: string; quoteId?: string; jobId?: string; items: ItemInput[];
   vatRatePercent?: number; issueDate?: string; paymentTermsDays?: number; dueDate?: string; notes?: string;
   status?: 'draft' | 'issued';
-  reverseCharge?: boolean; cisRatePercent?: number; retentionPercent?: number;
+  reverseCharge?: boolean; cisRatePercent?: number; retentionPercent?: number; customFields?: CustomFieldValues;
 };
 
 type Terms = Pick<InvoiceInput, 'reverseCharge' | 'cisRatePercent' | 'retentionPercent'>;
@@ -74,7 +74,7 @@ async function insertInvoice(tx: Tx, i: Omit<InvoiceInput, 'items' | 'vatRatePer
     data: {
       invoiceNumber: await nextNumber('invoice', new Date(), tx), quoteId: i.quoteId, jobId: i.jobId, customerId: i.customerId, locationId: i.locationId,
       issueDate: new Date(issueDate), dueDate: new Date(i.dueDate ?? addDays(issueDate, terms)), status: i.status ?? 'issued',
-      ...t, vatRatePercent: vat, amountPaid: 0, balanceDue: round2(t.total - round2((t.cisDeduction ?? 0) + (t.retentionHeld ?? 0))), paymentTermsDays: terms, notes: i.notes,
+      ...t, vatRatePercent: vat, amountPaid: 0, balanceDue: round2(t.total - round2((t.cisDeduction ?? 0) + (t.retentionHeld ?? 0))), paymentTermsDays: terms, notes: i.notes, customFields: i.customFields,
       items: { create: rows },
     },
   }));
@@ -103,7 +103,7 @@ export function updateInvoice(id: string, patch: Partial<InvoiceInput>) {
     if (inv.status === 'void') throw conflict('INVOICE_VOID', 'Invoice is void');
     const money = patch.items || patch.vatRatePercent !== undefined || patch.reverseCharge !== undefined || patch.cisRatePercent !== undefined || patch.retentionPercent !== undefined;
     if (money && inv.status !== 'draft') throw conflict('NOT_EDITABLE', 'Line items and VAT can only change while draft');
-    const { items, vatRatePercent, dueDate, notes, paymentTermsDays, issueDate } = patch;
+    const { items, vatRatePercent, dueDate, notes, paymentTermsDays, issueDate, customFields } = patch;
     if (money) await assertBusinessTerms(tx, inv.customerId, { reverseCharge: patch.reverseCharge ?? inv.reverseCharge, cisRatePercent: patch.cisRatePercent ?? inv.cisRatePercent });
     const rows = lineRows(items ?? inv.items);
     const t = priced(rows, vatRatePercent ?? inv.vatRatePercent, {
@@ -112,7 +112,7 @@ export function updateInvoice(id: string, patch: Partial<InvoiceInput>) {
     return toInvoice(await tx.invoice.update({
       where: { id }, include,
       data: {
-        ...(dueDate && { dueDate: new Date(dueDate) }), ...(notes !== undefined && { notes }), ...(issueDate && { issueDate: new Date(issueDate) }),
+        ...(dueDate && { dueDate: new Date(dueDate) }), ...(notes !== undefined && { notes }), ...(customFields && { customFields }), ...(issueDate && { issueDate: new Date(issueDate) }),
         ...(paymentTermsDays && { paymentTermsDays }), ...t, balanceDue: round2(t.total - withheld(t) - inv.amountPaid),
         ...(items && { items: { deleteMany: {}, create: rows } }),
       },

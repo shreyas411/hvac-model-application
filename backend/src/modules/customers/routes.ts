@@ -6,6 +6,7 @@ import { prisma, removeRecord } from '../../common/prisma.js';
 import { paginate } from '../../common/paginate.js';
 import { ukPostcode } from '../../common/zod.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
+import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import * as svc from './service.js';
 
 const phone = z.string().regex(/^\+?[\d\s()-]{7,20}$/, 'Enter a valid phone number');
@@ -23,12 +24,14 @@ const customer = z.object({
   notes: z.string().optional(),
   communicationPreference: z.enum(['email', 'sms', 'both']).default('email'),
   gdprConsent: z.boolean().default(false),
+  customFields: customFieldsInput,
 });
 
 const rw = allow('admin', 'dispatcher');
 export const customersRouter = Router();
 // No delete: archive instead.
-customersRouter.post('/', rw, h((req) => svc.createCustomer({ ...customer.parse(req.body), archived: false }), 201));
+customersRouter.use(withCustomFields('customer'));
+customersRouter.post('/', rw, h((req) => svc.createCustomer({ ...customer.parse(req.body), archived: false } as any), 201));
 customersRouter.post('/bulk-archive', rw, h((req) => {
   const b = z.object({ ids: bulkIds, archived: z.boolean() }).parse(req.body);
   return bulk(b.ids, (id) => svc.setArchived(id, b.archived));
@@ -45,4 +48,4 @@ customersRouter.delete('/:id', allow('admin'), h((req) => removeRecord(prisma.cu
 const read = allow('admin', 'dispatcher', 'accountant');
 customersRouter.get('/', read, h((req) => svc.pageCustomers(req.query)));
 customersRouter.get('/:id', read, h((req) => svc.getCustomer(req.params.id)));
-customersRouter.patch('/:id', rw, h((req) => svc.updateCustomer(req.params.id, customer.omit({ serviceLocations: true }).partial().parse(req.body))));
+customersRouter.patch('/:id', rw, h((req) => svc.updateCustomer(req.params.id, customer.omit({ serviceLocations: true }).partial().parse(req.body) as any)));

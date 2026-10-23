@@ -6,6 +6,7 @@ import { h } from '../../common/errors.js';
 import { assertOwnJob, getJob } from '../jobs/service.js';
 import { isoDate } from '../../common/zod.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
+import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import * as svc from './service.js';
 import { equipmentStore, pageEquipment } from './service.js';
 
@@ -19,6 +20,7 @@ const equipment = z.object({
   lastServiceDate: isoDate.optional(), nextServiceDueDate: isoDate.optional(),
   status: z.enum(['operational', 'requires_attention', 'decommissioned']).default('operational'),
   locationNotes: z.string().optional(), inactive: z.boolean().optional(),
+  customFields: customFieldsInput,
 });
 const record = z.object({
   date: isoDate, jobId: z.string().min(1), technicianName: z.string().min(1), serviceType: z.string().min(1),
@@ -31,8 +33,9 @@ const record = z.object({
 });
 
 export const equipmentRouter = Router();
+equipmentRouter.use(withCustomFields('equipment'));
 equipmentRouter.post('/', allow('admin', 'dispatcher'), h((req) => svc.createEquipment(equipment.parse(req.body) as any), 201));
-equipmentRouter.patch('/:id', allow('admin', 'dispatcher'), h((req) => svc.updateEquipment(req.params.id, equipment.partial().parse(req.body))));
+equipmentRouter.patch('/:id', allow('admin', 'dispatcher'), h((req) => svc.updateEquipment(req.params.id, equipment.partial().parse(req.body) as any)));
 equipmentRouter.post('/bulk-update', allow('admin', 'dispatcher'), h((req) => {
   const b = z.object({ ids: bulkIds, inactive: z.boolean() }).parse(req.body);
   return bulk(b.ids, (id) => svc.updateEquipment(id, { inactive: b.inactive } as any));

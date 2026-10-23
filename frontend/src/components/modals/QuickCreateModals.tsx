@@ -1,7 +1,9 @@
 import { CustomerFormDrawer } from '../customers/CustomerFormDrawer';
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Priority, JobType, LineItem, Quotation } from '../../types';
+import { Priority, JobType, LineItem, Quotation, CustomFieldValues } from '../../types';
+import { CustomFieldInputs } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { formatGBP, tierPrices, getTodayISO } from '../../utils/formatters';
 import { useChecklistTemplates, toChecklistItems } from '../../data/checklistTemplates';
 import { IconAlertTriangle, IconPlus, IconTrash } from '@tabler/icons-react';
@@ -90,12 +92,15 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
 
   const quoteStatus = useRef<'draft' | 'sent'>('sent'); // which submit button was pressed
   const [busy, setBusy] = useState(false); // guards double-submit (would create duplicates)
+  const [custom, setCustom] = useState<CustomFieldValues>({});
+  const customDefs = useCustomFields(activeModal === 'quote' ? 'quotation' : activeModal === 'customer' ? null : activeModal);
   // This component stays mounted, so every open starts clean: today's date, current settings, nothing left from the last form.
   useEffect(() => {
     if (!activeModal) return;
     setJobDate(getTodayISO()); setReqProblem(''); setReqEquipmentId(''); setJobTitle(''); setJobDesc(''); setConflictWarning(null); setPickedLocationId('');
     setSelectedCustomerId(initialCustomerId ?? ''); setJobTechId(''); setLineItems([]); setReverseCharge(false); setCisRate(0); setRetentionPct(0);
-    setVatRate(settings.defaultVatRate); setTerms(settings.termsAndConditions);
+    setVatRate(settings.defaultVatRate); setTerms(settings.termsAndConditions); setCustom(editQuote?.customFields ?? {});
+    void customDefs.reload(); // this component stays mounted: pick up fields admins changed since
     if (editQuote) { setSelectedCustomerId(editQuote.customerId); setPickedLocationId(editQuote.locationId); setLineItems(editQuote.items); setVatRate(editQuote.vatRatePercent); setTerms(editQuote.terms); }
   }, [activeModal, initialCustomerId, editQuote]);
 
@@ -149,6 +154,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       status: 'new',
       contactPerson: selectedCustomer.name,
       contactPhone: selectedCustomer.phone,
+      customFields: custom,
     });
     if (!created) return;
 
@@ -199,6 +205,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       travelTimeMinutes: 30,
       travelCharge: settings.defaultTravelCharge,
       checklist: toChecklistItems(templates.filter((t) => t.jobType === jobType && !t.inactive)),
+      customFields: custom,
     });
     if (!created) return;
 
@@ -212,7 +219,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
     if (!selectedCustomer || !selectedLocation) return;
 
     if (editQuote) {
-      if (await updateQuotation(editQuote.id, { customerId: selectedCustomer.id, locationId: selectedLocation.id, items: lineItems, vatRatePercent: vatRate, terms })) onClose();
+      if (await updateQuotation(editQuote.id, { customerId: selectedCustomer.id, locationId: selectedLocation.id, items: lineItems, vatRatePercent: vatRate, terms, customFields: custom })) onClose();
       return;
     }
 
@@ -231,6 +238,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       vatAmount,
       total,
       terms,
+      customFields: custom,
     });
     if (!created) return;
 
@@ -265,6 +273,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       reverseCharge: reverseCharge && selectedCustomer.type === 'commercial',
       cisRatePercent: selectedCustomer.type === 'commercial' ? cisRate : 0,
       retentionPercent: retentionPct,
+      customFields: custom,
     });
     if (!created) return;
 
@@ -373,6 +382,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
 </Select>
               </div>
 
+              <CustomFieldInputs defs={customDefs.active} values={custom} onChange={setCustom} />
             </form>
           )}
 
@@ -466,6 +476,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
                 />
               </div>
 
+              <CustomFieldInputs defs={customDefs.active} values={custom} onChange={setCustom} />
             </form>
           )}
 
@@ -601,6 +612,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
                 <p role="status" className="text-amber-700">Every line needs a description and a price before you can {activeModal === 'quote' ? 'generate the quotation' : 'issue the invoice'}.</p>
               )}
 
+              <CustomFieldInputs defs={customDefs.active} values={custom} onChange={setCustom} />
             </form>
           )}
 

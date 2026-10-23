@@ -59,6 +59,7 @@ export interface Customer {
   communicationPreference: 'email' | 'sms' | 'both';
   gdprConsent: boolean;
   archived: boolean;
+  customFields?: CustomFieldValues;
   createdAt: string;
   updatedAt: string;
 }
@@ -108,6 +109,7 @@ export interface Equipment {
   nextServiceDueDate: string;
   status: 'operational' | 'requires_attention' | 'decommissioned';
   locationNotes?: string;
+  customFields?: CustomFieldValues;
   serviceHistory: EquipmentServiceRecord[];
 }
 
@@ -116,6 +118,7 @@ export type Priority = 'low' | 'medium' | 'high' | 'emergency';
 export type ServiceRequestStatus = 'new' | 'awaiting_approval' | 'converted' | 'cancelled';
 
 export interface ServiceRequest {
+  customFields?: CustomFieldValues;
   id: string;
   requestNumber: string;
   customerId: string;
@@ -176,6 +179,7 @@ export interface JobChecklistItem {
 }
 
 export interface Job {
+  customFields?: CustomFieldValues;
   id: string;
   jobNumber: string;
   title: string;
@@ -230,6 +234,7 @@ export interface LineItem {
 }
 
 export interface Quotation {
+  customFields?: CustomFieldValues;
   id: string;
   quoteNumber: string;
   customerId: string;
@@ -266,6 +271,7 @@ export interface PaymentRecord {
 }
 
 export interface Invoice {
+  customFields?: CustomFieldValues;
   id: string;
   invoiceNumber: string;
   stageLabel?: string | null;
@@ -297,6 +303,7 @@ export interface Invoice {
 }
 
 export interface PartItem {
+  customFields?: CustomFieldValues;
   id: string;
   name: string;
   sku: string;
@@ -369,6 +376,20 @@ export interface CompanySettings {
   };
   termsAndConditions: string;
 }
+
+export type CustomFieldEntity = 'customer' | 'equipment' | 'request' | 'job' | 'quotation' | 'invoice' | 'part' | 'maintenance';
+
+export interface CustomFieldDefinition {
+  id: string;
+  entity: CustomFieldEntity;
+  label: string;
+  type: 'text' | 'number' | 'date' | 'select' | 'checkbox';
+  options: string[];
+  required: boolean;
+  inactive?: boolean;
+}
+
+export type CustomFieldValues = Record<string, string | number | boolean>;
 
 export interface ChecklistTemplate {
   id: string;

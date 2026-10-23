@@ -9,6 +9,8 @@ import { downloadCsv } from '../../utils/csv';
 import { BulkBar, SelectAllHead, SelectCell, useRowSelection } from '../common/BulkSelect';
 import { DatePicker } from '../common/DatePicker';
 import { DetailDrawer } from '../common/DetailDrawer';
+import { CustomFieldBox } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { Badge } from '@/src/components/ui/badge';
@@ -61,6 +63,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
+  const { active: customDefs } = useCustomFields('quotation');
   const [busy, setBusy] = useState(false); // guards double-submit (would create duplicate jobs/invoices)
 
   // Deposit / stage invoice modal
@@ -385,6 +388,7 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({
               </div>
             </div>
 
+        <div className="mt-4"><CustomFieldBox defs={customDefs} values={selectedQuote.customFields} /></div>
         </DetailDrawer>
       )}
 

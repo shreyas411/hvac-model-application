@@ -64,13 +64,13 @@ interface AppContextType {
   // Equipment
   equipment: Equipment[];
   addEquipment: (eq: Omit<Equipment, 'id' | 'serviceHistory'>) => Promise<Equipment | undefined>;
-  updateEquipment: (id: string, updates: Partial<Equipment>) => Promise<void>;
+  updateEquipment: (id: string, updates: Partial<Equipment>) => Promise<boolean>;
   addEquipmentServiceRecord: (equipmentId: string, record: Omit<EquipmentServiceRecord, 'id'>) => Promise<void>;
 
   // Service Requests
   serviceRequests: ServiceRequest[];
   addServiceRequest: (sr: Omit<ServiceRequest, 'id' | 'requestNumber' | 'createdAt' | 'updatedAt' | 'convertedJobId'>) => Promise<ServiceRequest | undefined>;
-  updateServiceRequest: (id: string, updates: Partial<ServiceRequest>) => Promise<void>;
+  updateServiceRequest: (id: string, updates: Partial<ServiceRequest>) => Promise<boolean>;
   bulkCancelRequests: (ids: string[]) => Promise<Record<string, string>>;
   convertRequestToJob: (requestId: string, appointmentDate: string, startTime: string, endTime: string, technicianId: string) => Promise<Job | undefined>;
 
@@ -100,7 +100,7 @@ interface AppContextType {
   // Invoices & Payments
   invoices: Invoice[];
   addInvoice: (inv: Omit<Invoice, 'id' | 'invoiceNumber' | 'createdAt' | 'updatedAt'>) => Promise<Invoice | undefined>;
-  updateInvoice: (id: string, updates: Partial<Invoice>) => Promise<void>;
+  updateInvoice: (id: string, updates: Partial<Invoice>) => Promise<boolean>;
   recordPayment: (invoiceId: string, payment: Omit<PaymentRecord, 'id' | 'recordedBy'>) => Promise<boolean>;
   releaseRetention: (invoiceId: string) => Promise<boolean>;
   creditInvoice: (invoiceId: string, amount: number, reason: string) => Promise<boolean>;
@@ -114,7 +114,7 @@ interface AppContextType {
   // Parts & Inventory
   parts: PartItem[];
   addPart: (part: Omit<PartItem, 'id' | 'createdAt'>) => Promise<PartItem | undefined>;
-  updatePart: (id: string, updates: Partial<PartItem>) => Promise<void>;
+  updatePart: (id: string, updates: Partial<PartItem>) => Promise<boolean>;
   deletePart: (id: string) => Promise<void>;
   bulkDeleteParts: (ids: string[]) => Promise<Record<string, string>>;
   bulkSetPartsInactive: (ids: string[], inactive: boolean) => Promise<Record<string, string>>;
@@ -303,7 +303,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     apiCall('equipment', () => services.equipment.create(eq), `Equipment ${eq.brand} ${eq.model} registered`);
 
   const updateEquipment: AppContextType['updateEquipment'] = async (id, updates) => {
-    await apiCall('equipment', () => services.equipment.update(id, updates), 'Equipment details updated');
+    return !!(await apiCall('equipment', () => services.equipment.update(id, updates), 'Equipment details updated'));
   };
 
   const addEquipmentServiceRecord: AppContextType['addEquipmentServiceRecord'] = async (equipmentId, record) => {
@@ -316,7 +316,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateServiceRequest: AppContextType['updateServiceRequest'] = async (id, updates) => {
-    await apiCall('requests', () => services.requests.update(id, updates), 'Service request updated');
+    return !!(await apiCall('requests', () => services.requests.update(id, updates), 'Service request updated'));
   };
 
   // Check schedule conflict
@@ -480,7 +480,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateInvoice: AppContextType['updateInvoice'] = async (id, updates) => {
     const { subtotal, vatAmount, total, payments, amountPaid, balanceDue, status, ...body } = updates;
-    await apiCall('invoices', () => services.invoices.update(id, body), 'Invoice updated');
+    return !!(await apiCall('invoices', () => services.invoices.update(id, body), 'Invoice updated'));
   };
 
   const recordPayment: AppContextType['recordPayment'] = async (invoiceId, payment) => {
@@ -526,7 +526,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updatePart: AppContextType['updatePart'] = async (id, updates) => {
-    await apiCall('parts', () => services.parts.update(id, updates), 'Part updated');
+    return !!(await apiCall('parts', () => services.parts.update(id, updates), 'Part updated'));
   };
 
   const deletePart: AppContextType['deletePart'] = async (id) => {

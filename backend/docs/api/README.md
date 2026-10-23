@@ -11,6 +11,7 @@ Base path `/api/v1`. JSON in and out. Roles: **A** admin, **D** dispatcher, **T*
 | auth | [auth.md](auth.md) |
 | users | [users.md](users.md) |
 | settings | [settings.md](settings.md) |
+| custom-fields | [custom-fields.md](custom-fields.md) |
 | technicians | [technicians.md](technicians.md) |
 | customers | [customers.md](customers.md) |
 | equipment | [equipment.md](equipment.md) |

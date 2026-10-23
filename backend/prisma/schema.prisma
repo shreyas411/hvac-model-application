@@ -281,6 +281,7 @@ model Customer {
   communicationPreference CommunicationPreference @default(email) @map("communication_preference")
   gdprConsent             Boolean                 @default(false) @map("gdpr_consent")
   archived                Boolean                 @default(false)
+  customFields            Json                    @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz
   isDeleted               Boolean                 @default(false) @map("is_deleted")
   deletedAt               DateTime?               @map("deleted_at") @db.Timestamptz
@@ -358,6 +359,7 @@ model Equipment {
   isDeleted            Boolean              @default(false) @map("is_deleted")
   deletedAt            DateTime?            @map("deleted_at") @db.Timestamptz
   inactive             Boolean              @default(false)
+  customFields         Json                 @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz
 
   serviceRecords EquipmentServiceRecord[]
@@ -413,6 +415,7 @@ model ServiceRequest {
   convertedJobId  String?              @unique @map("converted_job_id") @db.Uuid
   convertedJob    Job?                 @relation("RequestConvertedJob", fields: [convertedJobId], references: [id])
   createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  customFields    Json                 @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   isDeleted       Boolean              @default(false) @map("is_deleted")
   deletedAt       DateTime?            @map("deleted_at") @db.Timestamptz
   updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz
@@ -464,6 +467,7 @@ model Job {
   completionTime           DateTime?       @map("completion_time") @db.Timestamptz
   slaDueAt                 DateTime?       @map("sla_due_at") @db.Timestamptz // response deadline from the site's contract; breached while still `new` after it
   createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  customFields             Json            @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   isDeleted                Boolean         @default(false) @map("is_deleted")
   deletedAt                DateTime?       @map("deleted_at") @db.Timestamptz
   updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz
@@ -592,6 +596,7 @@ model Quotation {
   convertedToJob       Job?            @relation("QuotationConvertedJob", fields: [convertedToJobId], references: [id])
   convertedToInvoiceId String?         @unique @map("converted_to_invoice_id") @db.Uuid
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  customFields         Json            @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   isDeleted            Boolean         @default(false) @map("is_deleted")
   deletedAt            DateTime?       @map("deleted_at") @db.Timestamptz
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
@@ -640,6 +645,7 @@ model Invoice {
   stageLabel       String?         @map("stage_label") // deposit / stage / final invoice raised from a quote
   stagePercent     Decimal?        @map("stage_percent") @db.Decimal(5, 2) // share of the quote this stage bills
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  customFields     Json            @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   isDeleted        Boolean         @default(false) @map("is_deleted")
   deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz
   updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz
@@ -731,6 +737,7 @@ model Part {
   minStockLevel Int       @default(0) @map("min_stock_level")
   location      String    @default("")
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  customFields  Json      @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   isDeleted     Boolean   @default(false) @map("is_deleted")
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
   inactive      Boolean   @default(false)
@@ -826,6 +833,27 @@ model ChecklistTemplate {
   @@map("checklist_templates")
 }
 
+// Admin-defined extra fields on customers/equipment; values live in the record's customFields JSON, keyed by this id.
+model CustomFieldDefinition {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @default(dbgenerated("(current_setting('app.company_id'::text))::uuid")) @map("company_id") @db.Uuid
+  company   Company   @relation(fields: [companyId], references: [id])
+  entity    String // customer | equipment
+  label     String
+  type      String // text | number | date | select | checkbox
+  options   String[]  @default([]) // choices for select
+  required  Boolean   @default(false)
+  position  Int       @default(0)
+  inactive  Boolean   @default(false)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@index([entity])
+  @@index([companyId])
+  @@map("custom_field_definitions")
+}
+
 // Append-only trail for money and compliance actions outside jobs (jobs have JobAuditLog).
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid
@@ -862,6 +890,7 @@ model MaintenanceAgreement {
   autoInvoice      Boolean   @default(false) @map("auto_invoice")
   autoRenew        Boolean   @default(false) @map("auto_renew") // past endDate, extend the term 12 months instead of deactivating
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  customFields     Json      @default("{}") @map("custom_fields") // keyed by CustomFieldDefinition id
   isDeleted        Boolean   @default(false) @map("is_deleted")
   deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
@@ -921,25 +950,26 @@ model Company {
   slug      String   @unique // what the user types at login, stored lowercase
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  settings              CompanySettings?
-  counters              Counter[]
-  users                 User[]
-  technicians           Technician[]
-  customers             Customer[]
-  serviceLocations      ServiceLocation[]
-  equipments            Equipment[]
-  serviceRequests       ServiceRequest[]
-  jobs                  Job[]
-  quotations            Quotation[]
-  invoices              Invoice[]
-  creditNotes           CreditNote[]
-  parts                 Part[]
-  inventoryMovements    InventoryMovement[]
-  notifications         Notification[]
-  checklistTemplates    ChecklistTemplate[]
-  auditLogs             AuditLog[]
-  maintenanceAgreements MaintenanceAgreement[]
-  certificates          Certificate[]
+  settings               CompanySettings?
+  counters               Counter[]
+  users                  User[]
+  technicians            Technician[]
+  customers              Customer[]
+  serviceLocations       ServiceLocation[]
+  equipments             Equipment[]
+  serviceRequests        ServiceRequest[]
+  jobs                   Job[]
+  quotations             Quotation[]
+  invoices               Invoice[]
+  creditNotes            CreditNote[]
+  parts                  Part[]
+  inventoryMovements     InventoryMovement[]
+  notifications          Notification[]
+  checklistTemplates     ChecklistTemplate[]
+  customFieldDefinitions CustomFieldDefinition[]
+  auditLogs              AuditLog[]
+  maintenanceAgreements  MaintenanceAgreement[]
+  certificates           Certificate[]
 
   @@map("companies")
 }

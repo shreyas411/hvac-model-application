@@ -71,7 +71,7 @@ Note: the research agents wrongly reported overdue detection, parts edit and SKU
 | Customer self-service portal and review requests | L | todo |
 | Barcode / QR scanning | M | todo |
 | Revenue forecast and maintenance-plan MRR | M | todo |
-| Custom fields | M | todo |
+| Custom fields (admin-defined text/number/date/dropdown/checkbox on 8 modules; not yet in lists, CSV, reports, PDFs) | M | done |
 | Checklist templates: conditional logic, photo/signature items, per-job-type auto-attach | M | todo |
 | Public API, API keys, outbound webhooks | M | todo |
 | MTD VAT submission / accounting export | M | todo |

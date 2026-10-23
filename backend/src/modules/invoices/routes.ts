@@ -5,6 +5,7 @@ import { h } from '../../common/errors.js';
 import { prisma, removeRecord } from '../../common/prisma.js';
 import { isoDate, lineItems } from '../../common/zod.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
+import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 import * as svc from './service.js';
 import { generateInvoicePdf } from './pdf.service.js';
 
@@ -14,6 +15,7 @@ const invoice = z.object({
   issueDate: isoDate.optional(), paymentTermsDays: z.number().int().positive().optional(), dueDate: isoDate.optional(),
   notes: z.string().optional(), status: z.enum(['draft', 'issued']).optional(),
   reverseCharge: z.boolean().optional(), cisRatePercent: z.number().min(0).max(100).optional(), retentionPercent: z.number().min(0).max(100).optional(),
+  customFields: customFieldsInput,
 });
 const payment = z.object({
   date: isoDate, amount: z.number().positive().multipleOf(0.01), method: z.enum(['bacs', 'card', 'cheque', 'cash']),
@@ -22,6 +24,7 @@ const payment = z.object({
 
 export const invoicesRouter = Router();
 invoicesRouter.use(allow('admin', 'accountant'));
+invoicesRouter.use(withCustomFields('invoice'));
 invoicesRouter.get('/', h((req) => svc.pageInvoices(req.query)));
 invoicesRouter.get('/:id/pdf', async (req, res, next) => {
   try {

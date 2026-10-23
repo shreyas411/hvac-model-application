@@ -9,11 +9,13 @@ import { getSettings } from '../settings/service.js';
 import { money } from '../../common/zod.js';
 import { bulk, bulkIds } from '../../common/bulk.js';
 import * as svc from './service.js';
+import { customFieldsInput, withCustomFields } from '../custom-fields/routes.js';
 
 const part = z.object({
   name: z.string().min(1), sku: z.string().min(1), description: z.string().default(''), category: z.string().min(1),
   unitCost: money, sellingPrice: money, stockQuantity: z.number().int().nonnegative().default(0),
   minStockLevel: z.number().int().nonnegative().default(0), location: z.string().default(''), inactive: z.boolean().optional(),
+  customFields: customFieldsInput,
 });
 const adjust = z.object({
   delta: z.number().int(), type: z.enum(['used_on_job', 'stock_adjustment', 'restock_purchase']),
@@ -30,6 +32,7 @@ inventoryRouter.get('/movements', all, h(async (req) => {
   const { partId } = z.object({ partId: z.string().optional() }).parse(req.query);
   return paginate(await svc.listMovements(partId), req.query);
 }));
+inventoryRouter.use('/parts', withCustomFields('part'));
 inventoryRouter.post('/parts', allow('admin', 'dispatcher'), h((req) => svc.createPart(part.parse(req.body), actor(req)), 201));
 // Technicians record parts only through POST /jobs/:id/parts, which ties the stock movement to a billable job line.
 inventoryRouter.post('/parts/:id/adjust', allow('admin', 'dispatcher'), h((req) => {

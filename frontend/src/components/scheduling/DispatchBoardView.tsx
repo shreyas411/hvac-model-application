@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Job, JobStatus, Priority, JobType } from '../../types';
+import { Job, JobStatus, Priority, JobType, CustomFieldValues } from '../../types';
+import { CustomFieldInputs } from '../common/CustomFields';
+import { useCustomFields } from '../../data/customFields';
 import { formatDateUK, getTodayISO, addDaysISO, canMoveJob } from '../../utils/formatters';
 import { IconAlertTriangle, IconChevronLeft, IconChevronRight, IconEye, IconLayoutGrid, IconList, IconMapPin, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
 import { DatePicker, DateRangePicker } from '../common/DatePicker';
@@ -11,7 +13,7 @@ import { TableCard } from '../common/TableCard';
 import { SortHead, useServerPaged } from '../common/Pager';
 import { JobDetailDrawer } from './JobDetailDrawer';
 import { DispatchTimeline, HOUR_W, NAME_W, SNAP, mins, toTime } from './DispatchTimeline';
-import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type Modifier } from '@dnd-kit/core';
 import type { TechnicianProfile as Technician } from '../../types';
 import { Alert, AlertDescription, AlertTitle } from '@/src/components/ui/alert';
 import { Badge } from '@/src/components/ui/badge';
@@ -23,6 +25,10 @@ import { Label } from '@/src/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
 import { Textarea } from '@/src/components/ui/textarea';
+
+// Put the drag chip's left edge under the mouse, so the drop time (computed from the pointer) matches what's shown
+const chipAtCursor: Modifier = ({ activatorEvent, draggingNodeRect, transform }) =>
+  activatorEvent instanceof MouseEvent && draggingNodeRect ? { ...transform, x: transform.x + activatorEvent.clientX - draggingNodeRect.left } : transform;
 
 // Missing skills/licences for a tech on a job (empty = qualified)
 const qualificationGap = (tech: Technician | undefined, job: Job): string[] => {
@@ -85,6 +91,8 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
   const [certWarning, setCertWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); // guards double-save
+  const [modalCustom, setModalCustom] = useState<CustomFieldValues>({});
+  const { active: jobFieldDefs } = useCustomFields('job');
 
   const openEditModal = (job: Job) => {
     setEditingJob(job);
@@ -94,6 +102,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
     setModalTechnicianId(job.technicianId || '');
     setModalTitle(job.title ?? '');
     setModalDescription(job.description);
+    setModalCustom(job.customFields ?? {});
     setConflictWarning(null);
     setCertWarning(null);
   };
@@ -153,6 +162,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
         technicianId: modalTechnicianId || null,
         title: modalTitle.trim(),
         description: modalDescription,
+        customFields: modalCustom,
         estimatedDurationMinutes: durationMins,
         status: editingJob.status === 'new' && modalTechnicianId ? 'scheduled' : editingJob.status,
       },
@@ -367,7 +377,7 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
       {viewMode === 'board' && (
         <DndContext sensors={sensors} onDragStart={(e) => setDragging(jobs.find((j) => j.id === e.active.id) || null)} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
           <DispatchTimeline jobs={shownJobs} onResize={onResize} technicians={technicians} customerById={customerById} selectedDate={selectedDate} workingHoursStart={settings.workingHoursStart} workingHoursEnd={settings.workingHoursEnd} eligibleFor={eligibleFor} onOpen={setViewingJob} />
-          <DragOverlay>
+          <DragOverlay modifiers={[chipAtCursor]}>
             {dragging && <div className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs tabular-nums font-semibold shadow-lg">{dragging.jobNumber}</div>}
           </DragOverlay>
         </DndContext>
@@ -587,6 +597,8 @@ export const DispatchBoardView: React.FC<DispatchBoardViewProps> = ({
                   </Label>
                 )}
               </div>
+
+              <CustomFieldInputs defs={jobFieldDefs} values={modalCustom} onChange={setModalCustom} />
 
               {/* Audit trail preview */}
               <div className="pt-2 border-t border-border">
