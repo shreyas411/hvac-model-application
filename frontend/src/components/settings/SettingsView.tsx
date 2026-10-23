@@ -29,9 +29,10 @@ export const SettingsView: React.FC = () => {
 
   const [form, setForm] = useState<CompanySettings>(settings);
   React.useEffect(() => setForm(settings), [settings]); // settings load async: never edit (or save) a stale copy
+  const dirty = JSON.stringify(form) !== JSON.stringify(settings);
   const [busy, setBusy] = useState(false); // guards double-submit
-  const TABS = ['company', 'vat', 'bank', 'engineers'];
-  const [tab, setTab] = useState(() => { const t = new URLSearchParams(location.search).get('tab') ?? ''; return TABS.includes(t) ? t : 'company'; });
+  const TABS = ['general', 'engineers'];
+  const [tab, setTab] = useState(() => { const t = new URLSearchParams(location.search).get('tab') ?? ''; return TABS.includes(t) ? t : 'general'; });
   const changeTab = (t: string) => { setTab(t); history.replaceState(null, '', `${location.pathname}?tab=${t}`); }; // refresh and shared links keep the section
 
   // New Tech modal
@@ -163,16 +164,14 @@ export const SettingsView: React.FC = () => {
 
       <Tabs value={tab} onValueChange={changeTab}>
         <TabsList>
-          <TabsTrigger value="company">Company</TabsTrigger>
-          <TabsTrigger value="vat">VAT & Numbering</TabsTrigger>
-          <TabsTrigger value="bank">Bank Details</TabsTrigger>
-          <TabsTrigger value="engineers">Engineers <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">{technicians.length}</span></TabsTrigger>
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="engineers">Technicians <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">{technicians.length}</span></TabsTrigger>
         </TabsList>
 
       <form onSubmit={handleSaveSettings} className="space-y-6 text-xs">
         
+        <TabsContent value="general" className="space-y-6">
         {/* Company Details & UK Certifications */}
-        <TabsContent value="company">
         <div id="settings-company" className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-2xs scroll-mt-14">
           <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
             <IconBuilding className="w-4 h-4 text-sky-700" aria-hidden="true" />
@@ -273,10 +272,8 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
         </div>
-        </TabsContent>
 
         {/* VAT Rates & Numbering Prefixes */}
-        <TabsContent value="vat">
         <div id="settings-vat" className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-2xs scroll-mt-14">
           <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
             <IconCreditCard className="w-4 h-4 text-emerald-700" aria-hidden="true" />
@@ -370,10 +367,8 @@ export const SettingsView: React.FC = () => {
             </p>
           </div>
         </div>
-        </TabsContent>
 
         {/* Bank Account Details for Invoices */}
-        <TabsContent value="bank">
         <div id="settings-bank" className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-2xs scroll-mt-14">
           <h3 className="font-bold text-sm text-foreground">Company Bank Details (For BACS Invoices)</h3>
           
@@ -439,15 +434,16 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
         </div>
-        </TabsContent>
 
-        {/* Action Button */}
-        {tab !== 'engineers' && <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 py-3 bg-background border-t border-border shadow-[0_-8px_12px_-8px_rgba(0,0,0,0.08)]">
-          {JSON.stringify(form) !== JSON.stringify(settings) && <span role="status" className="text-amber-700 font-semibold">Unsaved changes</span>}
-          <Button type="submit" disabled={busy}>
+        {/* Action Buttons */}
+        <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 py-3 bg-background border-t border-border shadow-[0_-8px_12px_-8px_rgba(0,0,0,0.08)]">
+          {dirty && <span role="status" className="text-amber-700 font-semibold">Unsaved changes</span>}
+          <Button type="button" variant="outline" disabled={busy || !dirty} onClick={() => setForm(settings)}>Cancel</Button>
+          <Button type="submit" disabled={busy || !dirty}>
             {busy ? 'Saving…' : 'Save All Settings'}
           </Button>
-        </div>}
+        </div>
+        </TabsContent>
 
       </form>
 
@@ -455,7 +451,7 @@ export const SettingsView: React.FC = () => {
       <div id="settings-roster" className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-2xs scroll-mt-14">
         <div className="flex items-center justify-between pb-2 border-b border-border">
           <div>
-            <h3 className="font-bold text-sm text-foreground">Field Engineering Roster</h3>
+            <h3 className="font-bold text-sm text-foreground">Field Technician Roster</h3>
             <p className="text-xs text-muted-foreground">Manage qualified technicians, Gas Safe cards, and vans</p>
           </div>
           <Button size="sm" onClick={() => setShowTechModal(true)}>

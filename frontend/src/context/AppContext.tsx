@@ -84,8 +84,10 @@ interface AppContextType {
   // Quotations
   quotations: Quotation[];
   addQuotation: (q: Omit<Quotation, 'id' | 'quoteNumber' | 'createdAt' | 'updatedAt'>) => Promise<Quotation | undefined>;
-  updateQuotation: (id: string, updates: Partial<Quotation>) => Promise<void>;
+  updateQuotation: (id: string, updates: Partial<Quotation>) => Promise<boolean>;
   acceptQuotation: (id: string, acceptedBy: string, option?: string) => Promise<boolean>;
+  sendQuotation: (id: string) => Promise<boolean>;
+  rejectQuotation: (id: string) => Promise<boolean>;
   convertQuotationToJob: (quoteId: string, appointmentDate: string, startTime: string, endTime: string, technicianId: string) => Promise<Job | undefined>;
   convertQuotationToInvoice: (quoteId: string) => Promise<Invoice | undefined>;
 
@@ -96,6 +98,9 @@ interface AppContextType {
   recordPayment: (invoiceId: string, payment: Omit<PaymentRecord, 'id' | 'recordedBy'>) => Promise<boolean>;
   releaseRetention: (invoiceId: string) => Promise<boolean>;
   creditInvoice: (invoiceId: string, amount: number, reason: string) => Promise<boolean>;
+  voidInvoice: (invoiceId: string, reason: string) => Promise<boolean>;
+  issueInvoice: (invoiceId: string) => Promise<boolean>;
+  refundPayment: (invoiceId: string, paymentId: string, reason: string) => Promise<boolean>;
   addStageInvoice: (quoteId: string, percent: number | 'final', label?: string) => Promise<boolean>;
   generateInvoiceFromJob: (jobId: string, vatRatePercent: number) => Promise<Invoice | undefined>;
 
@@ -378,12 +383,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateQuotation: AppContextType['updateQuotation'] = async (id, updates) => {
-    await apiCall('quotations', () => services.quotations.update(id, updates), 'Quotation updated');
+    return !!(await apiCall('quotations', () => services.quotations.update(id, updates), 'Quotation updated'));
   };
 
   const acceptQuotation: AppContextType['acceptQuotation'] = async (id, acceptedBy, option) => {
     return !!(await apiCall('quotations', () => services.quotations.accept(id, acceptedBy, option), 'Customer acceptance recorded for quotation'));
   };
+
+  const sendQuotation: AppContextType['sendQuotation'] = async (id) =>
+    !!(await apiCall('quotations', () => services.quotations.send(id), 'Quotation sent to customer'));
+
+  const rejectQuotation: AppContextType['rejectQuotation'] = async (id) =>
+    !!(await apiCall('quotations', () => services.quotations.reject(id), 'Quotation marked as rejected'));
 
   // The server creates the job / invoice and links it back on the quotation.
   const convertQuotationToJob: AppContextType['convertQuotationToJob'] = async (quoteId, appointmentDate, startTime, endTime, technicianId) => {
@@ -436,6 +447,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const creditInvoice: AppContextType['creditInvoice'] = async (invoiceId, amount, reason) =>
     !!(await apiCall('invoices', () => services.invoices.credit(invoiceId, amount, reason).then((r) => r.invoice), `Credit note of £${amount.toFixed(2)} raised`));
+
+  const voidInvoice: AppContextType['voidInvoice'] = async (invoiceId, reason) =>
+    !!(await apiCall('invoices', () => services.invoices.void(invoiceId, reason), 'Invoice voided'));
+
+  const issueInvoice: AppContextType['issueInvoice'] = async (invoiceId) =>
+    !!(await apiCall('invoices', () => services.invoices.issue(invoiceId), 'Invoice issued'));
+
+  const refundPayment: AppContextType['refundPayment'] = async (invoiceId, paymentId, reason) =>
+    !!(await apiCall('invoices', () => services.invoices.refund(invoiceId, paymentId, reason), 'Payment refunded'));
 
   const generateInvoiceFromJob: AppContextType['generateInvoiceFromJob'] = (jobId, vatRatePercent) =>
     apiCall('invoices', () => services.jobs.invoice(jobId, vatRatePercent), 'Invoice generated from job');
@@ -538,6 +558,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addQuotation,
     updateQuotation,
     acceptQuotation,
+    sendQuotation,
+    rejectQuotation,
     convertQuotationToJob,
     convertQuotationToInvoice,
     invoices,
@@ -546,6 +568,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     recordPayment,
     releaseRetention,
     creditInvoice,
+    voidInvoice,
+    issueInvoice,
+    refundPayment,
     addStageInvoice,
     generateInvoiceFromJob,
     parts,

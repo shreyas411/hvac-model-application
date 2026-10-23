@@ -86,6 +86,7 @@ export const services = {
     issue: (id: string) => post<Invoice>(`/invoices/${id}/issue`),
     stage: (b: { quoteId: string; percent?: number; final?: boolean; label?: string }) => post<Invoice>('/invoices/stage', b),
     releaseRetention: (id: string) => post<Invoice>(`/invoices/${id}/release-retention`),
+    refund: (id: string, paymentId: string, reason: string) => post<Invoice>(`/invoices/${id}/payments/${paymentId}/refund`, { reason }),
     void: (id: string, reason: string) => post<Invoice>(`/invoices/${id}/void`, { reason }),
     credit: (id: string, amount: number, reason: string) => post<{ invoice: Invoice }>(`/invoices/${id}/credit-notes`, { amount, reason }),
   },

@@ -4,8 +4,9 @@ import { useApp } from '../../context/AppContext';
 import { Invoice, InvoiceStatus, PaymentRecord } from '../../types';
 import { formatGBP, formatDateUK, getTodayISO, joinParts, regLine } from '../../utils/formatters';
 import { downloadSheet, printSheet } from '../../utils/pdf';
-import { IconCash, IconDownload, IconEye, IconPlus, IconPrinter, IconReceipt, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconCash, IconDownload, IconBan, IconEye, IconReceiptRefund, IconSend, IconPlus, IconPrinter, IconReceipt, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { DetailDrawer } from '../common/DetailDrawer';
+import { FormDialog } from '../common/FormDialog';
 import { RowActions } from '../common/RowActions';
 import { TableCard } from '../common/TableCard';
 import { SortHead, useServerPaged } from '../common/Pager';
@@ -33,11 +34,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     recordPayment,
     releaseRetention,
     creditInvoice,
+    voidInvoice,
+    issueInvoice,
+    refundPayment,
     currentUser,
     customerById,
     deleteRecord,
     confirmToast,
-  } = useApp(['invoices', 'customers', 'settings', 'recordPayment', 'releaseRetention', 'creditInvoice', 'currentUser', 'customerById', 'deleteRecord', 'confirmToast']);
+  } = useApp(['invoices', 'customers', 'settings', 'recordPayment', 'releaseRetention', 'creditInvoice', 'voidInvoice', 'issueInvoice', 'refundPayment', 'currentUser', 'customerById', 'deleteRecord', 'confirmToast']);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -54,6 +58,31 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [crediting, setCrediting] = useState<Invoice | null>(null);
   const [creditAmount, setCreditAmount] = useState('');
   const [creditReason, setCreditReason] = useState('');
+
+  const [voiding, setVoiding] = useState<Invoice | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  // the server also refuses if any credit note exists
+  const canVoid = (inv: Invoice) => currentUser?.role !== 'technician' && !['void', 'credited'].includes(inv.status) && !inv.payments.length;
+
+  const [refunding, setRefunding] = useState<{ inv: Invoice; pay: PaymentRecord } | null>(null);
+  const [refundReason, setRefundReason] = useState('');
+  const canManage = currentUser?.role !== 'technician';
+
+  const handleIssue = async (inv: Invoice) => {
+    setBusy(true);
+    const ok = await issueInvoice(inv.id);
+    setBusy(false);
+    if (ok) setSelectedInvoice(null);
+  };
+
+  const handleConfirmRefund = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!refunding) return;
+    setBusy(true);
+    const ok = await refundPayment(refunding.inv.id, refunding.pay.id, refundReason.trim());
+    setBusy(false);
+    if (ok) { setRefunding(null); setSelectedInvoice(null); }
+  };
 
   const payingInvoice = invoices.find((i) => i.id === payingInvoiceId);
 
@@ -93,6 +122,15 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     const ok = await creditInvoice(crediting.id, Number(creditAmount), creditReason.trim());
     setBusy(false);
     if (ok) setCrediting(null);
+  };
+
+  const handleConfirmVoid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voiding) return;
+    setBusy(true);
+    const ok = await voidInvoice(voiding.id, voidReason.trim());
+    setBusy(false);
+    if (ok) { setVoiding(null); setSelectedInvoice(null); }
   };
 
   // Status and search (invoice number, notes, customer name) run on the server so paging covers the whole list
@@ -223,6 +261,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     <RowActions subject={inv.invoiceNumber} actions={[
                       { icon: IconEye, label: 'View', onClick: () => setSelectedInvoice(inv) },
                       { icon: IconCash, label: 'Record payment', tone: 'success', hidden: !(inv.balanceDue > 0 && !['draft', 'void', 'credited'].includes(inv.status)), onClick: () => handleOpenPayment(inv) },
+                      { icon: IconSend, label: 'Issue', hidden: !(inv.status === 'draft' && canManage), onClick: () => confirmToast(`Issue ${inv.invoiceNumber}? The customer is emailed and it can no longer be edited.`, () => void handleIssue(inv)) },
+                      { icon: IconBan, label: 'Void', destructive: true, hidden: !canVoid(inv), onClick: () => { setVoiding(inv); setVoidReason(''); } },
                       { icon: IconTrash, label: 'Delete', destructive: true, hidden: !((inv.status === 'draft' || inv.status === 'void') && currentUser?.role === 'admin'),
                         onClick: () => confirmToast(`Delete ${inv.invoiceNumber}?`, () => void deleteRecord('invoices', inv.id, 'Invoice')) },
                     ]} />
@@ -246,6 +286,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           footer={<>
             {currentUser.role !== 'technician' && !['draft', 'void', 'credited'].includes(selectedInvoice.status) && (
               <Button variant="outline" size="sm" onClick={() => { setCrediting(selectedInvoice); setCreditAmount(selectedInvoice.total.toFixed(2)); setCreditReason(''); }} className="mr-auto text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive">Raise Credit Note</Button>
+            )}
+            {selectedInvoice.status === 'draft' && canManage && (
+              <Button size="sm" disabled={busy} onClick={() => void handleIssue(selectedInvoice)}><IconSend aria-hidden="true" /><span>Issue Invoice</span></Button>
+            )}
+            {canVoid(selectedInvoice) && (
+              <Button variant="outline" size="sm" onClick={() => { setVoiding(selectedInvoice); setVoidReason(''); }} className={`${['draft', 'void', 'credited'].includes(selectedInvoice.status) ? 'mr-auto ' : ''}text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive`}>Void Invoice</Button>
             )}
             <Button variant="outline" size="sm" onClick={(e) => downloadSheet(e.currentTarget, `${selectedInvoice.invoiceNumber}.pdf`)}><IconDownload aria-hidden="true" /><span>Download PDF</span></Button>
             <Button size="sm" onClick={(e) => printSheet(e.currentTarget)}><IconPrinter aria-hidden="true" /><span>Print Invoice</span></Button>
@@ -380,8 +426,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         <span>
                           {formatDateUK(p.date)} · <strong className="uppercase">{p.method}</strong> · Ref: {p.reference} (by {p.recordedBy})
                         </span>
-                        <span className="tabular-nums font-semibold text-emerald-800">
-                          {formatGBP(p.amount)}
+                        <span className="tabular-nums font-semibold text-emerald-800 flex items-center gap-2">
+                          <span className={p.refunded ? 'line-through text-muted-foreground' : ''}>{formatGBP(p.amount)}</span>
+                          {p.refunded ? <Badge variant="outline" className="text-[10px]">Refunded</Badge>
+                            : canManage && <Button variant="ghost" size="xs" data-html2canvas-ignore aria-label={`Refund ${formatGBP(p.amount)} payment`} title="Refund payment" onClick={() => { setRefunding({ inv: selectedInvoice, pay: p }); setRefundReason(''); }}><IconReceiptRefund aria-hidden="true" /></Button>}
                         </span>
                       </div>
                     ))}
@@ -394,24 +442,41 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </DetailDrawer>
       )}
 
-      {/* Credit note drawer */}
+      {/* Credit note dialog */}
       {crediting && (
-        <DetailDrawer onClose={() => setCrediting(null)} title={<>Credit Note for {crediting.invoiceNumber}</>} description={<>Invoice total: {formatGBP(crediting.total)} (VAT inclusive). The amount can't exceed what's still creditable.</>}
-          footer={<>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setCrediting(null)}>Cancel</Button>
-                <Button type="submit" form="crediting-form" size="sm" variant="destructive" disabled={busy}>Raise Credit Note</Button>
-          </>}>
-          <form id="crediting-form" onSubmit={handleConfirmCredit} className="space-y-3 text-xs">
-              <div className="space-y-1.5">
-                <Label htmlFor="credit-amt" className="text-xs">Credit amount (£) *</Label>
-                <Input id="credit-amt" type="number" step="0.01" min="0.01" max={crediting.total} required inputMode="decimal" value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} className="tabular-nums" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="credit-reason" className="text-xs">Reason *</Label>
-                <Input id="credit-reason" required minLength={3} value={creditReason} onChange={(e) => setCreditReason(e.target.value)} />
-              </div>
-              </form>
-        </DetailDrawer>
+        <FormDialog onClose={() => setCrediting(null)} onSubmit={handleConfirmCredit} busy={busy} destructive submitLabel="Raise Credit Note"
+          title={<>Credit Note for {crediting.invoiceNumber}</>} description={<>Invoice total: {formatGBP(crediting.total)} (VAT inclusive). The amount can't exceed what's still creditable.</>}>
+          <div className="space-y-1.5">
+            <Label htmlFor="credit-amt" className="text-xs">Credit amount (£) *</Label>
+            <Input id="credit-amt" type="number" step="0.01" min="0.01" max={crediting.total} required inputMode="decimal" value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} className="tabular-nums" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="credit-reason" className="text-xs">Reason *</Label>
+            <Input id="credit-reason" required minLength={3} value={creditReason} onChange={(e) => setCreditReason(e.target.value)} />
+          </div>
+        </FormDialog>
+      )}
+
+      {/* Void dialog */}
+      {voiding && (
+        <FormDialog onClose={() => setVoiding(null)} onSubmit={handleConfirmVoid} busy={busy} destructive submitLabel="Void Invoice"
+          title={<>Void {voiding.invoiceNumber}</>} description="Voiding can't be undone. Only invoices with no payments or credit notes can be voided.">
+          <div className="space-y-1.5">
+            <Label htmlFor="void-reason" className="text-xs">Reason *</Label>
+            <Input id="void-reason" required minLength={3} value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
+          </div>
+        </FormDialog>
+      )}
+
+      {/* Refund dialog */}
+      {refunding && (
+        <FormDialog onClose={() => setRefunding(null)} onSubmit={handleConfirmRefund} busy={busy} destructive submitLabel="Refund Payment"
+          title={<>Refund payment on {refunding.inv.invoiceNumber}</>} description={<>{formatGBP(refunding.pay.amount)} via {refunding.pay.method.toUpperCase()}. The amount returns to the balance due. Refunding can't be undone.</>}>
+          <div className="space-y-1.5">
+            <Label htmlFor="refund-reason" className="text-xs">Reason *</Label>
+            <Input id="refund-reason" required minLength={3} value={refundReason} onChange={(e) => setRefundReason(e.target.value)} />
+          </div>
+        </FormDialog>
       )}
 
       {/* Record payment drawer */}

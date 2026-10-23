@@ -279,6 +279,7 @@ export interface PaymentRecord {
   reference: string;
   recordedBy: string;
   notes?: string;
+  refunded?: boolean;
 }
 
 export interface Invoice {

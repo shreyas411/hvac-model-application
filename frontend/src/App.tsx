@@ -27,6 +27,7 @@ import { AuditView } from './components/audit/AuditView';
 import { SettingsView } from './components/settings/SettingsView';
 import { WorkflowGuideModal } from './components/workflows/WorkflowGuideModal';
 import { QuickCreateModals } from './components/modals/QuickCreateModals';
+import type { Quotation } from './types';
 import { IconFlame } from '@tabler/icons-react';
 import { Toast } from './components/common/Toast';
 
@@ -37,6 +38,7 @@ const AppContent: React.FC = () => {
   const [quickActionModal, setQuickActionModal] = useState<
     'customer' | 'job' | 'request' | 'quote' | 'invoice' | null
   >(null);
+  const [editQuote, setEditQuote] = useState<Quotation | null>(null); // set when the quote form opens to edit instead of create
   const [quickCustomerId, setQuickCustomerId] = useState(''); // set when a create flow starts from a customer's 360 view
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
@@ -119,6 +121,7 @@ const AppContent: React.FC = () => {
         {currentTab === 'quotations' && (
           <QuotationsView
             onOpenQuickAction={(action) => setQuickActionModal(action)}
+            onEditQuote={(q) => { setEditQuote(q); setQuickActionModal('quote'); }}
             onNavigateTab={setCurrentTab}
           />
         )}
@@ -150,7 +153,8 @@ const AppContent: React.FC = () => {
       <QuickCreateModals
         activeModal={quickActionModal}
         initialCustomerId={quickCustomerId}
-        onClose={() => { setQuickActionModal(null); setQuickCustomerId(''); }}
+        editQuote={editQuote}
+        onClose={() => { setQuickActionModal(null); setQuickCustomerId(''); setEditQuote(null); }}
         onNavigateTab={setCurrentTab}
       />
 

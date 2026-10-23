@@ -10,6 +10,7 @@ import { TableCard } from '../common/TableCard';
 import { useServerPaged } from '../common/Pager';
 import { Badge } from '@/src/components/ui/badge';
 import { Button } from '@/src/components/ui/button';
+import { FormDialog } from '../common/FormDialog';
 import { Card } from '@/src/components/ui/card';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
@@ -243,12 +244,7 @@ export const InventoryView: React.FC = () => {
 
 
       {showAdjustModal && adjustingPart && (
-        <DetailDrawer onClose={() => setShowAdjustModal(false)} title={<>Adjust Stock - {adjustingPart.name}</>} description={<>Current Level: <strong className="tabular-nums">{adjustingPart.stockQuantity}</strong></>}
-          footer={<>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setShowAdjustModal(false)}>Cancel</Button>
-                <Button type="submit" form="stock-adjust-form" size="sm" disabled={busy}>{busy ? 'Saving…' : 'Confirm Adjustment'}</Button>
-          </>}>
-          <form id="stock-adjust-form" onSubmit={handleSaveAdjustment} className="space-y-3 text-xs">
+        <FormDialog onClose={() => setShowAdjustModal(false)} onSubmit={handleSaveAdjustment} busy={busy} submitLabel={busy ? 'Saving…' : 'Confirm Adjustment'} title={<>Adjust Stock - {adjustingPart.name}</>} description={<>Current Level: <strong className="tabular-nums">{adjustingPart.stockQuantity}</strong></>}>
               <div className="space-y-1.5">
                 <Label htmlFor="adj-type" className="text-xs">Adjustment Type</Label>
                 <Select value={adjustType} onValueChange={(v) => setAdjustType(v as typeof adjustType)}>
@@ -279,8 +275,7 @@ export const InventoryView: React.FC = () => {
                 />
               </div>
 
-              </form>
-        </DetailDrawer>
+              </FormDialog>
       )}
 
 

@@ -1,7 +1,7 @@
 import { CustomerFormDrawer } from '../customers/CustomerFormDrawer';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Priority, JobType, LineItem } from '../../types';
+import { Priority, JobType, LineItem, Quotation } from '../../types';
 import { formatGBP, tierPrices, getTodayISO } from '../../utils/formatters';
 import { useChecklistTemplates, toChecklistItems } from '../../data/checklistTemplates';
 import { IconAlertTriangle, IconPlus, IconTrash } from '@tabler/icons-react';
@@ -28,6 +28,7 @@ const newLine = (kind: 'labour' | 'travel' | 'part', rates: { hourly: number; tr
 interface QuickCreateModalsProps {
   activeModal: 'customer' | 'job' | 'request' | 'quote' | 'invoice' | null;
   initialCustomerId?: string; // pre-selects the customer when started from their 360 view
+  editQuote?: Quotation | null; // with activeModal 'quote': edit this draft / sent quote instead of creating one
   onClose: () => void;
   onNavigateTab: (tab: string) => void;
 }
@@ -35,6 +36,7 @@ interface QuickCreateModalsProps {
 export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   activeModal,
   initialCustomerId,
+  editQuote,
   onClose,
   onNavigateTab,
 }) => {
@@ -45,12 +47,13 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
     addServiceRequest, 
     addJob, 
     addQuotation, 
+    updateQuotation,
     addInvoice, 
     checkScheduleConflict,
     settings,
     parts,
     customerById,
-  } = useApp(['customers', 'equipment', 'technicians', 'addServiceRequest', 'addJob', 'addQuotation', 'addInvoice', 'checkScheduleConflict', 'settings', 'parts', 'customerById']);
+  } = useApp(['customers', 'equipment', 'technicians', 'addServiceRequest', 'addJob', 'addQuotation', 'updateQuotation', 'addInvoice', 'checkScheduleConflict', 'settings', 'parts', 'customerById']);
 
   // Common customer selector
   // No default customer: a document must never go to someone nobody chose. Site is pre-selected only when there is just one.
@@ -85,6 +88,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
   const [retentionPct, setRetentionPct] = useState(0);
   const [terms, setTerms] = useState(settings.termsAndConditions);
 
+  const quoteStatus = useRef<'draft' | 'sent'>('sent'); // which submit button was pressed
   const [busy, setBusy] = useState(false); // guards double-submit (would create duplicates)
   // This component stays mounted, so every open starts clean: today's date, current settings, nothing left from the last form.
   useEffect(() => {
@@ -92,7 +96,8 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
     setJobDate(getTodayISO()); setReqProblem(''); setReqEquipmentId(''); setJobTitle(''); setJobDesc(''); setConflictWarning(null); setPickedLocationId('');
     setSelectedCustomerId(initialCustomerId ?? ''); setJobTechId(''); setLineItems([]); setReverseCharge(false); setCisRate(0); setRetentionPct(0);
     setVatRate(settings.defaultVatRate); setTerms(settings.termsAndConditions);
-  }, [activeModal, initialCustomerId]);
+    if (editQuote) { setSelectedCustomerId(editQuote.customerId); setPickedLocationId(editQuote.locationId); setLineItems(editQuote.items); setVatRate(editQuote.vatRatePercent); setTerms(editQuote.terms); }
+  }, [activeModal, initialCustomerId, editQuote]);
 
   if (!activeModal) return null;
 
@@ -206,6 +211,11 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
     e.preventDefault();
     if (!selectedCustomer || !selectedLocation) return;
 
+    if (editQuote) {
+      if (await updateQuotation(editQuote.id, { customerId: selectedCustomer.id, locationId: selectedLocation.id, items: lineItems, vatRatePercent: vatRate, terms })) onClose();
+      return;
+    }
+
     const issueDate = getTodayISO();
     const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA');
 
@@ -214,7 +224,7 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
       locationId: selectedLocation.id,
       issueDate,
       expiryDate,
-      status: 'sent',
+      status: quoteStatus.current,
       items: lineItems,
       subtotal,
       vatRatePercent: vatRate,
@@ -271,10 +281,13 @@ export const QuickCreateModals: React.FC<QuickCreateModalsProps> = ({
 {activeModal === 'job' && (<Button type="submit" form="qc-form" size="sm" disabled={busy}>
                   Schedule Job
                 </Button>)}
-{(activeModal === 'quote' || activeModal === 'invoice') && (<Button type="submit" form="qc-form" size="sm" disabled={busy || lineItems.length === 0 || lineItems.some((li) => !li.description.trim() || !li.unitPrice)}>
-                  {activeModal === 'quote' ? 'Generate Quotation' : 'Issue Invoice'}
+{activeModal === 'quote' && !editQuote && (<Button type="submit" form="qc-form" variant="outline" size="sm" onClick={() => { quoteStatus.current = 'draft'; }} disabled={busy || lineItems.length === 0 || lineItems.some((li) => !li.description.trim() || !li.unitPrice)}>
+                  Save as Draft
                 </Button>)}
-</>} onClose={onClose} dirty={!busy && !!(pickedCustomerId || reqProblem || jobTitle || lineItems.length)} title={`Create New ${activeModal.replace('_', ' ')}`} description="Fill in the details and submit to create it">
+{(activeModal === 'quote' || activeModal === 'invoice') && (<Button type="submit" form="qc-form" size="sm" onClick={() => { quoteStatus.current = 'sent'; }} disabled={busy || lineItems.length === 0 || lineItems.some((li) => !li.description.trim() || !li.unitPrice)}>
+                  {activeModal === 'quote' ? (editQuote ? 'Save Changes' : 'Generate & Send Quotation') : 'Issue Invoice'}
+                </Button>)}
+</>} onClose={onClose} dirty={!busy && !!(pickedCustomerId || reqProblem || jobTitle || lineItems.length)} title={editQuote ? `Edit ${editQuote.quoteNumber}` : `Create New ${activeModal.replace('_', ' ')}`} description="Fill in the details and submit to create it">
         {/* Modal Content */}
         <div className="space-y-4 text-xs">
           
